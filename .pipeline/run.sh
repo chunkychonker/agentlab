@@ -35,6 +35,14 @@ if ! gh auth status >/dev/null 2>&1; then
   exit 1
 fi
 
+# Start every cycle from a clean, up-to-date main. Each day's branch must be
+# cut from main (not from yesterday's unmerged cycle branch), or PR diffs
+# accumulate across days instead of staying independent daily slices.
+if ! git switch main >/dev/null 2>>"$LOG" || ! git pull --ff-only origin main >/dev/null 2>>"$LOG"; then
+  echo "could not switch to a clean, up-to-date main — resolve manually before the next run. Aborting." | tee -a "$LOG"
+  exit 1
+fi
+
 run_phase () {
   local name="$1" prompt="$2"
   echo "" | tee -a "$LOG"
