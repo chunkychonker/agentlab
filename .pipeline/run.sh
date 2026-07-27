@@ -51,8 +51,11 @@ run_phase "research" \
 run_phase "build" \
   "Use the agentlab-builder subagent to build today's increment from the newest research note, following its instructions exactly. Verify it runs." || exit 1
 
+run_phase "review" \
+  "Use the agentlab-reviewer subagent to independently review today's working-tree diff, run its tests/lint, and write a PASS/FAIL verdict to logs/last-review.md. Do not modify the increment." || exit 1
+
 run_phase "maintain" \
-  "Use the agentlab-maintainer subagent to assess today's working tree and, only if there is a coherent unit of real working code, commit it as Steve Ling <steveylingy@gmail.com>, push a branch, and open a PR. If not, do nothing and say why."
+  "Use the agentlab-maintainer subagent. Read logs/last-review.md; ONLY if the verdict is PASS, commit today's work as Steve Ling <steveylingy@gmail.com>, push a branch, and open a PR. On FAIL or missing verdict, do nothing and say why."
 
 echo "" | tee -a "$LOG"
 echo "=== done $TS === (full log: $LOG)" | tee -a "$LOG"

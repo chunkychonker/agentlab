@@ -19,11 +19,12 @@ and cites its sources. The point is depth you can click into, not volume.
 
 ## How it's built
 
-A daily pipeline of three focused agents — a **researcher**, a **builder**, and a
-**maintainer** — coordinates through this repo: research lands in `research/`,
-working code lands in `examples/`, and the maintainer opens a pull request when a
-coherent unit of work is done. Every increment is real, reviewed, and merged by a
-human. See [`PIPELINE.md`](PIPELINE.md).
+A daily pipeline of four focused agents — a **researcher**, a **builder**, a
+**reviewer**, and a **maintainer** — coordinates through this repo: research
+lands in `research/`, working code lands in `examples/`, an independent reviewer
+runs tests and gates the diff, and the maintainer opens a pull request only when
+review passes. Every increment is real, reviewed, and merged by a human. See
+[`PIPELINE.md`](PIPELINE.md).
 
 ## Topics
 

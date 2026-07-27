@@ -1,6 +1,6 @@
 # The build pipeline
 
-A once-a-day, three-phase pipeline. Each phase is a headless Claude Code run
+A once-a-day, four-phase pipeline. Each phase is a headless Claude Code run
 (`claude -p`) that delegates to one specialist subagent. The phases don't talk
 to each other directly — they coordinate through this repo's files, which is how
 the state actually flows:
@@ -10,7 +10,9 @@ the state actually flows:
                                           │
                      research note ──▶ [2] builder ──▶ examples/<name>/  (+ BACKLOG update)
                                                               │
-                                    working increment ──▶ [3] maintainer ──▶ branch + commit + PR
+                            working-tree diff ──▶ [3] reviewer ──▶ logs/last-review.md (PASS/FAIL)
+                                                                          │
+                                          PASS verdict ──▶ [4] maintainer ──▶ branch + commit + PR
 ```
 
 1. **Researcher** (`agentlab-researcher`) — pulls the top backlog item, does
@@ -19,13 +21,17 @@ the state actually flows:
 2. **Builder** (`agentlab-builder`) — reads the newest research note and builds
    ONE real, runnable increment under `examples/`, with its own README and a
    quick self-test. Updates the backlog.
-3. **Maintainer** (`agentlab-maintainer`) — judges whether there's a coherent
-   unit of real work. If yes: branch, commit **authored as Steve Ling
-   `<steveylingy@gmail.com>`**, push, open a PR. If not, it does nothing and logs
-   why. It never fabricates, backdates, or pads commits.
+3. **Reviewer** (`agentlab-reviewer`) — an independent gate: reviews the diff it
+   didn't write, runs the increment's tests and lint, scans for stubs, secrets,
+   and bugs, and writes a `PASS`/`FAIL` verdict to `logs/last-review.md`. It does
+   not fix code — a broken increment gets `FAIL`ed with specifics.
+4. **Maintainer** (`agentlab-maintainer`) — reads the verdict. Only on `PASS`
+   does it branch, commit **authored as Steve Ling `<steveylingy@gmail.com>`**,
+   push, and open a PR. On `FAIL` (or missing verdict) it ships nothing and logs
+   why. It never fabricates, backdates, or pads commits, and never overrules a FAIL.
 
-Nothing reaches `main` without a human merging the PR — that review is the
-quality gate on code that carries your name.
+Two gates protect code that carries your name: the reviewer before the PR, and
+**you** merging the PR. Nothing reaches `main` without both.
 
 ## Running it
 
