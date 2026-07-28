@@ -1,0 +1,4 @@
+# Needed for BOTH the live run (python agent.py) and the offline self-test
+# (python test_agent.py) - unlike minimal-agent-loop, the self-test imports
+# `anthropic.beta_tool` directly to build and validate the tool schemas.
+anthropic>=0.120.0
