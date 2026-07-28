@@ -103,6 +103,16 @@ def run_agent(client, user_message: str, *, max_iterations: int = 8) -> str:
         max_iterations=max_iterations,
     )
     final_message = runner.until_done()
+
+    # The runner stops for one of two reasons: the model finished its turn (any
+    # stop_reason other than "tool_use"), or `max_iterations` was reached while
+    # the model still wanted to call a tool. Only the latter leaves a message
+    # whose stop_reason is "tool_use" -- an incomplete run with no real answer.
+    # Raise instead of silently returning "" (indistinguishable from a genuine
+    # empty answer), matching minimal-agent-loop's max_turns behavior.
+    if final_message.stop_reason == "tool_use":
+        raise RuntimeError(f"Agent did not finish within {max_iterations} iterations")
+
     return "".join(
         block.text for block in final_message.content if getattr(block, "type", None) == "text"
     )

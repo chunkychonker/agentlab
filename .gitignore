@@ -8,3 +8,6 @@ __pycache__/
 venv/
 .venv/
 *.pyc
+
+# Generated knowledge-graph output (graphify); not part of the repo.
+graphify-out/

@@ -19,11 +19,57 @@ Covers:
   4. Each tool's `.call(...)` raises ValueError on a wrong-typed argument and
      on a missing required argument - Pydantic validation runs before the
      tool body ever executes.
+  5. run_agent's handling of the runner's final message: returns the joined
+     text on a clean finish, and raises RuntimeError when max_iterations was
+     hit mid-tool-call (final stop_reason == "tool_use"). A tiny fake client
+     stands in for the runner - no key, no network.
 """
 
 from __future__ import annotations
 
 import agent
+
+
+# --------------------------------------------------------------------------- #
+# Fakes for the runner seam (test 5). Only the surface run_agent touches:
+# client.beta.messages.tool_runner(...).until_done() -> message with
+# .stop_reason and .content (a list of blocks with .type / .text).
+# --------------------------------------------------------------------------- #
+
+class _FakeBlock:
+    def __init__(self, text: str) -> None:
+        self.type = "text"
+        self.text = text
+
+
+class _FakeMessage:
+    def __init__(self, *, stop_reason: str, content: list) -> None:
+        self.stop_reason = stop_reason
+        self.content = content
+
+
+class _FakeRunner:
+    def __init__(self, message: _FakeMessage) -> None:
+        self._message = message
+
+    def until_done(self) -> _FakeMessage:
+        return self._message
+
+
+class _FakeClient:
+    """Returns a preset final message from tool_runner(...).until_done()."""
+
+    def __init__(self, message: _FakeMessage) -> None:
+        message_holder = message
+
+        class _Messages:
+            def tool_runner(self, **_kwargs):
+                return _FakeRunner(message_holder)
+
+        class _Beta:
+            messages = _Messages()
+
+        self.beta = _Beta()
 
 # Expected JSON-Schema property name -> JSON-Schema type, per tool. Also
 # doubles as the expected `required` set (every parameter here is required).
@@ -112,6 +158,30 @@ def test_tools_reject_bad_input() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# 5. run_agent's handling of the runner's final message
+# --------------------------------------------------------------------------- #
+
+def test_run_agent_returns_text_on_clean_finish() -> None:
+    client = _FakeClient(
+        _FakeMessage(stop_reason="end_turn", content=[_FakeBlock("42"), _FakeBlock(" done")])
+    )
+    assert agent.run_agent(client, "anything") == "42 done"
+    print("ok  run_agent joins the final text blocks on a clean finish")
+
+
+def test_run_agent_raises_on_max_iterations() -> None:
+    # Model still wanted a tool when the cap was hit -> stop_reason "tool_use".
+    client = _FakeClient(_FakeMessage(stop_reason="tool_use", content=[]))
+    try:
+        agent.run_agent(client, "anything", max_iterations=3)
+    except RuntimeError as exc:
+        assert "3" in str(exc), f"error should name the iteration cap: {exc!r}"
+    else:
+        raise AssertionError("run_agent should raise RuntimeError when max_iterations is exhausted")
+    print("ok  run_agent raises RuntimeError instead of returning '' on max_iterations")
+
+
+# --------------------------------------------------------------------------- #
 
 def main() -> int:
     tests = [
@@ -119,6 +189,8 @@ def main() -> int:
         test_registry_is_a_plain_dict_by_name,
         test_tools_call_correctly_on_valid_input,
         test_tools_reject_bad_input,
+        test_run_agent_returns_text_on_clean_finish,
+        test_run_agent_raises_on_max_iterations,
     ]
     for t in tests:
         t()
