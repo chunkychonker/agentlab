@@ -56,10 +56,12 @@ or slightly-off-format output silently breaks the regex.
 header required - the older `structured-outputs-2025-11-13` beta header is
 folded into general availability) replaces that entirely: the SDK builds a
 JSON Schema from the `Plan` pydantic model, the API returns output
-constrained to that schema, and `response.parsed_output` is either a real
-`Plan` instance or `None` on failure - never a string to regex apart. This is
-the same idea `examples/typed-tool-registry/`'s `@beta_tool` uses for a
-tool's *input* schema, applied here to a whole message's *output*.
+constrained to that schema, and `response.parsed_output` is a real `Plan`
+instance - never a string to regex apart. It's only `None` when the response
+has no text block at all (e.g. a refusal); a schema validation failure is a
+separate case that raises `pydantic_core.ValidationError` out of `.parse()`
+itself, caught below in `plan_task` - see the "Two distinct failure modes"
+note in `agent.py`'s docstring for both.
 
 ## Run the self-test (no API key needed, but does need `anthropic` + `pydantic` installed)
 
