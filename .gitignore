@@ -11,3 +11,6 @@ venv/
 
 # Generated knowledge-graph output (graphify); not part of the repo.
 graphify-out/
+
+# Untracked embedded git repo(s) created by Claude Code worktrees.
+.claude/worktrees/
