@@ -1,0 +1,5 @@
+# Needed for BOTH the live run (python agent.py) and the offline self-test
+# (python test_agent.py) - agent.py builds the Plan/Subtask schema with
+# pydantic and calls it via anthropic's non-beta client.messages.parse.
+anthropic>=0.120.2
+pydantic>=2
