@@ -6,7 +6,7 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
 
 ## Coding agents
 - [building] Minimal agent loop from scratch (Anthropic SDK): one tool, manual tool-use loop
-- [ ] Multi-tool agent with a typed tool registry
+- [done #2] Multi-tool agent with a typed tool registry
 - [ ] Subagent delegation: an orchestrator that fans out to specialist agents
 - [ ] Adding a lightweight eval harness to score an agent's outputs
 - [ ] Tool-use error handling and retries done well

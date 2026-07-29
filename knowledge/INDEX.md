@@ -4,6 +4,7 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
 
 ## Coding agents
 - [[tool-use-loop]] — the hand-written Messages API tool loop + gotchas
+- [[typed-tool-registry]] — `@beta_tool` + `client.beta.messages.tool_runner`: typed schemas, validation, registry pattern
 - [[anthropic-python-sdk]] — SDK basics: client, `messages.create`, response shape
 - [[anthropic-models]] — current model IDs and prices (re-check, don't guess)
 
@@ -15,3 +16,5 @@ _(no notes yet)_
 
 ## Cross-cutting patterns & gotchas
 - Testing agent loops offline: inject a fake client (see [[tool-use-loop]])
+- Testing typed tools offline: schema generation + Pydantic validation are pure
+  local code, no fake client needed (see [[typed-tool-registry]])
