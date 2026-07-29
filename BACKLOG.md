@@ -8,8 +8,6 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
 - [building] Minimal agent loop from scratch (Anthropic SDK): one tool, manual tool-use loop
 - [done #2] Multi-tool agent with a typed tool registry
 - [done #4] Subagent delegation: an orchestrator that fans out to specialist agents
-- [ ] Adding a lightweight eval harness to score an agent's outputs
-- [ ] Tool-use error handling and retries done well
 
 ## Skills
 - [ ] Anatomy of a skill: a minimal model-invoked skill with a clear trigger
@@ -21,6 +19,10 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
 - [ ] MCP server wrapping a public REST API (e.g. Hacker News Algolia)
 - [ ] Connecting a custom MCP server to Claude Code and calling it end-to-end
 - [ ] MCP resources vs tools: when to use which
+
+## Coding agents (deferred, was next before Skills/MCP got prioritized 2026-07-29)
+- [ ] Adding a lightweight eval harness to score an agent's outputs
+- [ ] Tool-use error handling and retries done well
 
 ## Notes
 - Prefer the latest Claude models and the current Anthropic SDK. Check the
