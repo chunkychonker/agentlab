@@ -1,0 +1,10 @@
+# Needed for BOTH server.py (mcp.run()) and the offline self-test
+# (test_server.py, via the in-memory `Client`). Upper-bounded to <3 because
+# v2.0.0 GA'd about a week before this example was built (2026-07-28) --
+# re-check before ever letting this drift to v3.
+#
+# `mcp[cli]` (adds the `mcp dev`/`mcp run`/`mcp install` command, requires
+# npx on PATH) is optional and NOT required for the self-test -- see README
+# "Poke it manually" section. Install it yourself if you want that:
+#   pip install "mcp[cli]>=2.0.0,<3"
+mcp>=2.0.0,<3
