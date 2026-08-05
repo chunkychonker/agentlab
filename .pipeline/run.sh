@@ -25,6 +25,18 @@ CLAUDE="claude -p --permission-mode bypassPermissions"
 
 echo "=== agentlab pipeline $TS ===" | tee -a "$LOG"
 
+# Preflight: both api.anthropic.com (claude -p) and github.com (git/gh) must be
+# reachable. This box's network is VPN-gated; the 403 auth and "can't reach
+# main" failures on 2026-08-02/03/04 were VPN-off, not credential or repo
+# problems — check connectivity first so that shows up as one clear message.
+# No -f: any HTTP response (even 404) means the connection succeeded, which is
+# all this checks. Only DNS/timeout/refused failures should trip it.
+check_reachable () { curl -sS --max-time 5 -o /dev/null "$1"; }
+if ! check_reachable "https://api.anthropic.com" || ! check_reachable "https://github.com"; then
+  echo "NETWORK UNREACHABLE (api.anthropic.com / github.com) — check VPN. Aborting." | tee -a "$LOG"
+  exit 1
+fi
+
 # Preflight: the maintainer needs a GitHub remote + auth to push and open a PR.
 if ! git remote get-url origin >/dev/null 2>&1; then
   echo "NO GIT REMOTE 'origin' — set it up first (see setup notes). Aborting." | tee -a "$LOG"
