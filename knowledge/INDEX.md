@@ -10,7 +10,10 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
 - [[anthropic-models]] — current model IDs and prices (re-check, don't guess)
 
 ## Skills
-_(no notes yet)_
+- [[agent-skills]] — `SKILL.md` anatomy: progressive disclosure (3 load
+  tiers), the documented/checkable frontmatter rules, the model-invocation
+  trigger contract, Claude-Code-vs-API skill differences, and what is/isn't
+  offline-testable
 
 ## MCP
 _(no notes yet)_
