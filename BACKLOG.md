@@ -10,7 +10,7 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
 - [done #4] Subagent delegation: an orchestrator that fans out to specialist agents
 
 ## Skills
-- [ ] Anatomy of a skill: a minimal model-invoked skill with a clear trigger
+- [building] Anatomy of a skill: a minimal model-invoked skill with a clear trigger
 - [ ] A skill that shells out to a local script (like the recruiting scanner pattern)
 - [ ] Packaging a skill with reference files the model loads on demand
 
