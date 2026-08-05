@@ -15,7 +15,7 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
 - [ ] Packaging a skill with reference files the model loads on demand
 
 ## MCP
-- [ ] Hello-world MCP server (stdio) exposing one tool
+- [building] Hello-world MCP server (stdio) exposing one tool
 - [ ] MCP server wrapping a public REST API (e.g. Hacker News Algolia)
 - [ ] Connecting a custom MCP server to Claude Code and calling it end-to-end
 - [ ] MCP resources vs tools: when to use which
