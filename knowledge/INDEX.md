@@ -18,11 +18,19 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
 ## MCP
 - [[mcp-python-sdk]] — v2 `MCPServer`/`Client` API (v1's `FastMCP` import is
   gone), stdio-as-default-transport, the stdout-is-the-wire gotcha, in-memory
-  `Client` testing, and the tool-error-vs-protocol-error failure model
+  `Client` testing, the tool-error-vs-protocol-error failure model, and
+  `async def` tools + injecting `httpx.MockTransport` to test I/O-doing
+  tools offline
+- [[hn-algolia-api]] — live-verified endpoint/param/response reference for
+  the Hacker News Algolia Search API, and its real gotcha: error bodies are
+  sometimes HTML not JSON
 
 ## Cross-cutting patterns & gotchas
 - Testing agent loops offline: inject a fake client (see [[tool-use-loop]])
 - Testing typed tools offline: schema generation + Pydantic validation are pure
   local code, no fake client needed (see [[typed-tool-registry]])
 - Testing MCP servers offline: connect the SDK's in-memory `Client` straight
-  to the server object, no subprocess/host needed (see [[mcp-python-sdk]])
+  to the server object, no subprocess/host needed (see [[mcp-python-sdk]]);
+  for tools that do real outbound HTTP, that's only enough to test
+  registration/schema — test the I/O-doing function itself by injecting an
+  `httpx.MockTransport`-backed client (see [[mcp-python-sdk]], [[hn-algolia-api]])
