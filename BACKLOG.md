@@ -11,7 +11,7 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
 
 ## Skills
 - [building] Anatomy of a skill: a minimal model-invoked skill with a clear trigger
-- [ ] A skill that shells out to a local script (like the recruiting scanner pattern)
+- [building] A skill that shells out to a local script (like the recruiting scanner pattern)
 - [ ] Packaging a skill with reference files the model loads on demand
 
 ## MCP

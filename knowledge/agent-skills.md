@@ -40,6 +40,46 @@ share the format — don't conflate them:
   the full body is read via `bash: cat <skill>/SKILL.md` only once triggered —
   this is literal, observable mechanics, not a metaphor.
 
+## Bundled scripts: `${CLAUDE_SKILL_DIR}` + `allowed-tools` (permission pre-approval)
+
+A skill's `scripts/` dir is executed via Bash, never read into context — "only
+the script's output consumes tokens." The `${CLAUDE_SKILL_DIR}` variable
+expands to the skill's own directory (correct at personal/project/plugin
+install locations) and is substituted in **two** places: the markdown body
+*and* `Bash(...)` rules inside the `allowed-tools` frontmatter field. Using
+the identical path in both is what lets Claude run a bundled script with
+**no permission prompt**:
+
+```yaml
+allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/render.sh *)
+```
+```
+Run `${CLAUDE_SKILL_DIR}/scripts/render.sh <csv-file>` to render the chart.
+```
+
+- Requires Claude Code **v2.1.129+** for the `allowed-tools` substitution
+  specifically (earlier versions leave the literal string unmatched → still
+  prompts). Check `claude --version` before relying on this.
+- `allowed-tools` grants clear at the end of the invoking turn, not the whole
+  session — re-invoking the skill re-applies the grant.
+- `Bash(prefix *)` is a general prefix-match rule (also used for
+  `Bash(git add *)`, `Bash(python3 *)`, etc.) — pinning the rule to
+  interpreter+script-path (`Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/foo.py *)`)
+  is a reasonable extrapolation but not literally demonstrated in the docs;
+  verify live.
+- **Unresolved as of the docs' own citation**: [anthropics/claude-code#14956](https://github.com/anthropics/claude-code/issues/14956)
+  (open, v2.0.75, older `prefix:*` colon syntax) reports `allowed-tools`
+  reporting itself active while the Bash command still prompts. Not confirmed
+  fixed on current syntax/version — treat permission-prompt suppression as
+  best-effort and verify with a real session, same as triggering itself.
+- Script-authoring guidance from the best-practices doc: "solve, don't defer"
+  (handle expected errors explicitly inside the script, never let Claude
+  improvise on a raw traceback), no "voodoo constants" (justify every
+  hardcoded value in a comment), prefer a script over asking Claude to
+  generate the same logic for anything deterministic.
+
+Full write-up: research note [2026-08-06-skill-script-execution](../research/2026-08-06-skill-script-execution.md).
+
 ## Gotchas
 
 - `` !`shell command` `` in a skill body is pre-executed by **Claude Code**
@@ -59,6 +99,6 @@ share the format — don't conflate them:
   question is the `skill-creator` plugin's eval loop (baseline A/B with
   `skillOverrides: "off"`), not a unit test.
 
-Sources: [Agent Skills overview](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview), [Skill authoring best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices), [Extend Claude with skills](https://code.claude.com/docs/en/skills) — all fetched 2026-08-05.
+Sources: [Agent Skills overview](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview), [Skill authoring best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices), [Extend Claude with skills](https://code.claude.com/docs/en/skills) — fetched 2026-08-05 and re-fetched 2026-08-06; [anthropics/claude-code#14956](https://github.com/anthropics/claude-code/issues/14956) — open issue, checked 2026-08-06.
 
-Research note: [2026-08-05-skill-anatomy](../research/2026-08-05-skill-anatomy.md).
+Research notes: [2026-08-05-skill-anatomy](../research/2026-08-05-skill-anatomy.md), [2026-08-06-skill-script-execution](../research/2026-08-06-skill-script-execution.md).
