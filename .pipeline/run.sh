@@ -55,6 +55,21 @@ if ! git switch main >/dev/null 2>>"$LOG" || ! git pull --ff-only origin main >/
   exit 1
 fi
 
+# Untracked build artifacts (.venv, __pycache__, example dirs) from a
+# previous day's unmerged cycle branch survive a plain `git switch main` and
+# accumulate on disk — main never had them tracked, so they just sit there.
+# Only safe to wipe them if main's working tree is otherwise clean: a FAILed
+# review leaves today's built-but-unshipped work sitting uncommitted on main
+# (by design, for a human to fix and resume) — `git clean` would silently
+# destroy that. If anything is modified or untracked (i.e. not gitignored),
+# treat it the same as the switch/pull failure above: abort loudly instead of
+# guessing which uncommitted state is safe to discard.
+if [ -n "$(git status --porcelain)" ]; then
+  echo "main has uncommitted or untracked changes (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting." | tee -a "$LOG"
+  exit 1
+fi
+git clean -fdx -e logs/ -e '.claude/settings.local.json' -e '.env*' -e graphify-out/ >>"$LOG" 2>&1
+
 run_phase () {
   local name="$1" prompt="$2"
   echo "" | tee -a "$LOG"
