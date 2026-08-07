@@ -13,9 +13,13 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
 - [[agent-skills]] — `SKILL.md` anatomy: progressive disclosure (3 load
   tiers), the documented/checkable frontmatter rules, the model-invocation
   trigger contract, Claude-Code-vs-API skill differences, what is/isn't
-  offline-testable, and the `${CLAUDE_SKILL_DIR}` + `allowed-tools` mechanism
+  offline-testable, the `${CLAUDE_SKILL_DIR}` + `allowed-tools` mechanism
   for a bundled script to run without a permission prompt (v2.1.129+, and a
-  still-open bug report worth verifying live before relying on it)
+  still-open bug report worth verifying live before relying on it), and
+  Level-3 reference files: the one-level-deep rule, TOC-for->100-lines as a
+  soft/inconsistently-followed recommendation (verified against Anthropic's
+  own shipped `pdf` skill), and the two reference-syntax styles seen in the
+  wild (markdown links vs. bare filename mentions)
 
 ## MCP
 - [[mcp-python-sdk]] — v2 `MCPServer`/`Client` API (v1's `FastMCP` import is

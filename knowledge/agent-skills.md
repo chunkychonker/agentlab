@@ -80,6 +80,40 @@ Run `${CLAUDE_SKILL_DIR}/scripts/render.sh <csv-file>` to render the chart.
 
 Full write-up: research note [2026-08-06-skill-script-execution](../research/2026-08-06-skill-script-execution.md).
 
+## Reference files (Level 3 resources, not scripts)
+
+A `reference/` (or top-level `FORMS.md`/`REFERENCE.md`-style) `.md` file is
+read via the same `bash: cat <file>` primitive as `SKILL.md` itself, only
+later — triggered when `SKILL.md`'s body points to it. Zero token cost until
+read; "no practical limit on bundled content" (overview doc).
+
+- Two documented organization patterns: **Pattern 1**, a short `SKILL.md`
+  linking out to top-level files (`FORMS.md`, `REFERENCE.md`) — real example:
+  `anthropics/skills`' `pdf` skill. **Pattern 2**, a `reference/` subdir split
+  by domain so one task's tokens don't pull in unrelated domains — real
+  example: the same repo's `mcp-builder` skill (`reference/{evaluation,
+  mcp_best_practices,node_mcp_server,python_mcp_server}.md`).
+- **One level deep, hard rule**: every reference file should be linked
+  directly from `SKILL.md`, never file → file → file. Docs' stated reason:
+  chained references make Claude `head -100` preview rather than fully read,
+  causing partial/incomplete information — a correctness risk, not a style
+  nit. Confirmed in the wild: `mcp-builder`'s four reference files contain no
+  links to each other.
+- **TOC for files >100 lines is only a soft recommendation** — checked
+  against real usage: Anthropic's own shipped `pdf/reference.md` is 611 lines
+  with **no** table-of-contents heading near the top. A linter should treat
+  this as a warning, not an error; even the reference implementation doesn't
+  follow it.
+- **Reference syntax in the wild is inconsistent** — `pdf/SKILL.md` points to
+  `FORMS.md`/`REFERENCE.md` via bare filename mentions in prose (no markdown
+  link brackets); `mcp-builder/SKILL.md` uses real `[text](./reference/x.md)`
+  links throughout. Both work identically at runtime (Claude reads a
+  filename via bash, not a rendered hyperlink) — any tool that parses
+  "what does this SKILL.md reference" must handle both forms or it will
+  miss real, working references.
+
+Full write-up: research note [2026-08-06-skill-reference-files](../research/2026-08-06-skill-reference-files.md).
+
 ## Gotchas
 
 - `` !`shell command` `` in a skill body is pre-executed by **Claude Code**
@@ -99,6 +133,6 @@ Full write-up: research note [2026-08-06-skill-script-execution](../research/202
   question is the `skill-creator` plugin's eval loop (baseline A/B with
   `skillOverrides: "off"`), not a unit test.
 
-Sources: [Agent Skills overview](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview), [Skill authoring best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices), [Extend Claude with skills](https://code.claude.com/docs/en/skills) — fetched 2026-08-05 and re-fetched 2026-08-06; [anthropics/claude-code#14956](https://github.com/anthropics/claude-code/issues/14956) — open issue, checked 2026-08-06.
+Sources: [Agent Skills overview](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview), [Skill authoring best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices), [Extend Claude with skills](https://code.claude.com/docs/en/skills), [anthropics/skills](https://github.com/anthropics/skills) — fetched 2026-08-05 and re-fetched 2026-08-06; [anthropics/claude-code#14956](https://github.com/anthropics/claude-code/issues/14956) — open issue, checked 2026-08-06.
 
-Research notes: [2026-08-05-skill-anatomy](../research/2026-08-05-skill-anatomy.md), [2026-08-06-skill-script-execution](../research/2026-08-06-skill-script-execution.md).
+Research notes: [2026-08-05-skill-anatomy](../research/2026-08-05-skill-anatomy.md), [2026-08-06-skill-script-execution](../research/2026-08-06-skill-script-execution.md), [2026-08-06-skill-reference-files](../research/2026-08-06-skill-reference-files.md).
