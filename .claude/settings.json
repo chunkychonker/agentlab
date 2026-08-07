@@ -12,6 +12,7 @@
       "Bash(git branch:*)",
       "Bash(gh pr create:*)",
       "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)",
       "Bash(gh repo view:*)",
       "Bash(npm install:*)",
       "Bash(npm run:*)",

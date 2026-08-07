@@ -16,8 +16,15 @@ checkable acceptance criteria.
 
 ## Procedure
 
-1. Read `~/agentlab/BACKLOG.md`. Pick the topmost unclaimed `[ ]` item. Mark it
-   `[researching]` (edit the file). If everything is claimed, pick the most
+1. Read `~/agentlab/BACKLOG.md`. Pick the topmost unclaimed `[ ]` item. Before
+   committing to it, check `gh pr list --state open` — `[done #N]` only gets
+   marked once a human merges, so a topic can already be fully built and
+   sitting in an open PR while `BACKLOG.md` still shows it unclaimed. If the
+   candidate topic is already substantially covered by an open PR's title or
+   research note, skip it and pick the next one instead of re-researching the
+   same ground (this produced a same-day duplicate of PR #11 before this
+   check existed). Mark the item you land on `[researching]` (edit the file).
+   If everything is claimed or already covered by an open PR, pick the most
    valuable stale one and say so in your note.
 2. Research it properly with WebSearch/WebFetch. The agent ecosystem moves fast:
    - Prefer sources from the last several months. Note each source's date.
@@ -33,6 +40,14 @@ checkable acceptance criteria.
    - **Build proposal** — a single, small, runnable increment the builder can
      complete today: what it is, where it goes under `examples/`, its shape, and
      what "it works" means (the self-test). Keep scope tight — one clear idea.
+     Before naming the directory, check it isn't already taken — by a merged
+     example (`ls examples/` on current `main`) or by another cycle's
+     still-open work (`gh pr list --state open`, `git branch -a`). A topic
+     being re-picked days apart is common (`BACKLOG.md` only shows `[done #N]`
+     once a human merges, so an open-but-unmerged PR looks unclaimed). If the
+     natural name is taken, propose a disambiguated one
+     (`examples/<topic>-<distinguishing-detail>/`) rather than colliding —
+     this bit us twice (PRs #5 and #6) before this check existed.
    - **Open questions** — anything you couldn't confirm.
 4. Feed the knowledge base (`~/agentlab/knowledge/`) — the project's long-term
    memory. Distill any durable, reusable learning (a pattern, a gotcha, an API
