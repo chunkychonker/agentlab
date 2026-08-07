@@ -16,8 +16,15 @@ checkable acceptance criteria.
 
 ## Procedure
 
-1. Read `~/agentlab/BACKLOG.md`. Pick the topmost unclaimed `[ ]` item. Mark it
-   `[researching]` (edit the file). If everything is claimed, pick the most
+1. Read `~/agentlab/BACKLOG.md`. Pick the topmost unclaimed `[ ]` item. Before
+   committing to it, check `gh pr list --state open` — `[done #N]` only gets
+   marked once a human merges, so a topic can already be fully built and
+   sitting in an open PR while `BACKLOG.md` still shows it unclaimed. If the
+   candidate topic is already substantially covered by an open PR's title or
+   research note, skip it and pick the next one instead of re-researching the
+   same ground (this produced a same-day duplicate of PR #11 before this
+   check existed). Mark the item you land on `[researching]` (edit the file).
+   If everything is claimed or already covered by an open PR, pick the most
    valuable stale one and say so in your note.
 2. Research it properly with WebSearch/WebFetch. The agent ecosystem moves fast:
    - Prefer sources from the last several months. Note each source's date.
