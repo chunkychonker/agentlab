@@ -1,0 +1,11 @@
+# Needed for server.py (mcp.run(), httpx.AsyncClient) AND the offline
+# self-tests (test_hn_client.py's httpx.MockTransport, test_server.py's
+# in-memory mcp.Client). Upper-bounded because mcp v2.0.0 GA'd 2026-07-28
+# and httpx 0.28.1 is the version this example was verified against --
+# re-check both before letting either drift to the next major.
+mcp>=2.0.0,<3
+httpx>=0.28,<0.29
+
+# Optional, not required for the self-tests -- adds `mcp dev`/`mcp run`
+# (requires npx on PATH). See README "Poke it manually" section.
+#   pip install "mcp[cli]>=2.0.0,<3"

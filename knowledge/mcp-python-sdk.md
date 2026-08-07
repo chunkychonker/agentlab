@@ -102,6 +102,55 @@ A server that registers only a tool still declares `tools`, `resources`, and
 declares all three. Don't write a test asserting "only tools capability is
 present"; that isn't how the SDK behaves.
 
+## I/O-doing tools: `async def`, and how to test them offline
+
+Per the SDK's own docs (`docs/servers/tools.md`): "If a tool does I/O (calls
+an API, reads a file, queries a database), declare it `async def` and `await`
+inside it. The SDK awaits it." A plain `def` tool instead runs in a thread
+pool — use `async def` whenever the tool body makes a network call.
+
+For a tool that wraps an external HTTP API (see
+[[hn-algolia-api]] for a worked example), the in-memory `Client(mcp)` shown
+above is *not* enough to test the tool body deterministically — invoking it
+would make a real outbound HTTP call. The fix is a dependency-injection seam
+at the function boundary: the I/O function takes an `httpx.AsyncClient` as an
+explicit **required** parameter (never constructed internally with no seam),
+so the caller (the tool, in production) passes a real client and a test
+passes an `httpx.MockTransport`-backed one:
+
+```python
+def handler(request: httpx.Request) -> httpx.Response:
+    if "notfound" in str(request.url):
+        return httpx.Response(404, json={"error": "Not Found"})
+    raise httpx.TimeoutException("simulated", request=request)  # also works
+
+transport = httpx.MockTransport(handler)
+async with httpx.AsyncClient(transport=transport) as client:
+    ...  # call the function under test with this client
+```
+
+Verified by direct execution (not just reading the docs): a `MockTransport`
+handler can return an arbitrary status/body (including a non-JSON body, e.g.
+HTML) or raise `httpx.TimeoutException`/`httpx.ConnectError` directly, and
+both propagate through `await client.get(...)` exactly like the real failure
+would. This means the two failure shapes real APIs actually produce — a
+non-2xx response and a timeout — are both reproducible offline with zero
+network access, as long as the client is injected rather than constructed
+inline. Split the test surface in two: pure parsing/mapping logic (no
+`httpx` import at all) gets plain fixture-based unit tests; the HTTP-calling
+function gets `MockTransport`-based tests; the in-memory `Client(mcp)` is
+reserved for proving tool *registration and schema* only (tool names,
+parameter shapes), not for exercising the I/O path.
+
+## Stale-docs gotcha extends to the SDK's own quickstart
+
+The official `quickstart-resources/weather-server-python/weather.py`
+tutorial file (fetched 2026-08-06) itself still imports
+`from mcp.server.fastmcp import FastMCP` — the removed v1 path (see above).
+Even Anthropic/MCP-adjacent quickstart repos haven't all been updated for the
+v2 import change; verify the import line yourself against the installed
+package version rather than trusting any single doc page, official or not.
+
 Sources: [python-sdk README](https://github.com/modelcontextprotocol/python-sdk/blob/main/README.md), [docs/get-started/first-steps.md](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs/get-started/first-steps.md), [docs/get-started/testing.md](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs/get-started/testing.md), [docs/run/index.md](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs/run/index.md), [docs/servers/tools.md](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs/servers/tools.md), [docs/servers/handling-errors.md](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs/servers/handling-errors.md), [PyPI](https://pypi.org/project/mcp/) — all fetched 2026-08-05, repo `pushed_at` same day.
 
 Research note: [2026-08-05-mcp-stdio-hello-world](../research/2026-08-05-mcp-stdio-hello-world.md).
@@ -109,4 +158,6 @@ Research note: [2026-08-05-mcp-stdio-hello-world](../research/2026-08-05-mcp-std
 Related: [[agent-skills]] (progressive disclosure is a similar "declare
 metadata, load body/resources on demand" shape to MCP's tools/resources/prompts
 split), [[tool-use-loop]] (the hand-written Anthropic tool-use loop this
-protocol-level tool contract rhymes with).
+protocol-level tool contract rhymes with), [[hn-algolia-api]] (a worked
+example of wrapping a real external REST API as an MCP tool, including the
+offline-testing pattern above).
