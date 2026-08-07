@@ -1,0 +1,3 @@
+Skills let Claude run a bundled script instead of reading it.
+Only the script's stdout enters the conversation.
+The script's own source code never does.
