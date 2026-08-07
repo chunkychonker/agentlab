@@ -33,6 +33,14 @@ checkable acceptance criteria.
    - **Build proposal** — a single, small, runnable increment the builder can
      complete today: what it is, where it goes under `examples/`, its shape, and
      what "it works" means (the self-test). Keep scope tight — one clear idea.
+     Before naming the directory, check it isn't already taken — by a merged
+     example (`ls examples/` on current `main`) or by another cycle's
+     still-open work (`gh pr list --state open`, `git branch -a`). A topic
+     being re-picked days apart is common (`BACKLOG.md` only shows `[done #N]`
+     once a human merges, so an open-but-unmerged PR looks unclaimed). If the
+     natural name is taken, propose a disambiguated one
+     (`examples/<topic>-<distinguishing-detail>/`) rather than colliding —
+     this bit us twice (PRs #5 and #6) before this check existed.
    - **Open questions** — anything you couldn't confirm.
 4. Feed the knowledge base (`~/agentlab/knowledge/`) — the project's long-term
    memory. Distill any durable, reusable learning (a pattern, a gotcha, an API
