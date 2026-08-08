@@ -58,12 +58,11 @@ fi
 # Untracked build artifacts (.venv, __pycache__, example dirs) from a
 # previous day's unmerged cycle branch survive a plain `git switch main` and
 # accumulate on disk — main never had them tracked, so they just sit there.
-# Only safe to wipe them if main's working tree is otherwise clean: a FAILed
-# review leaves today's built-but-unshipped work sitting uncommitted on main
-# (by design, for a human to fix and resume) — `git clean` would silently
-# destroy that. If anything is modified or untracked (i.e. not gitignored),
-# treat it the same as the switch/pull failure above: abort loudly instead of
-# guessing which uncommitted state is safe to discard.
+# Only safe to wipe them if main's working tree is otherwise clean. The
+# postflight below now auto-snapshots a FAILed cycle's dirty main onto a
+# recovery branch, so this should rarely trip — but it stays as a hard abort
+# (not a guess-and-clean) in case main is ever left dirty by something other
+# than this script, e.g. manual work done directly in the repo.
 if [ -n "$(git status --porcelain)" ]; then
   echo "main has uncommitted or untracked changes (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting." | tee -a "$LOG"
   exit 1
@@ -113,6 +112,30 @@ run_phase "review" \
 
 run_phase "maintain" \
   "Use the agentlab-maintainer subagent. Read logs/last-review.md; ONLY if the verdict is PASS, commit today's work as Steve Ling <steveylingy@gmail.com>, push a branch, and open a PR. On FAIL or missing verdict, do nothing and say why."
+
+# Postflight: guarantee main is clean before this script exits, no matter what
+# happened above. On FAIL, the maintainer deliberately leaves today's diff
+# uncommitted on main for a human to inspect — correct in isolation, but it
+# means the *next* run's preflight (line ~67) aborts on "main not clean",
+# which is what happened on 2026-08-02/03/07. Nothing here discards work: it
+# snapshots whatever's dirty onto a clearly-named, pushed recovery branch (so
+# it survives even a lost laptop), then resets main so tomorrow's run isn't
+# blocked by today's failure. If the push fails (offline/auth), the commit
+# still exists locally on the recovery branch — nothing is lost either way.
+if [ -n "$(git status --porcelain)" ]; then
+  RECOVERY_BRANCH="cycle/${TS%%_*}-unshipped-$(date +%H%M%S)"
+  echo "" | tee -a "$LOG"
+  echo "main left dirty after this cycle — snapshotting to $RECOVERY_BRANCH instead of leaving it for the next run to trip over." | tee -a "$LOG"
+  if git switch -c "$RECOVERY_BRANCH" >>"$LOG" 2>&1 \
+    && git add -A >>"$LOG" 2>&1 \
+    && git commit -m "wip: cycle $TS left uncommitted (see logs/run-$TS.log, logs/last-review.md)" >>"$LOG" 2>&1; then
+    git push -u origin "$RECOVERY_BRANCH" >>"$LOG" 2>&1 \
+      || echo "push of $RECOVERY_BRANCH failed — work is still safe locally on that branch." | tee -a "$LOG"
+  else
+    echo "snapshot commit failed — leaving main dirty; resolve manually before the next run." | tee -a "$LOG"
+  fi
+  git switch main >>"$LOG" 2>&1
+fi
 
 echo "" | tee -a "$LOG"
 echo "=== done $TS === (full log: $LOG)" | tee -a "$LOG"
