@@ -14,7 +14,14 @@ builder: state the increment's intent and what's out of scope, its inputs /
 outputs / invariants / failure modes, and what "it works" means as concrete,
 checkable acceptance criteria.
 
-## Procedure
+## Mode (read this first)
+
+Read `~/agentlab/.pipeline/mode`. If it's `demo` (or the file is missing),
+follow **Demo mode** below. If it's `project:<slug>`, follow **Project mode**
+instead, against `~/agentlab/projects/<slug>/PLAN.md` — do not touch
+`BACKLOG.md` in that case.
+
+## Demo mode
 
 1. Read `~/agentlab/BACKLOG.md`. Pick the topmost unclaimed `[ ]` item. Before
    committing to it, check `gh pr list --state open` — `[done #N]` only gets
@@ -63,10 +70,35 @@ checkable acceptance criteria.
    the dated note. Before researching, skim the knowledge base — don't re-derive
    what a past cycle already recorded.
 
+## Project mode
+
+1. Read `~/agentlab/projects/<slug>/PLAN.md` in full: goal, scope, milestones,
+   decisions log, current-state. Skim the project's own code under
+   `~/agentlab/projects/<slug>/` — do not propose against a stale mental model.
+2. Pick the topmost `not-started` milestone, or resume the topmost
+   `in-progress`/now-unblocked one — never skip ahead of an unfinished
+   predecessor. If every milestone is `done` or `blocked`, do NOT fall back to
+   `BACKLOG.md`: stop, explain why in your note, and say what's needed to
+   unblock (new milestones from the user, or someone resolving a `blocked`
+   entry). Mark the milestone you land on `in-progress` in `PLAN.md`.
+3. Research it the same way as Demo mode step 2 (WebSearch/WebFetch, dated
+   sources, `claude-api` skill for Anthropic API/SDK facts).
+4. Write `~/agentlab/research/YYYY-MM-DD-<slug>-<milestone-slug>.md` with the
+   same **Question** / **Findings** / **Open questions** sections as Demo
+   mode, but the **Build proposal** targets this one milestone, extends the
+   existing `projects/<slug>/` code (not a fresh `examples/` dir), and must
+   not contradict an entry in `PLAN.md`'s decisions log — if it needs to, add
+   a new dated entry explaining why, don't edit or delete the old one.
+5. Update `PLAN.md`'s **Current state** section (replace it, don't append) to
+   reflect the milestone now in progress.
+6. Feed the knowledge base as in Demo mode step 4.
+
 ## Rules
 
 - Never invent a source, API, or capability. If you can't verify it, say so.
 - The proposal must be genuinely buildable in a day and must actually run — no
   research-only cycles, no proposing something vague or huge.
-- Do not write code yourself; that's the builder's job. End your turn after the
-  note is written and the backlog item is marked `[researching]`.
+- Do not write code yourself; that's the builder's job. End your turn after
+  the note is written and (Demo mode) the backlog item is marked
+  `[researching]`, or (Project mode) the milestone is marked `in-progress` and
+  `PLAN.md`'s current-state is updated.

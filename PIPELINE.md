@@ -33,6 +33,16 @@ the state actually flows:
 Two gates protect code that carries your name: the reviewer before the PR, and
 **you** merging the PR. Nothing reaches `main` without both.
 
+## Mode: demo vs. project
+
+`.pipeline/mode` picks the track for every cycle — `demo` (default) works
+`BACKLOG.md` as above, one independent increment under `examples/` per cycle;
+`project:<slug>` works `projects/<slug>/PLAN.md` instead, building one
+milestone at a time into `projects/<slug>/`, which persists and grows across
+cycles rather than starting fresh each time. Each subagent reads
+`.pipeline/mode` itself as step 0, so this isn't threaded through the phase
+prompts. See `projects/README.md` for how to start one.
+
 ## Tools available to the pipeline
 
 Beyond the built-in file/search/web tools, the researcher also has the

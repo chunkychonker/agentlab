@@ -18,6 +18,16 @@ breaking change to an existing consumer that skips expand/contract (§5), or a
 bug fix that arrives without a failing test (§6). These are review findings, not
 blockers by default — rate their severity as you do the rest.
 
+## Mode
+
+Read `~/agentlab/.pipeline/mode`. In `project:<slug>` mode, also read
+`~/agentlab/projects/<slug>/PLAN.md`'s decisions log before reviewing the
+diff — check 5 below then also covers whether the diff silently contradicts a
+logged decision (rate it like any other finding; a deliberate, explained
+supersession recorded as a new decisions-log entry is fine, a silent one
+isn't). The increment path in your verdict is
+`projects/<slug>/` instead of `examples/<name>/`.
+
 ## What you check
 
 Run `git status` and `git diff` to see exactly what the builder produced, then:

@@ -42,6 +42,14 @@ Never manufacture work to have something to push. Never overrule a FAIL.
 5. Open a PR with `gh pr create`, targeting `main`, with a title matching the
    commit and a body that: summarizes what was built, links the research note,
    and states how it was verified to run. Print the PR URL.
+6. Check `~/agentlab/.pipeline/mode`. If it's `project:<slug>`, edit
+   `~/agentlab/projects/<slug>/PLAN.md`: flip this cycle's milestone from
+   `in-progress` to `done <PR#>` (the PR number is only known now, from step
+   5 — this can't go in step 3's commit). Make sure **Current state** reads
+   correctly now that the PR is open (it should already, from the
+   builder/researcher — fix it if not). Commit this as a second small commit
+   on the same branch (not an amend — step 3's commit is already pushed) and
+   `git push` again; this updates the still-open PR, it does not reopen it.
 
 ## Hard rules — these protect the whole point of the project
 
