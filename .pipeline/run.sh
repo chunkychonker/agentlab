@@ -70,6 +70,28 @@ if [ -n "$(git status --porcelain)" ]; then
 fi
 git clean -fdx -e logs/ -e '.claude/settings.local.json' -e '.env*' -e graphify-out/ >>"$LOG" 2>&1
 
+# Mode is the single source of truth for demo vs. project work, read by both
+# this script (to fail fast on a bad config) and each subagent itself (each
+# reads .pipeline/mode as step 0 of its own procedure) — not duplicated into
+# the phase prompts below, so run.sh and the agent defs can't drift out of
+# sync on which mode is active.
+MODE_FILE=".pipeline/mode"
+MODE="$(tr -d '[:space:]' < "$MODE_FILE" 2>/dev/null)"
+[ -z "$MODE" ] && MODE="demo"
+if [[ "$MODE" == project:* ]]; then
+  SLUG="${MODE#project:}"
+  if [ ! -f "projects/$SLUG/PLAN.md" ]; then
+    echo "MODE is 'project:$SLUG' but projects/$SLUG/PLAN.md is missing — fix .pipeline/mode or create the plan (see projects/README.md). Aborting." | tee -a "$LOG"
+    exit 1
+  fi
+  echo "mode: project:$SLUG (projects/$SLUG/PLAN.md)" | tee -a "$LOG"
+elif [ "$MODE" == "demo" ]; then
+  echo "mode: demo (BACKLOG.md)" | tee -a "$LOG"
+else
+  echo "MODE '$MODE' in .pipeline/mode is neither 'demo' nor 'project:<slug>' — fix it. Aborting." | tee -a "$LOG"
+  exit 1
+fi
+
 run_phase () {
   local name="$1" prompt="$2"
   echo "" | tee -a "$LOG"

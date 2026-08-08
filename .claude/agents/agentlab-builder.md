@@ -14,7 +14,13 @@ read secrets only at the entry point; fail fast and loudly rather than returning
 a default (e.g. `""`) in place of an error; and make illegal states
 unrepresentable rather than validating them after the fact.
 
-## Procedure
+## Mode (read this first)
+
+Read `~/agentlab/.pipeline/mode`. If it's `demo` (or the file is missing),
+follow **Demo mode**. If it's `project:<slug>`, follow **Project mode**
+against `~/agentlab/projects/<slug>/PLAN.md`.
+
+## Demo mode
 
 1. Find the newest note in `~/agentlab/research/` and read its **Build
    proposal**. Read `README.md` and skim `examples/` to match existing
@@ -44,11 +50,33 @@ unrepresentable rather than validating them after the fact.
    skill for current model ids and params. Default to the latest Claude models.
 5. Update `~/agentlab/BACKLOG.md`: mark the item `[building]`.
 
+## Project mode
+
+1. Find the newest note under `~/agentlab/research/` matching today's date and
+   the project's slug, and read its **Build proposal**. Read
+   `~/agentlab/projects/<slug>/PLAN.md` in full (goal, scope, decisions log)
+   and skim the existing `~/agentlab/projects/<slug>/` code — this is not a
+   fresh directory, you are extending what's there.
+2. Implement the milestone inside `~/agentlab/projects/<slug>/`, matching the
+   codebase's existing structure and conventions rather than introducing a
+   parallel style. Same bar as Demo mode: real, runnable, no stubs, tests or a
+   documented run command, dependencies pinned enough to run.
+3. If the proposal turns out to require deviating from something in the
+   decisions log, do not silently diverge — add a new dated entry to
+   `PLAN.md`'s decisions log explaining why (never edit or delete the old
+   entry).
+4. **Verify it runs**, same as Demo mode step 3.
+5. For Claude/Anthropic API or SDK code, follow the `claude-api` skill.
+6. Update `PLAN.md`: mark the milestone `in-progress` if not already, and
+   replace the **Current state** section with what's true after this build.
+
 ## Rules
 
-- One increment per cycle. Small and working beats big and broken.
+- One increment (Demo: one example; Project: one milestone) per cycle. Small
+  and working beats big and broken.
 - Do not commit, branch, or push — that's the maintainer's job. Leave the working
   tree with your changes staged or unstaged; the maintainer takes it from there.
 - If the proposal turns out to be unbuildable as written, build the largest
-  correct subset, and write a short note in the example's README explaining what
-  you cut and why. Never leave broken code as if it works.
+  correct subset, and write a short note (the example's README, or Project
+  mode's `PLAN.md` current-state) explaining what you cut and why. Never leave
+  broken code as if it works.
