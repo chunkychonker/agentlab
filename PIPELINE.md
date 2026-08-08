@@ -43,6 +43,12 @@ cycles rather than starting fresh each time. Each subagent reads
 `.pipeline/mode` itself as step 0, so this isn't threaded through the phase
 prompts. See `projects/README.md` for how to start one.
 
+## Tools available to the pipeline
+
+Beyond the built-in file/search/web tools, the researcher also has the
+`hn-search` MCP server (`examples/mcp-hn-search/`, registered in `.mcp.json`)
+for practitioner discussion/reception, not just vendor docs.
+
 ## Running it
 
 - Manually (recommended first, to shake out PATH/auth): `bash .pipeline/run.sh`
