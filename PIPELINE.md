@@ -33,6 +33,12 @@ the state actually flows:
 Two gates protect code that carries your name: the reviewer before the PR, and
 **you** merging the PR. Nothing reaches `main` without both.
 
+## Tools available to the pipeline
+
+Beyond the built-in file/search/web tools, the researcher also has the
+`hn-search` MCP server (`examples/mcp-hn-search/`, registered in `.mcp.json`)
+for practitioner discussion/reception, not just vendor docs.
+
 ## Running it
 
 - Manually (recommended first, to shake out PATH/auth): `bash .pipeline/run.sh`
