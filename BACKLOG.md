@@ -5,14 +5,18 @@ to research and build in a single day. Newest ideas at the bottom; the pipeline
 works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
 
 ## Coding agents
-- [building] Minimal agent loop from scratch (Anthropic SDK): one tool, manual tool-use loop
+- [ ] Eval harness for the reviewer agent: fixture-based regression tests (known-bug
+  increment + assert-on-verdict runner), seeded with the self-reference and
+  subdirectory-link regex bugs caught in review on 2026-08-07 — proves the
+  reviewer still catches bugs it's already caught once, after any prompt change
+- [done #1] Minimal agent loop from scratch (Anthropic SDK): one tool, manual tool-use loop
 - [done #2] Multi-tool agent with a typed tool registry
 - [done #4] Subagent delegation: an orchestrator that fans out to specialist agents
 
 ## Skills
-- [building] Anatomy of a skill: a minimal model-invoked skill with a clear trigger
-- [building] A skill that shells out to a local script (like the recruiting scanner pattern)
-- [building] Packaging a skill with reference files the model loads on demand
+- [done #7] Anatomy of a skill: a minimal model-invoked skill with a clear trigger
+- [done #5, #10] A skill that shells out to a local script (like the recruiting scanner pattern)
+- [done #6, #11] Packaging a skill with reference files the model loads on demand
 
 ## MCP
 - [done #8] Hello-world MCP server (stdio) exposing one tool
@@ -21,7 +25,6 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
 - [ ] MCP resources vs tools: when to use which
 
 ## Coding agents (deferred, was next before Skills/MCP got prioritized 2026-07-29)
-- [ ] Adding a lightweight eval harness to score an agent's outputs
 - [ ] Tool-use error handling and retries done well
 
 ## Notes
