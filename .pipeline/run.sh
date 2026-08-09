@@ -126,15 +126,28 @@ if [ -n "$(git status --porcelain)" ]; then
   RECOVERY_BRANCH="cycle/${TS%%_*}-unshipped-$(date +%H%M%S)"
   echo "" | tee -a "$LOG"
   echo "main left dirty after this cycle — snapshotting to $RECOVERY_BRANCH instead of leaving it for the next run to trip over." | tee -a "$LOG"
-  if git switch -c "$RECOVERY_BRANCH" >>"$LOG" 2>&1 \
-    && git add -A >>"$LOG" 2>&1 \
-    && git commit -m "wip: cycle $TS left uncommitted (see logs/run-$TS.log, logs/last-review.md)" >>"$LOG" 2>&1; then
+  snapshot_committed=0
+  if ! git switch -c "$RECOVERY_BRANCH" >>"$LOG" 2>&1; then
+    echo "could not create recovery branch $RECOVERY_BRANCH — leaving main dirty; resolve manually before the next run." | tee -a "$LOG"
+  elif ! git add -A >>"$LOG" 2>&1 || ! git commit -m "wip: cycle $TS left uncommitted (see logs/run-$TS.log, logs/last-review.md)" >>"$LOG" 2>&1; then
+    echo "snapshot commit on $RECOVERY_BRANCH failed — leaving main dirty; resolve manually before the next run." | tee -a "$LOG"
+  else
+    snapshot_committed=1
     git push -u origin "$RECOVERY_BRANCH" >>"$LOG" 2>&1 \
       || echo "push of $RECOVERY_BRANCH failed — work is still safe locally on that branch." | tee -a "$LOG"
-  else
-    echo "snapshot commit failed — leaving main dirty; resolve manually before the next run." | tee -a "$LOG"
   fi
+  # Whichever step above failed (or none did), get back onto main: `git
+  # switch` carries any still-uncommitted changes with it rather than
+  # discarding them, so main ends up either clean (snapshot committed) or
+  # genuinely dirty (snapshot failed) — never silently left on the recovery
+  # branch instead.
   git switch main >>"$LOG" 2>&1
+  # A recovery branch that never got a commit (switch/add/commit failed
+  # partway) is just clutter left by `switch -c` — the real diff is still on
+  # main, dirty, so there's nothing on it worth keeping. Drop it locally.
+  if [ "$snapshot_committed" -eq 0 ] && git show-ref --verify --quiet "refs/heads/$RECOVERY_BRANCH"; then
+    git branch -D "$RECOVERY_BRANCH" >>"$LOG" 2>&1 || true
+  fi
 fi
 
 echo "" | tee -a "$LOG"
