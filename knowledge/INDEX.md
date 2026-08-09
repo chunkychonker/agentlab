@@ -30,6 +30,13 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
 - [[hn-algolia-api]] — live-verified endpoint/param/response reference for
   the Hacker News Algolia Search API, and its real gotcha: error bodies are
   sometimes HTML not JSON
+- [[mcp-resources]] — resources vs tools: application-driven vs
+  model-driven, separate list/read RPCs + resource templates, "listing never
+  executes the function" (verified against SDK source), the opposite
+  failure shape (resources raise `MCPError` on the client, tools don't), and
+  how Claude Code actually surfaces resources today (`@`-mention +
+  synthetic list/read tools, verified against current docs, not stale
+  GitHub issues)
 
 ## Cross-cutting patterns & gotchas
 - Testing agent loops offline: inject a fake client (see [[tool-use-loop]])
