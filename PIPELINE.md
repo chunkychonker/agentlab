@@ -1,9 +1,11 @@
 # The build pipeline
 
-A once-a-day, four-phase pipeline. Each phase is a headless Claude Code run
-(`claude -p`) that delegates to one specialist subagent. The phases don't talk
-to each other directly — they coordinate through this repo's files, which is how
-the state actually flows:
+A once-a-day pipeline: research → build → review → maintain → auto-merge every
+night, plus a lab-wide health check every 3rd night. Each phase is a headless
+Claude Code run (`claude -p`) that delegates to one specialist subagent (except
+auto-merge, which is deterministic bash). The phases don't talk to each other
+directly — they coordinate through this repo's files, which is how the state
+actually flows:
 
 ```
   BACKLOG.md ──▶ [1] researcher ──▶ research/DATE-slug.md
@@ -36,11 +38,23 @@ the state actually flows:
    whether the PR is a clean, conflict-free merge (`gh pr view --json mergeable`)
    and merges only if so. A real conflict, or GitHub still computing the answer
    after a few retries, leaves the PR open instead.
+6. **Health check** (`agentlab-health`) — a separate concern from the cycle
+   above: it re-verifies the *whole accumulated portfolio*, not tonight's diff.
+   Every example's self-test still passes in a fresh env, every `knowledge/`
+   wikilink still resolves, every `BACKLOG.md` `[done #N]` still matches a
+   merged PR. Gated to run every 3rd calendar day (rerunning every example's
+   tests every night doesn't scale with the portfolio's size) via
+   `logs/lab-health-*.log` timestamps — no separate schedule state needed.
+   Report-only: findings never block, delay, or otherwise affect phases 1–5,
+   and it never fixes anything itself. Report lands in `logs/last-health.md`
+   (git-ignored, same handoff pattern as `logs/last-review.md`).
 
 Two gates protect code that carries your name: the reviewer before the PR, and
 either a mechanical clean-merge check or **you** resolving a conflict by hand.
 Nothing reaches `main` without both — conflict resolution is never automated,
 since it requires judgment about intent that no part of this pipeline has.
+The health check is not a gate — it's a separate, non-blocking observability
+pass over what's already shipped.
 
 ## Mode: demo vs. project
 
