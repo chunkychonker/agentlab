@@ -144,6 +144,31 @@ if [ -s logs/last-pr.txt ]; then
   fi
 fi
 
+# Lab health check: a separate concern from tonight's increment — it re-verifies
+# the whole accumulated portfolio (every example still runs, every knowledge
+# wikilink resolves, every BACKLOG.md [done #N] matches a merged PR), not just
+# today's diff. Gated to every 3rd calendar day (not every night) since it
+# reruns every example's test suite in a fresh venv — real time/cost that
+# doesn't scale with "one increment per night". A finding here never blocks or
+# alters the cycle above; it only reports. See agentlab-health.md.
+LAST_HEALTH_LOG="$(ls -t logs/lab-health-*.log 2>/dev/null | head -1)"
+RUN_HEALTH=1
+DAYS_SINCE="n/a"
+if [ -n "$LAST_HEALTH_LOG" ]; then
+  LAST_DATE="$(basename "$LAST_HEALTH_LOG" | sed -E 's/^lab-health-([0-9]{4}-[0-9]{2}-[0-9]{2}).*/\1/')"
+  LAST_EPOCH="$(date -j -f "%Y-%m-%d" "$LAST_DATE" +%s 2>/dev/null || echo 0)"
+  NOW_EPOCH="$(date +%s)"
+  DAYS_SINCE=$(( (NOW_EPOCH - LAST_EPOCH) / 86400 ))
+  [ "$DAYS_SINCE" -lt 3 ] && RUN_HEALTH=0
+fi
+if [ "$RUN_HEALTH" -eq 1 ]; then
+  run_phase "health" \
+    "Use the agentlab-health subagent to run a full lab-scope health check. This cycle's timestamp is $TS — write the dated report to logs/lab-health-$TS.log and the latest-snapshot to logs/last-health.md, following the subagent's instructions exactly. This must not modify anything under examples/, knowledge/, research/, projects/, or BACKLOG.md, and must not affect tonight's PR or merge above."
+else
+  echo "" | tee -a "$LOG"
+  echo "--- phase: health check skipped (last run $LAST_DATE, ${DAYS_SINCE}d ago, cadence=3d) ---" | tee -a "$LOG"
+fi
+
 # Postflight: guarantee main is clean before this script exits, no matter what
 # happened above. On FAIL, the maintainer deliberately leaves today's diff
 # uncommitted on main for a human to inspect — correct in isolation, but it
