@@ -30,6 +30,14 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
 - [[hn-algolia-api]] — live-verified endpoint/param/response reference for
   the Hacker News Algolia Search API, and its real gotcha: error bodies are
   sometimes HTML not JSON
+- [[claude-code-mcp-connection]] — connecting a server to the real Claude
+  Code host (not the SDK's in-memory `Client`): the three registration
+  scopes, the `.mcp.json` pending-approval workflow and a settings-file
+  reliability gap verified live in this repo, and the
+  `--bare --strict-mcp-config --mcp-config ... --output-format
+  stream-json --verbose` recipe for a scriptable end-to-end check,
+  including the `mcp__<server>__<tool>` naming convention and the
+  `stream-json` event shapes to assert on
 - [[mcp-resources]] — resources vs tools: application-driven vs
   model-driven, separate list/read RPCs + resource templates, "listing never
   executes the function" (verified against SDK source), the opposite
@@ -47,3 +55,8 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   for tools that do real outbound HTTP, that's only enough to test
   registration/schema — test the I/O-doing function itself by injecting an
   `httpx.MockTransport`-backed client (see [[mcp-python-sdk]], [[hn-algolia-api]])
+- Testing an MCP server against the *real* Claude Code host (not the SDK
+  client): the in-memory `Client` above can't prove this — it needs a real,
+  billed `claude` CLI invocation with `--mcp-config`/`--strict-mcp-config`/
+  `--bare` and parsing the `stream-json` transcript (see
+  [[claude-code-mcp-connection]])

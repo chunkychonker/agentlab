@@ -160,6 +160,9 @@ metadata, load body/resources on demand" shape to MCP's tools/resources/prompts
 split), [[tool-use-loop]] (the hand-written Anthropic tool-use loop this
 protocol-level tool contract rhymes with), [[hn-algolia-api]] (a worked
 example of wrapping a real external REST API as an MCP tool, including the
-offline-testing pattern above), [[mcp-resources]] (this note covers tools
-only — resources are a separate primitive with the opposite failure shape:
-they raise on the client instead of returning `is_error=True`).
+offline-testing pattern above), [[claude-code-mcp-connection]] (everything
+above tests the server object via the SDK's in-memory `Client` — for
+connecting the same server to the real Claude Code host and proving it gets
+called end-to-end, see that note instead), [[mcp-resources]] (this note
+covers tools only — resources are a separate primitive with the opposite
+failure shape: they raise on the client instead of returning `is_error=True`).
