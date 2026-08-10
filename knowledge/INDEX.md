@@ -6,7 +6,14 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
 - [[tool-use-loop]] — the hand-written Messages API tool loop + gotchas
 - [[typed-tool-registry]] — `@beta_tool` + `client.beta.messages.tool_runner`: typed schemas, validation, registry pattern
 - [[orchestrator-workers]] — fan-out-to-specialists pattern; `client.messages.parse(output_format=...)` for the plan step; the three distinct "subagent" products and when each applies
+- [[tool-failure-taxonomy]] — the three dispositions for a failing tool call
+  (retry locally / report to the model with `is_error` / abort loudly), the
+  `is_error` wire contract and what a good error message looks like, and
+  `strict: true` as prevention for one whole error class
 - [[anthropic-python-sdk]] — SDK basics: client, `messages.create`, response shape
+- [[sdk-retry-behavior]] — the *other* retry layer: source-verified SDK transport
+  retry defaults, which statuses retry, `retry-after` handling and its ≤60s
+  clamp, the wrong jitter comment, and the status → exception table
 - [[anthropic-models]] — current model IDs and prices (re-check, don't guess)
 
 ## Skills
@@ -48,6 +55,9 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
 
 ## Cross-cutting patterns & gotchas
 - Testing agent loops offline: inject a fake client (see [[tool-use-loop]])
+- Testing retry/backoff logic offline: inject `sleep` and `jitter` as parameters
+  and keep the policy a pure function, so the test is instant and deterministic
+  (see [[tool-failure-taxonomy]])
 - Testing typed tools offline: schema generation + Pydantic validation are pure
   local code, no fake client needed (see [[typed-tool-registry]])
 - Testing MCP servers offline: connect the SDK's in-memory `Client` straight
