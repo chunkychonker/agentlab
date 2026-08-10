@@ -1,0 +1,3 @@
+VERDICT: FAIL
+PATTERN: finance\.md
+PATTERN: (?i)(does not exist|not found|missing)

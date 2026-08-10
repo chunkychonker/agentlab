@@ -38,6 +38,13 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   stream-json --verbose` recipe for a scriptable end-to-end check,
   including the `mcp__<server>__<tool>` naming convention and the
   `stream-json` event shapes to assert on
+- [[mcp-resources]] — resources vs tools: application-driven vs
+  model-driven, separate list/read RPCs + resource templates, "listing never
+  executes the function" (verified against SDK source), the opposite
+  failure shape (resources raise `MCPError` on the client, tools don't), and
+  how Claude Code actually surfaces resources today (`@`-mention +
+  synthetic list/read tools, verified against current docs, not stale
+  GitHub issues)
 
 ## Cross-cutting patterns & gotchas
 - Testing agent loops offline: inject a fake client (see [[tool-use-loop]])
