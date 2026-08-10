@@ -5,10 +5,11 @@ to research and build in a single day. Newest ideas at the bottom; the pipeline
 works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
 
 ## Coding agents
-- [ ] Eval harness for the reviewer agent: fixture-based regression tests (known-bug
+- [done #17] Eval harness for the reviewer agent: fixture-based regression tests (known-bug
   increment + assert-on-verdict runner), seeded with the self-reference and
   subdirectory-link regex bugs caught in review on 2026-08-07 — proves the
   reviewer still catches bugs it's already caught once, after any prompt change
+  (marked done 2026-08-09: merged to main per `git log`, backlog entry was stale)
 - [done #1] Minimal agent loop from scratch (Anthropic SDK): one tool, manual tool-use loop
 - [done #2] Multi-tool agent with a typed tool registry
 - [done #4] Subagent delegation: an orchestrator that fans out to specialist agents
@@ -22,7 +23,8 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
 - [done #8] Hello-world MCP server (stdio) exposing one tool
 - [done #9] MCP server wrapping a public REST API (e.g. Hacker News Algolia)
 - [ ] Connecting a custom MCP server to Claude Code and calling it end-to-end
-- [ ] MCP resources vs tools: when to use which
+  (open PR #19 as of 2026-08-09, awaiting merge — do not re-research)
+- [building] MCP resources vs tools: when to use which
 
 ## Coding agents (deferred, was next before Skills/MCP got prioritized 2026-07-29)
 - [ ] Tool-use error handling and retries done well

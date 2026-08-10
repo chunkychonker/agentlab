@@ -1,0 +1,8 @@
+# Needed for BOTH server.py (mcp.run()) and the offline self-test
+# (test_server.py, via the in-memory `Client`). Upper-bounded to <3, same
+# rationale as examples/mcp-hello-world/requirements.txt: mcp v2.0.0 GA'd
+# 2026-07-28, re-check before ever letting this drift to v3.
+#
+# pydantic comes in transitively (used directly here for the `create_note`
+# tool's Field constraints).
+mcp>=2.0.0,<3
