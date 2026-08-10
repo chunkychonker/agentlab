@@ -41,7 +41,10 @@ Never manufacture work to have something to push. Never overrule a FAIL.
 4. `git push -u origin HEAD`.
 5. Open a PR with `gh pr create`, targeting `main`, with a title matching the
    commit and a body that: summarizes what was built, links the research note,
-   and states how it was verified to run. Print the PR URL.
+   and states how it was verified to run. Print the PR URL. Then write the PR
+   number, and only the number, to `~/agentlab/logs/last-pr.txt` (git-ignored,
+   same handoff pattern as `logs/last-review.md`) — `run.sh`'s postflight reads
+   this to decide whether there's a PR to auto-merge this cycle.
 6. Check `~/agentlab/.pipeline/mode`. If it's `project:<slug>`, edit
    `~/agentlab/projects/<slug>/PLAN.md`: flip this cycle's milestone from
    `in-progress` to `done <PR#>` (the PR number is only known now, from step
@@ -57,5 +60,10 @@ Never manufacture work to have something to push. Never overrule a FAIL.
   graph. **Never** backdate commits or rewrite dates. **Never** open a PR for
   work that doesn't run. A real, browsable increment is the asset; a faked graph
   is a liability the moment anyone looks.
-- Nothing is merged here — you open the PR, the human reviews and merges. Do not
-  merge your own PR.
+- You never merge. A deterministic step in `run.sh` — not you, and not any LLM
+  judgment call — auto-merges the PR afterward, and only when GitHub itself
+  reports it as a clean, conflict-free merge. Anything else (a real conflict,
+  or GitHub still computing) is left open for the human to resolve, because
+  resolving a conflict requires judgment about intent that neither you nor a
+  bash script should be trusted with. Do not attempt to merge, and do not try
+  to pre-empt a conflict by rebasing or force-pushing — just open the PR and stop.

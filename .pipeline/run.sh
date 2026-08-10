@@ -110,8 +110,39 @@ run_phase "build" \
 run_phase "review" \
   "Use the agentlab-reviewer subagent to independently review today's working-tree diff, run its tests/lint, and write a PASS/FAIL verdict to logs/last-review.md. Do not modify the increment." || exit 1
 
+rm -f logs/last-pr.txt
 run_phase "maintain" \
   "Use the agentlab-maintainer subagent. Read logs/last-review.md; ONLY if the verdict is PASS, commit today's work as Steve Ling <steveylingy@gmail.com>, push a branch, and open a PR. On FAIL or missing verdict, do nothing and say why."
+
+# Auto-merge gate: mechanical, not an LLM judgment call. The maintainer never
+# merges (see agentlab-maintainer.md) — it only opens the PR and, on success,
+# writes the PR number to logs/last-pr.txt. Here we ask GitHub itself whether
+# the PR is a clean, conflict-free merge and act only on that flag. Anything
+# else (a real conflict, e.g. the #19/#20 same-file collision on 2026-08-10,
+# or GitHub still computing) is left open for a human to resolve — conflict
+# resolution needs judgment about intent that no part of this pipeline has.
+if [ -s logs/last-pr.txt ]; then
+  PR_NUM="$(tr -d '[:space:]' < logs/last-pr.txt)"
+  echo "" | tee -a "$LOG"
+  echo "--- phase: auto-merge (PR #$PR_NUM) ---" | tee -a "$LOG"
+  MERGEABLE="UNKNOWN"
+  for _ in 1 2 3 4 5; do
+    MERGEABLE="$(gh pr view "$PR_NUM" --json mergeable -q .mergeable 2>>"$LOG")"
+    [ "$MERGEABLE" != "UNKNOWN" ] && break
+    sleep 2
+  done
+  if [ "$MERGEABLE" = "MERGEABLE" ]; then
+    if gh pr merge "$PR_NUM" --merge --delete-branch >>"$LOG" 2>&1; then
+      echo "PR #$PR_NUM auto-merged (clean, no conflicts)." | tee -a "$LOG"
+      git switch main >>"$LOG" 2>&1
+      git pull --ff-only origin main >>"$LOG" 2>&1
+    else
+      echo "PR #$PR_NUM was MERGEABLE but 'gh pr merge' failed (branch protection? re-check manually) — left open." | tee -a "$LOG"
+    fi
+  else
+    echo "PR #$PR_NUM left open for manual merge (mergeable=$MERGEABLE)." | tee -a "$LOG"
+  fi
+fi
 
 # Postflight: guarantee main is clean before this script exits, no matter what
 # happened above. On FAIL, the maintainer deliberately leaves today's diff
