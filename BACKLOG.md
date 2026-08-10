@@ -26,7 +26,7 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
 - [done #20] MCP resources vs tools: when to use which
 
 ## Coding agents (deferred, was next before Skills/MCP got prioritized 2026-07-29)
-- [ ] Tool-use error handling and retries done well
+- [building] Tool-use error handling and retries done well
 
 ## Notes
 - Prefer the latest Claude models and the current Anthropic SDK. Check the

@@ -32,6 +32,11 @@ never see a `tool_use` block for them.
   the loop by hand only to learn the mechanics.
 - `tools` adds a hidden system prompt (~250-500 tokens depending on model/tool
   choice), billed as input.
+- On failure, set `is_error: true` on the `tool_result` — but first decide
+  *which* kind of failure it is; see [[tool-failure-taxonomy]]. tool_result
+  blocks must come first in the user message's content array (text before them
+  is a 400). Retrying the *API call* is the SDK's job, not yours
+  ([[sdk-retry-behavior]]).
 
 ## Testing without a key
 

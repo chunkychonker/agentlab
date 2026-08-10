@@ -42,7 +42,11 @@ final_message = runner.until_done()    # or `for message in runner: ...`
 - Unknown tool name or a tool raising inside the loop → caught, turned into a
   `tool_result` with `is_error: true`. The loop itself never crashes on a bad
   tool call. Raise `anthropic.ToolError` from inside a tool to control exactly
-  what content comes back instead of `repr(exc)`.
+  what content comes back instead of `repr(exc)`. (An unknown name also emits a
+  `UserWarning`; a generic exception is additionally `log.exception`-ed. `repr`
+  is used deliberately over `str` because it keeps the exception type.) Because
+  nothing ever stops the loop on a failing tool, a permanently-broken tool spins
+  until `max_iterations` — see [[tool-failure-taxonomy]].
 - Async variant: `@beta_async_tool` for `async def` tools.
 
 ## Gotchas
@@ -51,6 +55,17 @@ final_message = runner.until_done()    # or `for message in runner: ...`
   `client.messages`. Still beta as of SDK 0.120.0 (2026-07-28).
 - `max_iterations` defaults to `None` = **unbounded**. Same discipline as the
   hand-rolled loop's `max_turns` — always pass it explicitly.
+- **Silent truncation.** Reaching `max_iterations` makes `_should_stop()` return
+  `True` and the loop exit *normally* — `until_done()` returns the last message
+  with no exception and no flag. A cut-off run is indistinguishable from a
+  finished one unless you check the returned message yourself: if
+  `stop_reason == "tool_use"`, the agent never finished and its "answer" isn't
+  one. (By contrast `stop_reason == "refusal"` *is* handled explicitly.)
+  Verified in `_beta_runner.py` on `main`, 2026-08-10.
+- If you intercept results: `generate_tool_call_response()` **caches** its result
+  for the iteration, and calling `append_messages()` inside the loop flags state
+  as modified so the runner **skips its own append** — you then own keeping the
+  conversation valid.
 - Constructing the runner does no network call; only iterating / `.until_done()`
   does. Safe to build and unit-test the tool objects themselves fully offline.
 - Schema generation + Pydantic validation are pure local code — testable
