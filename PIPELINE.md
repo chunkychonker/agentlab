@@ -13,6 +13,8 @@ the state actually flows:
                             working-tree diff ──▶ [3] reviewer ──▶ logs/last-review.md (PASS/FAIL)
                                                                           │
                                           PASS verdict ──▶ [4] maintainer ──▶ branch + commit + PR
+                                                                                      │
+                                                       clean, conflict-free ──▶ [5] auto-merge (run.sh)
 ```
 
 1. **Researcher** (`agentlab-researcher`) — pulls the top backlog item, does
@@ -28,10 +30,17 @@ the state actually flows:
 4. **Maintainer** (`agentlab-maintainer`) — reads the verdict. Only on `PASS`
    does it branch, commit **authored as Steve Ling `<steveylingy@gmail.com>`**,
    push, and open a PR. On `FAIL` (or missing verdict) it ships nothing and logs
-   why. It never fabricates, backdates, or pads commits, and never overrules a FAIL.
+   why. It never fabricates, backdates, or pads commits, and never overrules a
+   FAIL. It never merges — it writes the PR number to `logs/last-pr.txt` and stops.
+5. **Auto-merge** (`run.sh`, deterministic bash — not a subagent) — asks GitHub
+   whether the PR is a clean, conflict-free merge (`gh pr view --json mergeable`)
+   and merges only if so. A real conflict, or GitHub still computing the answer
+   after a few retries, leaves the PR open instead.
 
 Two gates protect code that carries your name: the reviewer before the PR, and
-**you** merging the PR. Nothing reaches `main` without both.
+either a mechanical clean-merge check or **you** resolving a conflict by hand.
+Nothing reaches `main` without both — conflict resolution is never automated,
+since it requires judgment about intent that no part of this pipeline has.
 
 ## Mode: demo vs. project
 
