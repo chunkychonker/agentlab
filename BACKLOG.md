@@ -43,7 +43,7 @@ Both are small; a builder can reasonably take them in one cycle.
   test per §6. Caught by the reviewer on 2026-08-10 and merged anyway.
 
 ## Context & cost
-- [building] Previewing server-side context editing (`clear_tool_uses_20250919`) for
+- [done #25] Previewing server-side context editing (`clear_tool_uses_20250919`) for
   $0 with the free token-counting endpoint: a pure policy type that serialises
   the `context_management` edit, and a shell that counts the same tool-heavy
   transcript twice (plain vs. edited) to report the real token saving before
