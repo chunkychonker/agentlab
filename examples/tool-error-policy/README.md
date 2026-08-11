@@ -24,7 +24,7 @@ Background: [`knowledge/tool-failure-taxonomy.md`](../../knowledge/tool-failure-
 |------|-----------|
 | `policy.py` | The pure core. `classify()`, `backoff_delay()`, `jitter_factor()`, `unknown_tool_message()`, `call_key()`, `is_repeat_exhausted()`. Imports nothing from `anthropic`, does no I/O, never sleeps. |
 | `agent.py` | The imperative shell. `call_tool_with_retry()` and `run_agent()`, plus the demo `fetch_metric` tool. Owns the Messages API calls, the clock, and the randomness. |
-| `test_agent.py` | Offline self-test: 13 assertions covering the eight acceptance criteria. No key, no network, no waiting. |
+| `test_agent.py` | Offline self-test: 14 assertions covering the eight acceptance criteria. No key, no network, no waiting. |
 | `requirements.txt` | `anthropic>=0.120.0` — for the **live run only**. |
 
 ## Run the self-test (no API key, no network, no dependencies)
@@ -50,9 +50,17 @@ ok  jitter factor stays in [0.75, 1.0] and only ever shortens delays
 ok  call keys are order-insensitive and the repeat guard trips on time
 ok  unknown_tool_message names the alternatives and rejects an empty set
 ok  run_agent refuses to start with no tools
+ok  a max_attempts below 1 is rejected before the tool is ever called
 
-All 13 self-tests passed in 0ms.
+All 14 self-tests passed in 0ms.
 ```
+
+Verifiable, not hand-copied:
+`python3 check_transcript.py ../tool-error-policy -- python3 test_agent.py` from
+[`examples/readme-transcript-check`](../readme-transcript-check/) compares this
+block against the real thing. Note the caveat there: the `0ms` is a *measured*
+duration, so this is the one transcript in the repo that exact-match makes
+machine-dependent.
 
 That sub-millisecond total is the point: `sleep` and `jitter` are **required parameters** of
 `run_agent()` and `call_tool_with_retry()`, bound to `time.sleep` /

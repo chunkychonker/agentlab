@@ -30,12 +30,13 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
 
 ## Health-check findings (2026-08-10, `logs/last-health.md`)
 Both are small; a builder can reasonably take them in one cycle.
-- [ ] `examples/typed-tool-registry/README.md` claims "All 4 self-tests passed" but the
+- [building] `examples/typed-tool-registry/README.md` claims "All 4 self-tests passed" but the
   suite emits "All 6" — the `run_agent` text-join and max-iterations `RuntimeError`
   checks are uncounted. Wrong since PR #2 landed; each night's reviewer only sees
   that day's diff, so nothing catches it. Fix the count, and check whether the
   README should enumerate the cases so the next drift is visible.
-- [ ] `examples/tool-error-policy/policy.py` — `call_tool_with_retry`'s docstring
+- [building] `examples/tool-error-policy/agent.py` (this line said `policy.py`; the
+  function is in `agent.py:187`) — `call_tool_with_retry`'s docstring
   promises a `ValueError` for `max_attempts < 1`, but that raise is unreachable:
   `range(1, 1)` is empty, so the caller gets an `AssertionError` from unrelated
   code instead. Validate at the boundary per Protocol §4; start with a failing

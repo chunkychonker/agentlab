@@ -70,3 +70,11 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   billed `claude` CLI invocation with `--mcp-config`/`--strict-mcp-config`/
   `--bare` and parsing the `stream-json` transcript (see
   [[claude-code-mcp-connection]])
+
+## Repo hygiene & self-verification
+- [[doc-transcript-drift]] — READMEs that paste program output rot silently;
+  why diff-scoped nightly review structurally cannot catch an invariant
+  spanning two files that are never edited together, the MATCH / DRIFT /
+  **UNRUNNABLE** verdict taxonomy a transcript checker needs (a missing
+  dependency is not drift), and why exact-match-with-no-`--update`-flag is the
+  point rather than a limitation (Go/doctest precedent)
