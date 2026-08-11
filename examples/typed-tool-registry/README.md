@@ -13,7 +13,7 @@ From the research note:
 | File | What it is |
 |------|-----------|
 | `agent.py` | Three `@beta_tool`-decorated functions, `TOOL_REGISTRY` (a plain `{name: tool}` dict), and `run_agent()` which drives `client.beta.messages.tool_runner(...).until_done()`. |
-| `test_agent.py` | Offline self-test: schema shape, registry lookup, correct-input results, and rejected-bad-input, for all three tools. No key, no network. |
+| `test_agent.py` | Offline self-test: schema shape, registry lookup, correct-input results and rejected-bad-input for all three tools, plus `run_agent`'s text-join on a clean finish and its `RuntimeError` on `max_iterations`. No key, no network. |
 | `requirements.txt` | `anthropic>=0.120.0` - needed for **both** the live run and the self-test (see below). |
 
 The three tools are plain, deterministic Python functions covering two
@@ -46,9 +46,21 @@ ok  each tool's schema (name/description/type/required) matches its type hints
 ok  TOOL_REGISTRY has exactly 3 entries, keyed by name with true identity
 ok  each tool's .call(...) returns the correct value for a known input
 ok  each tool's .call(...) raises ValueError on wrong-typed or missing arguments
+ok  run_agent joins the final text blocks on a clean finish
+ok  run_agent raises RuntimeError instead of returning '' on max_iterations
 
-All 4 self-tests passed.
+All 6 self-tests passed.
 ```
+
+Verifiable, not hand-copied:
+[`examples/readme-transcript-check`](../readme-transcript-check/) checks this
+block against the real thing —
+`python3 check_transcript.py ../typed-tool-registry -- python3 test_agent.py`.
+This transcript claimed "All 4" from PR #2 (2026-07-29) until the 2026-08-10
+health check flagged it; the checker did not find that drift, it is what now
+keeps it from coming back. Run it from this example's venv — a bare interpreter
+without `anthropic` reports `UNRUNNABLE`, not `MATCH`, which is the distinction
+the checker exists to draw.
 
 This differs from `minimal-agent-loop`'s self-test: there, the tool
 (`calculator`) is stdlib-only and the loop mechanics are exercised against a
