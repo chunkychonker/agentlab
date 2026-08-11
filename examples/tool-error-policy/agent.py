@@ -204,8 +204,14 @@ def call_tool_with_retry(
     made exactly one invocation. Returns ``policy.Report`` for everything the
     model could plausibly fix, including a transient error that survived all
     ``max_attempts`` invocations. Never returns a partial or empty success.
-    ``ValueError`` from ``max_attempts < 1`` propagates from ``policy.classify``.
+    Raises ``ValueError`` here, at the boundary, if ``max_attempts < 1``: a
+    budget that permits no invocation is not a retry policy, and letting it
+    through means ``range(1, 1)`` skips the loop entirely and the caller is told
+    ``policy.classify`` misbehaved when it was never called.
     """
+    if max_attempts < 1:
+        raise ValueError(f"max_attempts must be >= 1, got {max_attempts}")
+
     for attempt in range(1, max_attempts + 1):
         try:
             return Succeeded(tool.run(tool_input))

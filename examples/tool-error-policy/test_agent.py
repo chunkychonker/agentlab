@@ -582,6 +582,35 @@ def test_run_agent_rejects_an_empty_toolset() -> None:
     print("ok  run_agent refuses to start with no tools")
 
 
+def test_call_tool_with_retry_rejects_a_nonsense_budget() -> None:
+    """A retry budget below 1 is rejected at the boundary, before the tool runs.
+
+    Regression: the docstring promised a ValueError, but `range(1, 0 + 1)` is
+    empty, so the loop body never ran, `policy.classify` was never called, and
+    the caller got `AssertionError: policy.classify returned Retry on the final
+    attempt (0)` - an accusation against a function that had not executed.
+    """
+    tool, counter = _tool_from(agent.make_metrics_tool().run)
+
+    for budget in (0, -1):
+        try:
+            agent.call_tool_with_retry(
+                tool,
+                {"name": "latency_p95_ms"},
+                max_attempts=budget,
+                sleep=SleepRecorder(),
+                jitter=_no_jitter,
+            )
+        except ValueError as exc:
+            assert str(budget) in str(exc), f"the bad value must be named: {exc}"
+        else:
+            raise AssertionError(f"expected ValueError for max_attempts={budget}")
+
+    # Rejected at the boundary means the tool was never invoked at all.
+    assert counter.invocations == 0, counter.invocations
+    print("ok  a max_attempts below 1 is rejected before the tool is ever called")
+
+
 # --------------------------------------------------------------------------- #
 
 def main() -> int:
@@ -599,6 +628,7 @@ def main() -> int:
         test_call_key_and_repeat_guard,
         test_unknown_tool_message_requires_tools,
         test_run_agent_rejects_an_empty_toolset,
+        test_call_tool_with_retry_rejects_a_nonsense_budget,
     ]
     started = time.monotonic()
     for t in tests:

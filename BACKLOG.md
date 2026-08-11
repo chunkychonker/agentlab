@@ -35,7 +35,8 @@ Both are small; a builder can reasonably take them in one cycle.
   checks are uncounted. Wrong since PR #2 landed; each night's reviewer only sees
   that day's diff, so nothing catches it. Fix the count, and check whether the
   README should enumerate the cases so the next drift is visible.
-- [ ] `examples/tool-error-policy/policy.py` — `call_tool_with_retry`'s docstring
+- [building] `examples/tool-error-policy/agent.py` (this line said `policy.py`; the
+  function is in `agent.py:187`) — `call_tool_with_retry`'s docstring
   promises a `ValueError` for `max_attempts < 1`, but that raise is unreachable:
   `range(1, 1)` is empty, so the caller gets an `AssertionError` from unrelated
   code instead. Validate at the boundary per Protocol §4; start with a failing
