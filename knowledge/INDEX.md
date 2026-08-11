@@ -15,6 +15,13 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   retry defaults, which statuses retry, `retry-after` handling and its ≤60s
   clamp, the wrong jitter comment, and the status → exception table
 - [[anthropic-models]] — current model IDs and prices (re-check, don't guess)
+- [[context-editing]] — keeping a long tool loop inside the context budget
+  server-side: the three `context_management` strategies and their two betas,
+  the source-verified `clear_tool_uses_20250919` field shapes (including the
+  two `trigger` forms and `clear_tool_inputs` being more than a bool), the
+  all-or-nothing `clear_at_least` and cache-invalidation tradeoffs, and the
+  free `count_tokens` preview path — plus the asymmetry that trips people up
+  (`count_tokens` returns `original_input_tokens` only, never `applied_edits`)
 
 ## Skills
 - [[agent-skills]] — `SKILL.md` anatomy: progressive disclosure (3 load
@@ -60,6 +67,11 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   (see [[tool-failure-taxonomy]])
 - Testing typed tools offline: schema generation + Pydantic validation are pure
   local code, no fake client needed (see [[typed-tool-registry]])
+- Verifying an API behaviour for $0: `count_tokens` is free, rate-limited
+  independently of message creation, and accepts several of the same request
+  params — so effects that show up in the input prefix (context editing, prompt
+  size) can be measured for real without a billed generation
+  (see [[context-editing]])
 - Testing MCP servers offline: connect the SDK's in-memory `Client` straight
   to the server object, no subprocess/host needed (see [[mcp-python-sdk]]);
   for tools that do real outbound HTTP, that's only enough to test
