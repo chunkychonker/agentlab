@@ -1,0 +1,7 @@
+# Only needed for the live run (python main.py with ANTHROPIC_API_KEY set).
+# The offline self-test (python test_preview.py) needs nothing beyond the stdlib.
+#
+# Pinned: 0.121.0 is the version whose generated types this example was written
+# against, including beta_clear_tool_uses_20250919_edit_param and the
+# count_tokens `context_management` parameter.
+anthropic==0.121.0
