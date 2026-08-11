@@ -1,11 +1,12 @@
 # The build pipeline
 
-A once-a-day pipeline: research → build → review → maintain → auto-merge every
-night, plus a lab-wide health check every 3rd night. Each phase is a headless
-Claude Code run (`claude -p`) that delegates to one specialist subagent (except
-auto-merge, which is deterministic bash). The phases don't talk to each other
-directly — they coordinate through this repo's files, which is how the state
-actually flows:
+A nightly pipeline that ships N increments: research → build → review →
+maintain → auto-merge, repeated `.pipeline/cycles` times, then backlog
+replenishment, plus a lab-wide health check every 3rd night. Each phase is a
+headless Claude Code run (`claude -p`) that delegates to one specialist
+subagent (except auto-merge, which is deterministic bash). The phases don't
+talk to each other directly — they coordinate through this repo's files, which
+is how the state actually flows:
 
 ```
   BACKLOG.md ──▶ [1] researcher ──▶ research/DATE-slug.md
@@ -56,6 +57,44 @@ since it requires judgment about intent that no part of this pipeline has.
 The health check is not a gate — it's a separate, non-blocking observability
 pass over what's already shipped.
 
+## Cycles per night
+
+`.pipeline/cycles` (an integer, default 1) sets how many increments a night
+ships. Cycles run **strictly sequentially**, each cut from a freshly-merged
+`main`. That ordering is load-bearing, not incidental:
+
+- **It is what makes conflicts structurally impossible.** Every cycle touches
+  the same shared files — `BACKLOG.md`, `knowledge/INDEX.md`, and backlinks
+  into existing `knowledge/` notes. Running cycles concurrently would collide
+  there. Auto-merge does not help with this: it *declines* conflicts (leaving
+  the PR open for a human), it does not resolve them.
+- **It is what keeps item selection correct.** Each researcher picks "the
+  topmost unclaimed item" and marks it `[researching]` in a working tree no
+  other cycle can see. Run in parallel, N researchers would all pick the *same*
+  item. Sequential cycles see the previous cycle's claim because it lands on
+  `main` as part of that cycle's merged PR.
+
+Between cycles `run.sh` snapshots anything uncommitted to a recovery branch,
+returns to a clean current `main`, and scrubs build artifacts — so a failed
+cycle costs one slot rather than the night, and never leaks its diff into the
+next cycle's PR. A failed cycle does not abort the loop.
+
+Raising this number is only useful while real work is queued, which is what
+the replenishment phase below exists to guarantee.
+
+## Backlog replenishment
+
+After the last cycle, if `BACKLOG.md` has fewer unclaimed `- [ ]` items than
+one night consumes, a replenishment phase appends new ones (targeting three
+nights' worth) and `run.sh` — not the agent — commits and pushes them straight
+to `main`. Without this, throughput just drains the backlog and the
+researcher's empty-backlog fallback re-picks stale items, which buys churn
+rather than portfolio. Demo mode only: `project:<slug>` mode draws work from
+`projects/<slug>/PLAN.md` milestones instead.
+
+Note the literal `- [ ] ` prefix is the contract between `BACKLOG.md` and the
+researcher — an item written without it is invisible to the pipeline.
+
 ## Mode: demo vs. project
 
 `.pipeline/mode` picks the track for every cycle — `demo` (default) works
@@ -77,5 +116,6 @@ for practitioner discussion/reception, not just vendor docs.
 - Manually (recommended first, to shake out PATH/auth): `bash .pipeline/run.sh`
 - On a schedule: the launchd job `com.steeb.agentlab.daily` runs `run.sh` daily.
   See the repo setup notes for how to load/unload it.
+- Budget roughly 20–25 min per cycle, plus ~12 min when the health check runs.
 
 Logs land in `logs/` (git-ignored).
