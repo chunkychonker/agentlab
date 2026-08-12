@@ -23,7 +23,9 @@ and the generated types in `anthropic==0.121.0`.
 Pruning ≠ compaction. Clearing removes content and leaves a placeholder;
 compaction replaces it with a summary. The quality-degradation and
 hallucinated-reference complaints practitioners raise are aimed at
-summarization, not at clearing.
+summarization, not at clearing. Compaction has its own note: [[compaction]] —
+and note that two reassurances below do **not** transfer to it (its beta string
+is absent from the SDK literal union, and it never appears in `applied_edits`).
 
 ## `clear_tool_uses_20250919` fields (SDK source, not docs prose)
 
