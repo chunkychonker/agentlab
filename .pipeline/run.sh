@@ -1,6 +1,7 @@
 #!/bin/bash
-# agentlab nightly pipeline: N x (research -> build -> review -> maintain -> merge),
-# then backlog replenishment, then a periodic lab health check.
+# agentlab nightly pipeline: a backlog replenishment check, then
+# N x (research -> build -> review -> maintain -> merge), then the same
+# replenishment check again, then a periodic lab health check.
 # Each phase is a headless Claude Code run delegating to one specialist subagent.
 # They coordinate through the repo (research/, examples/, BACKLOG.md, git state).
 #
@@ -33,6 +34,18 @@ LOG="logs/run-$TS.log"
 CLAUDE="claude -p --permission-mode bypassPermissions"
 
 echo "=== agentlab pipeline $TS ===" | tee -a "$LOG"
+
+# The backlog file the demo track draws from, and the library holding the
+# replenishment decision logic. The logic lives outside this script so it can be
+# unit-tested offline (`bash .pipeline/test_backlog.sh`) instead of only being
+# exercised on the rare night the gate fires. Sourcing defines functions only.
+BACKLOG_FILE="BACKLOG.md"
+BACKLOG_LIB="$REPO/.pipeline/backlog.sh"
+if [ ! -r "$BACKLOG_LIB" ]; then
+  echo "MISSING $BACKLOG_LIB — required for backlog replenishment. Aborting." | tee -a "$LOG"
+  exit 1
+fi
+. "$BACKLOG_LIB"
 
 # Preflight: both api.anthropic.com (claude -p) and github.com (git/gh) must be
 # reachable. This box's network is VPN-gated; the 403 auth and "can't reach
@@ -225,6 +238,92 @@ run_cycle () {
   return 0
 }
 
+# Backlog replenishment: throughput is only useful while there is real work
+# queued. At N increments a night an unattended backlog drains in days, and the
+# researcher's empty-backlog fallback is to re-pick a stale item — which buys
+# churn, not portfolio. Top up when fewer than one night's worth remain.
+#
+# Reconciled TWICE, before the loop and after it. Before, because a night that
+# starts short leaves its later cycles with nothing to claim — topping up after
+# the loop is too late for the very cycles that needed it. After, so tomorrow
+# starts stocked. The decision reads BACKLOG.md from disk each time and acts at
+# most once, so the second pass is a no-op unless the loop actually drained it.
+# Demo mode only: project mode draws its work from projects/<slug>/PLAN.md
+# milestones, not BACKLOG.md, so there is nothing here to replenish.
+
+# The side effect injected into backlog_ensure_stocked: run the replenish phase
+# for <target> unclaimed items, then commit and push BACKLOG.md if the agent
+# changed it. Returns the phase's status.
+#
+# A failed commit/push is logged but NOT propagated: the new items are already
+# on disk where the next cycle's researcher can claim them, and the postflight
+# snapshot_dirty_main rescues the edit. A git hiccup must never cost the night
+# its increments.
+replenish_action () {
+  local target="$1"
+  local unclaimed
+  if ! unclaimed="$(backlog_count_unclaimed "$BACKLOG_FILE")"; then
+    echo "cannot read $BACKLOG_FILE — skipping the replenish phase." | tee -a "$LOG"
+    return 1
+  fi
+
+  run_phase "replenish (unclaimed=$unclaimed < $CYCLES, target=$target)" \
+    "The agentlab BACKLOG.md has only $unclaimed unclaimed items left and the pipeline consumes $CYCLES a night. Append enough new items to reach at least $target unclaimed, under the appropriate existing section heading (create one if genuinely needed). Rules: use the exact '- [ ] ' prefix — the researcher matches on it literally, and an item without it is invisible. Each item must be a single agent-engineering increment buildable and testable in one cycle, in the style of the existing entries, and must NOT duplicate anything already marked [done], [researching], or [building]. Ground them in what this lab already has: read README.md, PIPELINE.md, knowledge/INDEX.md and examples/ first, and prefer items that extend or harden existing work over unrelated greenfield topics. Edit ONLY BACKLOG.md. Do not commit, push, or touch git — the pipeline commits for you." \
+    || return 1
+
+  # The script commits, not the agent: deterministic message and identity,
+  # and it keeps main clean for tomorrow's preflight either way.
+  if [ -z "$(git status --porcelain "$BACKLOG_FILE")" ]; then
+    echo "replenish phase made no $BACKLOG_FILE changes." | tee -a "$LOG"
+    return 0
+  fi
+  local new_count
+  if ! new_count="$(backlog_count_unclaimed "$BACKLOG_FILE")"; then
+    echo "cannot re-read $BACKLOG_FILE after the replenish phase — leaving the edit for the postflight snapshot." | tee -a "$LOG"
+    return 0
+  fi
+  if git add "$BACKLOG_FILE" >>"$LOG" 2>&1 \
+    && git commit -m "chore(backlog): replenish to $new_count unclaimed items" >>"$LOG" 2>&1 \
+    && git push origin main >>"$LOG" 2>&1; then
+    echo "backlog replenished: $unclaimed -> $new_count unclaimed, pushed to main." | tee -a "$LOG"
+  else
+    echo "backlog replenish commit/push failed — see $LOG; the postflight snapshot will rescue the edit." | tee -a "$LOG"
+  fi
+  return 0
+}
+
+# One reconcile pass, logged. <label> names the call site in the log so the two
+# passes are distinguishable. Always returns 0: a replenishment problem is
+# reported loudly but never aborts the night, which does not depend on it.
+stock_backlog () {
+  local label="$1"
+  [ "$MODE" == "demo" ] || return 0
+
+  local before after
+  before="$(backlog_count_unclaimed "$BACKLOG_FILE" 2>/dev/null)" || before="?"
+  backlog_ensure_stocked "$BACKLOG_FILE" "$CYCLES" replenish_action
+  local rc=$?
+  after="$(backlog_count_unclaimed "$BACKLOG_FILE" 2>/dev/null)" || after="?"
+
+  local msg
+  case "$rc" in
+    0) msg="stocked, $before -> $after unclaimed (need >= $CYCLES/night)" ;;
+    1) msg="replenish ran but $BACKLOG_FILE is STILL short: $before -> $after unclaimed, need >= $CYCLES — see $LOG" ;;
+    2) msg="replenish phase FAILED (still $after unclaimed) — continuing anyway, see $LOG" ;;
+    3) msg="cannot read $BACKLOG_FILE — replenishment skipped, see $LOG" ;;
+    *) msg="unexpected reconcile status $rc — see $LOG" ;;
+  esac
+  echo "" | tee -a "$LOG"
+  echo "--- backlog reconcile ($label): $msg ---" | tee -a "$LOG"
+  return 0
+}
+
+# Must run here, not up next to the "cycles tonight:" echo: it needs the parsed
+# MODE/CYCLES *and* run_phase, and a function is only callable once its
+# definition line has been executed — a call placed earlier would fail with
+# "run_phase: command not found" on exactly the nights the gate fires.
+stock_backlog "pre-loop"
+
 SHIPPED=0
 for (( k=1; k<=CYCLES; k++ )); do
   echo "" | tee -a "$LOG"
@@ -247,37 +346,9 @@ done
 echo "" | tee -a "$LOG"
 echo "shipped $SHIPPED of $CYCLES cycles." | tee -a "$LOG"
 
-# Backlog replenishment: throughput is only useful while there is real work
-# queued. At N increments a night an unattended backlog drains in days, and the
-# researcher's empty-backlog fallback is to re-pick a stale item — which buys
-# churn, not portfolio. Top up when fewer than one night's worth remain.
-# Demo mode only: project mode draws its work from projects/<slug>/PLAN.md
-# milestones, not BACKLOG.md, so there is nothing here to replenish.
-if [ "$MODE" == "demo" ]; then
-  UNCLAIMED="$(grep -c '^- \[ \]' BACKLOG.md 2>/dev/null || true)"
-  [ -z "$UNCLAIMED" ] && UNCLAIMED=0
-  if [ "$UNCLAIMED" -lt "$CYCLES" ]; then
-    run_phase "replenish (unclaimed=$UNCLAIMED < $CYCLES)" \
-      "The agentlab BACKLOG.md has only $UNCLAIMED unclaimed items left and the pipeline consumes $CYCLES a night. Append enough new items to reach at least $(( CYCLES * 3 )) unclaimed, under the appropriate existing section heading (create one if genuinely needed). Rules: use the exact '- [ ] ' prefix — the researcher matches on it literally, and an item without it is invisible. Each item must be a single agent-engineering increment buildable and testable in one cycle, in the style of the existing entries, and must NOT duplicate anything already marked [done], [researching], or [building]. Ground them in what this lab already has: read README.md, PIPELINE.md, knowledge/INDEX.md and examples/ first, and prefer items that extend or harden existing work over unrelated greenfield topics. Edit ONLY BACKLOG.md. Do not commit, push, or touch git — the pipeline commits for you."
-    # The script commits, not the agent: deterministic message and identity,
-    # and it keeps main clean for tomorrow's preflight either way.
-    if [ -n "$(git status --porcelain BACKLOG.md)" ]; then
-      NEW_COUNT="$(grep -c '^- \[ \]' BACKLOG.md 2>/dev/null || true)"
-      if git add BACKLOG.md >>"$LOG" 2>&1 \
-        && git commit -m "chore(backlog): replenish to $NEW_COUNT unclaimed items" >>"$LOG" 2>&1 \
-        && git push origin main >>"$LOG" 2>&1; then
-        echo "backlog replenished: $UNCLAIMED -> $NEW_COUNT unclaimed, pushed to main." | tee -a "$LOG"
-      else
-        echo "backlog replenish commit/push failed — see $LOG; the postflight snapshot will rescue the edit." | tee -a "$LOG"
-      fi
-    else
-      echo "replenish phase made no BACKLOG.md changes." | tee -a "$LOG"
-    fi
-  else
-    echo "" | tee -a "$LOG"
-    echo "--- phase: replenish skipped ($UNCLAIMED unclaimed >= $CYCLES/night) ---" | tee -a "$LOG"
-  fi
-fi
+# Leave tomorrow's draw stocked. Usually a no-op: the pre-loop pass already
+# guaranteed one night's worth, and the loop consumes at most one item a cycle.
+stock_backlog "post-loop"
 
 # Lab health check: a separate concern from tonight's increments — it re-verifies
 # the whole accumulated portfolio (every example still runs, every knowledge

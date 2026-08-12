@@ -55,7 +55,7 @@ Both are small; a builder can reasonably take them in one cycle.
   (compaction blocks, `pause_after_compaction`) and the quality-degradation
   criticism practitioners aim at it. Deliberately split out of the context-editing
   cycle above; do that one first.
-- [ ] Fix the replenishment ordering gap in `run.sh`: top the backlog up *before*
+- [building] Fix the replenishment ordering gap in `run.sh`: top the backlog up *before*
   the cycle loop when unclaimed items are fewer than the night's draw, not only
   after it. Today the last cycle of every drain-the-backlog night finds nothing
   to claim and has to file its own work.

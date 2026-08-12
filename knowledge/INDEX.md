@@ -82,8 +82,19 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   billed `claude` CLI invocation with `--mcp-config`/`--strict-mcp-config`/
   `--bare` and parsing the `stream-json` transcript (see
   [[claude-code-mcp-connection]])
+- [[bash-3.2-testable-scripts]] — the same inject-the-side-effect idea in shell:
+  macOS ships only bash 3.2 (so no bash-4 syntax in pipeline scripts), passing a
+  *function name* and calling it indirectly is what makes orchestration testable
+  offline, why a fake must mutate real state rather than a counter, the
+  `grep -c`-exits-1-on-zero-matches trap, and why plain bash beats adding `bats`
 
 ## Repo hygiene & self-verification
+- [[pipeline-claim-lifecycle]] — how a `BACKLOG.md` claim moves through a night
+  and the two places it is silently lost: a failed cycle's `snapshot_dirty_main`
+  + `reset_to_clean_main` releases the claim with no PR for `gh pr list` to
+  find, and the replenishment gate is satisfied by the researcher's own
+  empty-backlog fallback (so it has never once fired). Plus the literal
+  `^- \[ \]` counting contract and its four duplicated copies
 - [[doc-transcript-drift]] — READMEs that paste program output rot silently;
   why diff-scoped nightly review structurally cannot catch an invariant
   spanning two files that are never edited together, the MATCH / DRIFT /
