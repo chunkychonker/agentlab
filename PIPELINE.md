@@ -1,8 +1,9 @@
 # The build pipeline
 
 A nightly pipeline that ships N increments: research → build → review →
-maintain → auto-merge, repeated `.pipeline/cycles` times, then backlog
-replenishment, plus a lab-wide health check every 3rd night. Each phase is a
+maintain → auto-merge, repeated `.pipeline/cycles` times, bracketed by a
+backlog replenishment check before and after the loop, plus a lab-wide health
+check every 3rd night. Each phase is a
 headless Claude Code run (`claude -p`) that delegates to one specialist
 subagent (except auto-merge, which is deterministic bash). The phases don't
 talk to each other directly — they coordinate through this repo's files, which
@@ -84,16 +85,30 @@ the replenishment phase below exists to guarantee.
 
 ## Backlog replenishment
 
-After the last cycle, if `BACKLOG.md` has fewer unclaimed `- [ ]` items than
-one night consumes, a replenishment phase appends new ones (targeting three
-nights' worth) and `run.sh` — not the agent — commits and pushes them straight
-to `main`. Without this, throughput just drains the backlog and the
-researcher's empty-backlog fallback re-picks stale items, which buys churn
-rather than portfolio. Demo mode only: `project:<slug>` mode draws work from
-`projects/<slug>/PLAN.md` milestones instead.
+If `BACKLOG.md` has fewer unclaimed `- [ ] ` items than one night consumes, a
+replenishment phase appends new ones (targeting three nights' worth) and
+`run.sh` — not the agent — commits and pushes them straight to `main`. Without
+this, throughput just drains the backlog and the researcher's empty-backlog
+fallback re-picks stale items, which buys churn rather than portfolio. Demo
+mode only: `project:<slug>` mode draws work from `projects/<slug>/PLAN.md`
+milestones instead.
+
+That check runs **twice a night: once before the cycle loop and once after**.
+Before, because a night that starts short leaves its later cycles with nothing
+to claim — topping up only afterwards is too late for exactly the cycles that
+needed it. After, so tomorrow starts stocked. Each pass reads `BACKLOG.md` off
+disk and tops up at most once, so the second is a no-op unless the loop
+actually drained it.
 
 Note the literal `- [ ] ` prefix is the contract between `BACKLOG.md` and the
 researcher — an item written without it is invisible to the pipeline.
+
+The decision itself (count, target, whether to act) lives in
+`.pipeline/backlog.sh`, apart from the `claude -p` call and the `git` push it
+triggers, so it can be tested with no network and no API key. Run
+`bash .pipeline/test_backlog.sh` by hand after editing `run.sh` or
+`backlog.sh`; it is on-demand only, like `eval/run_reviewer_eval.sh`, and the
+health check below does not cover it.
 
 ## Mode: demo vs. project
 

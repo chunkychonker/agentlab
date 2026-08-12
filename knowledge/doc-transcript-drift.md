@@ -83,3 +83,5 @@ verdict taxonomy above, which the off-the-shelf tools do not model.
   transcripts in question
 - [[tool-failure-taxonomy]] — same underlying instinct: refuse to collapse
   distinguishable failure classes into one bucket, because the response differs
+- [[pipeline-claim-lifecycle]] — another invariant spanning files that are never
+  edited together, and so invisible to diff-scoped nightly review
