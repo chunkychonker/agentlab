@@ -3,7 +3,7 @@
 A nightly pipeline that ships N increments: research → build → review →
 maintain → auto-merge, repeated `.pipeline/cycles` times, bracketed by a
 backlog replenishment check before and after the loop, plus a lab-wide health
-check every 3rd night. Each phase is a
+check every 7th night. Each phase is a
 headless Claude Code run (`claude -p`) that delegates to one specialist
 subagent (except auto-merge, which is deterministic bash). The phases don't
 talk to each other directly — they coordinate through this repo's files, which
@@ -44,9 +44,11 @@ is how the state actually flows:
    above: it re-verifies the *whole accumulated portfolio*, not tonight's diff.
    Every example's self-test still passes in a fresh env, every `knowledge/`
    wikilink still resolves, every `BACKLOG.md` `[done #N]` still matches a
-   merged PR. Gated to run every 3rd calendar day (rerunning every example's
+   merged PR. Gated to run every 7th calendar day (rerunning every example's
    tests every night doesn't scale with the portfolio's size) via
    `logs/lab-health-*.log` timestamps — no separate schedule state needed.
+   The cadence is `HEALTH_CADENCE_DAYS` in `run.sh`, read by both the gate and
+   the skip message so the two can't disagree.
    Report-only: findings never block, delay, or otherwise affect phases 1–5,
    and it never fixes anything itself. Report lands in `logs/last-health.md`
    (git-ignored, same handoff pattern as `logs/last-review.md`).
@@ -120,6 +122,28 @@ cycles rather than starting fresh each time. Each subagent reads
 `.pipeline/mode` itself as step 0, so this isn't threaded through the phase
 prompts. See `projects/README.md` for how to start one.
 
+## Model per phase
+
+`run_phase` takes the model as its first argument; nothing inherits the
+interactive default from `~/.claude/settings.json`, so changing that default
+can't silently re-price the nightly job.
+
+| Phase | Model | Why |
+|---|---|---|
+| researcher | sonnet | web search and writing a note |
+| builder | **opus** | writes the increment |
+| reviewer | **opus** | the gate on code shipping under your name |
+| maintainer | sonnet | reads a verdict, runs `git` and `gh` |
+| replenish | sonnet | appends checklist lines |
+| health | sonnet | runs existing test suites and reports |
+
+The two opus phases are the ones holding judgment. The reviewer especially:
+it is the only thing standing between a bad increment and a PR with your name
+on it, so it is the last phase that should ever be downgraded to save tokens.
+An unrecognised model name aborts that phase rather than falling back to a
+default, since a silent fallback is exactly how the full-opus bill would
+return unnoticed.
+
 ## Tools available to the pipeline
 
 Beyond the built-in file/search/web tools, the researcher also has the
@@ -129,8 +153,13 @@ for practitioner discussion/reception, not just vendor docs.
 ## Running it
 
 - Manually (recommended first, to shake out PATH/auth): `bash .pipeline/run.sh`
-- On a schedule: the launchd job `com.steeb.agentlab.daily` runs `run.sh` daily.
-  See the repo setup notes for how to load/unload it.
+- On a schedule: the launchd job `com.steeb.agentlab.daily` runs `run.sh` daily
+  at 02:47. See the repo setup notes for how to load/unload it. It runs
+  overnight deliberately — a job this long sharing a rolling 5-hour usage
+  window with interactive daytime work is what makes both feel starved.
+  launchd runs a missed job on next wake, so a Mac asleep at 02:47 will start
+  the run whenever the lid next opens; `pmset repeat wakeorpoweron` keeps that
+  from landing in the middle of a workday.
 - Budget roughly 20–25 min per cycle, plus ~12 min when the health check runs.
 
 Logs land in `logs/` (git-ignored).

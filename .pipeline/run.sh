@@ -31,6 +31,10 @@ LOG="logs/run-$TS.log"
 # Headless runs can't answer permission prompts. This job operates only inside
 # its own repo, and nothing reaches main without a human merging the PR, so we
 # let it run non-interactively. Review the PR before merging.
+#
+# The model is passed explicitly per phase rather than inherited from
+# ~/.claude/settings.json, so a change to the interactive default can never
+# silently re-price the nightly job. See run_phase for which phase gets which.
 CLAUDE="claude -p --permission-mode bypassPermissions"
 
 echo "=== agentlab pipeline $TS ===" | tee -a "$LOG"
@@ -131,11 +135,27 @@ if ! [[ "$CYCLES" =~ ^[1-9][0-9]*$ ]]; then
 fi
 echo "cycles tonight: $CYCLES" | tee -a "$LOG"
 
+# Every phase names its model. Two phases carry real judgment and stay on opus:
+# the builder (writes the increment) and the reviewer (the gate on code that
+# ships under Steve's name — downgrading the gate would be the one change that
+# costs correctness rather than tokens). The rest are mechanical or
+# search-shaped — the maintainer reads a verdict and runs git/gh, the researcher
+# does web search and writes a note, replenish appends checklist lines, health
+# runs test suites and reports — and run on sonnet.
+#
+# An unrecognised model aborts the phase rather than falling through to a
+# default: a typo here would otherwise quietly restore the full-opus bill this
+# split exists to avoid, and nothing downstream would ever surface it.
 run_phase () {
-  local name="$1" prompt="$2"
+  local model="$1" name="$2" prompt="$3"
+  case "$model" in
+    opus|sonnet) ;;
+    *) echo "run_phase: bad model '$model' for phase '$name' — aborting phase." | tee -a "$LOG"
+       return 1 ;;
+  esac
   echo "" | tee -a "$LOG"
-  echo "--- phase: $name ---" | tee -a "$LOG"
-  if ! $CLAUDE "$prompt" >>"$LOG" 2>&1; then
+  echo "--- phase: $name (model: $model) ---" | tee -a "$LOG"
+  if ! $CLAUDE --model "$model" "$prompt" >>"$LOG" 2>&1; then
     echo "phase '$name' exited non-zero — see $LOG" | tee -a "$LOG"
     return 1
   fi
@@ -197,16 +217,16 @@ run_cycle () {
   # this cycle's work unreviewed.
   rm -f logs/last-review.md logs/last-pr.txt
 
-  run_phase "cycle $k/$CYCLES: research" \
+  run_phase sonnet "cycle $k/$CYCLES: research" \
     "Use the agentlab-researcher subagent to run this cycle's research end to end, following its instructions exactly." || return 1
 
-  run_phase "cycle $k/$CYCLES: build" \
+  run_phase opus "cycle $k/$CYCLES: build" \
     "Use the agentlab-builder subagent to build this cycle's increment from the newest research note, following its instructions exactly. Verify it runs." || return 1
 
-  run_phase "cycle $k/$CYCLES: review" \
+  run_phase opus "cycle $k/$CYCLES: review" \
     "Use the agentlab-reviewer subagent to independently review this cycle's working-tree diff, run its tests/lint, and write a PASS/FAIL verdict to logs/last-review.md. Do not modify the increment." || return 1
 
-  run_phase "cycle $k/$CYCLES: maintain" \
+  run_phase sonnet "cycle $k/$CYCLES: maintain" \
     "Use the agentlab-maintainer subagent. Read logs/last-review.md; ONLY if the verdict is PASS, commit this cycle's work as Steve Ling <steveylingy@gmail.com>, push a branch, and open a PR. On FAIL or missing verdict, do nothing and say why."
 
   # Auto-merge gate: mechanical, not an LLM judgment call. The maintainer never
@@ -267,7 +287,7 @@ replenish_action () {
     return 1
   fi
 
-  run_phase "replenish (unclaimed=$unclaimed < $CYCLES, target=$target)" \
+  run_phase sonnet "replenish (unclaimed=$unclaimed < $CYCLES, target=$target)" \
     "The agentlab BACKLOG.md has only $unclaimed unclaimed items left and the pipeline consumes $CYCLES a night. Append enough new items to reach at least $target unclaimed, under the appropriate existing section heading (create one if genuinely needed). Rules: use the exact '- [ ] ' prefix — the researcher matches on it literally, and an item without it is invisible. Each item must be a single agent-engineering increment buildable and testable in one cycle, in the style of the existing entries, and must NOT duplicate anything already marked [done], [researching], or [building]. Ground them in what this lab already has: read README.md, PIPELINE.md, knowledge/INDEX.md and examples/ first, and prefer items that extend or harden existing work over unrelated greenfield topics. Edit ONLY BACKLOG.md. Do not commit, push, or touch git — the pipeline commits for you." \
     || return 1
 
@@ -428,10 +448,14 @@ stock_backlog "post-loop"
 # Lab health check: a separate concern from tonight's increments — it re-verifies
 # the whole accumulated portfolio (every example still runs, every knowledge
 # wikilink resolves, every BACKLOG.md [done #N] matches a merged PR), not just
-# one diff. Runs once per night after the last cycle, and is gated to every 3rd
-# calendar day since it reruns every example's test suite in a fresh venv — real
-# time/cost that doesn't scale with the number of increments. A finding here
-# never blocks or alters the cycles above; it only reports. See agentlab-health.md.
+# one diff. Runs once per night after the last cycle, and is gated to a fixed
+# calendar cadence since it reruns every example's test suite in a fresh venv —
+# real time/cost that grows with the number of increments. A finding here never
+# blocks or alters the cycles above; it only reports. See agentlab-health.md.
+#
+# One constant, read by both the gate and the skip message, so the two can't
+# drift into claiming different cadences.
+HEALTH_CADENCE_DAYS=7
 LAST_HEALTH_LOG="$(ls -t logs/lab-health-*.log 2>/dev/null | head -1)"
 RUN_HEALTH=1
 DAYS_SINCE="n/a"
@@ -440,14 +464,14 @@ if [ -n "$LAST_HEALTH_LOG" ]; then
   LAST_EPOCH="$(date -j -f "%Y-%m-%d" "$LAST_DATE" +%s 2>/dev/null || echo 0)"
   NOW_EPOCH="$(date +%s)"
   DAYS_SINCE=$(( (NOW_EPOCH - LAST_EPOCH) / 86400 ))
-  [ "$DAYS_SINCE" -lt 3 ] && RUN_HEALTH=0
+  [ "$DAYS_SINCE" -lt "$HEALTH_CADENCE_DAYS" ] && RUN_HEALTH=0
 fi
 if [ "$RUN_HEALTH" -eq 1 ]; then
-  run_phase "health" \
+  run_phase sonnet "health" \
     "Use the agentlab-health subagent to run a full lab-scope health check. This cycle's timestamp is $TS — write the dated report to logs/lab-health-$TS.log and the latest-snapshot to logs/last-health.md, following the subagent's instructions exactly. This must not modify anything under examples/, knowledge/, research/, projects/, or BACKLOG.md, and must not affect tonight's PRs or merges above."
 else
   echo "" | tee -a "$LOG"
-  echo "--- phase: health check skipped (last run $LAST_DATE, ${DAYS_SINCE}d ago, cadence=3d) ---" | tee -a "$LOG"
+  echo "--- phase: health check skipped (last run $LAST_DATE, ${DAYS_SINCE}d ago, cadence=${HEALTH_CADENCE_DAYS}d) ---" | tee -a "$LOG"
 fi
 
 # Postflight: guarantee main is clean before this script exits, no matter what
