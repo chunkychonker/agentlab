@@ -292,6 +292,71 @@ replenish_action () {
   return 0
 }
 
+# Re-apply claims that a failed cycle carried off to a cycle/*-unshipped-*
+# branch, so no cycle re-picks a topic that is already built. <label> names the
+# call site in the log.
+#
+# The git half of the stranded-claim fix; the decisions live in backlog.sh where
+# they are unit-tested offline. Always returns 0 — a reconciliation problem is
+# reported loudly but never aborts the night. It never opens a PR for a stranded
+# branch and never deletes one: salvaging that work is a judgment call about
+# intent, which is exactly what this pipeline does not automate.
+reconcile_stranded_claims () {
+  local label="$1"
+  local refs ref base diff claimed key changed=0 rc
+
+  # for-each-ref, not `git branch --list`: the glob is matched against the
+  # refname by git itself, and both local and origin copies are found. A push
+  # that failed leaves the branch local-only, which still holds a real claim.
+  refs="$(git for-each-ref --format='%(refname:short)' \
+    'refs/heads/cycle/*-unshipped-*' 'refs/remotes/origin/cycle/*-unshipped-*' 2>>"$LOG")"
+  [ -z "$refs" ] && return 0
+
+  echo "" | tee -a "$LOG"
+  echo "--- phase: reconcile stranded claims ($label) ---" | tee -a "$LOG"
+
+  while IFS= read -r ref; do
+    [ -z "$ref" ] && continue
+    if ! base="$(git merge-base main "$ref" 2>>"$LOG")"; then
+      echo "  $ref: no merge base with main — skipping." | tee -a "$LOG"
+      continue
+    fi
+    if ! diff="$(git diff "$base" "$ref" -- "$BACKLOG_FILE" 2>>"$LOG")"; then
+      echo "  $ref: cannot diff $BACKLOG_FILE — skipping." | tee -a "$LOG"
+      continue
+    fi
+    if ! claimed="$(backlog_claimed_line "$diff")"; then
+      echo "  $ref: carries no backlog claim — nothing to reconcile." | tee -a "$LOG"
+      continue
+    fi
+    if ! key="$(backlog_claim_key "$claimed")"; then
+      echo "  $ref: claim line has no recognised marker — skipping." | tee -a "$LOG"
+      continue
+    fi
+
+    backlog_apply_stranded "$BACKLOG_FILE" "$key" "$ref"
+    rc=$?
+    case "$rc" in
+      0) changed=$(( changed + 1 ))
+         echo "  $ref: claim re-applied — item marked [$BACKLOG_STRANDED_MARKER $ref]." | tee -a "$LOG" ;;
+      2) echo "  $ref: its item is no longer in $BACKLOG_FILE (reworded or removed) — a human needs to look." | tee -a "$LOG" ;;
+      3) echo "  $ref: already reconciled, shipped, or in flight — left alone." | tee -a "$LOG" ;;
+      *) echo "  $ref: cannot rewrite $BACKLOG_FILE — skipping." | tee -a "$LOG" ;;
+    esac
+  done <<< "$refs"
+
+  [ "$changed" -eq 0 ] && return 0
+
+  if git add "$BACKLOG_FILE" >>"$LOG" 2>&1 \
+    && git commit -m "chore(backlog): reconcile $changed claim(s) stranded on unshipped branches" >>"$LOG" 2>&1 \
+    && git push origin main >>"$LOG" 2>&1; then
+    echo "reconciled $changed stranded claim(s), pushed to main." | tee -a "$LOG"
+  else
+    echo "reconcile commit/push failed — see $LOG; the postflight snapshot will rescue the edit." | tee -a "$LOG"
+  fi
+  return 0
+}
+
 # One reconcile pass, logged. <label> names the call site in the log so the two
 # passes are distinguishable. Always returns 0: a replenishment problem is
 # reported loudly but never aborts the night, which does not depend on it.
@@ -322,6 +387,11 @@ stock_backlog () {
 # MODE/CYCLES *and* run_phase, and a function is only callable once its
 # definition line has been executed — a call placed earlier would fail with
 # "run_phase: command not found" on exactly the nights the gate fires.
+# Before stock_backlog, never after: reconciling REMOVES items from the
+# unclaimed count (a stranded item stops reading '- [ ] '), so counting first
+# would let the night draw work that is already built and about to disappear
+# from the queue.
+reconcile_stranded_claims "pre-loop"
 stock_backlog "pre-loop"
 
 SHIPPED=0
@@ -342,6 +412,11 @@ for (( k=1; k<=CYCLES; k++ )); do
     break
   fi
   scrub_artifacts
+  # The high-value slot: if this cycle just stranded its claim on a snapshot
+  # branch, reconcile before the NEXT cycle's researcher picks a topic. Without
+  # it, cycle k+1 re-researches and rebuilds exactly what cycle k just built —
+  # the 2026-08-12 failure.
+  reconcile_stranded_claims "after cycle $k"
 done
 echo "" | tee -a "$LOG"
 echo "shipped $SHIPPED of $CYCLES cycles." | tee -a "$LOG"

@@ -269,6 +269,141 @@ else
   fail "C14" "fakes no longer mutate a real fixture / record invocations on disk"
 fi
 
+# --- Stranded claims (C15-C23) ---------------------------------------------
+#
+# Acceptance criteria for the 2026-08-13 stranded-claim fix. The item text below
+# is copied verbatim from the real entry the 2026-08-12 failure stranded: it
+# carries backticks, parentheses, brackets and a colon, so a key match built
+# from a regex rather than a literal comparison fails these cases.
+
+KEY='Server-side compaction (`compact_20260112`, beta `compact-2026-01-12`): the'
+BRANCH="cycle/2026-08-12-unshipped-213702-1"
+
+write_claim_fixture () {   # <path> — one claimable item plus decoys
+  {
+    echo "# BACKLOG"
+    echo ""
+    echo "## Context & cost"
+    echo "- [done #25] Previewing server-side context editing"
+    echo "- [ ] $KEY"
+    echo "  summarize-don't-prune sibling of context editing. Different response"
+    echo "- [ ] an unrelated unclaimed item"
+  } > "$1"
+}
+
+# --- C15: the claimed line is lifted out of a real-shaped diff -------------
+
+C15_DIFF="$(printf '%s\n' \
+  'diff --git a/BACKLOG.md b/BACKLOG.md' \
+  '@@ -50,7 +50,7 @@' \
+  ' ## Context & cost' \
+  "-- [ ] $KEY" \
+  "+- [building] $KEY" \
+  "   summarize-don't-prune sibling of context editing.")"
+assert_eq "C15" "- [building] $KEY" "$(backlog_claimed_line "$C15_DIFF")" \
+  "the added claim line is returned without the diff's leading '+'"
+
+# --- C16: a diff with no claim is 'skip', not 'error' ----------------------
+
+c16_out="$(backlog_claimed_line "$(printf '%s\n' '@@ -1 +1 @@' '-old' '+new')")"
+c16_rc=$?
+assert_eq "C16" "1|" "$c16_rc|$c16_out" \
+  "a diff carrying no claim returns 1 with empty stdout"
+
+# --- C17: the key is the item text, and only that --------------------------
+
+assert_eq "C17a" "$KEY" "$(backlog_claim_key "- [building] $KEY")" \
+  "backlog_claim_key strips the [building] marker"
+assert_eq "C17b" "$KEY" "$(backlog_claim_key "- [researching] $KEY")" \
+  "backlog_claim_key strips the [researching] marker"
+c17c_out="$(backlog_claim_key "- [done #27] $KEY")"
+c17c_rc=$?
+assert_eq "C17c" "1|" "$c17c_rc|$c17c_out" \
+  "a non-claim marker is rejected rather than mis-parsed as a claim"
+
+# --- C18: the claim is re-applied, and the item leaves the unclaimed count --
+
+STRANDED="$WORK/stranded.md"
+write_claim_fixture "$STRANDED"
+before_count="$(backlog_count_unclaimed "$STRANDED")"
+backlog_apply_stranded "$STRANDED" "$KEY" "$BRANCH"
+c18_rc=$?
+after_count="$(backlog_count_unclaimed "$STRANDED")"
+assert_eq "C18a" "0" "$c18_rc" "re-applying a stranded claim returns 0"
+assert_eq "C18b" "2|1" "$before_count|$after_count" \
+  "the reconciled item drops out of the unclaimed count"
+assert_eq "C18c" "- [stranded $BRANCH] $KEY" \
+  "$(grep -F "stranded $BRANCH" "$STRANDED")" \
+  "the item now names the branch its work is sitting on"
+
+# --- C19: idempotent — a second pass changes nothing -----------------------
+
+cp "$STRANDED" "$WORK/stranded.before"
+backlog_apply_stranded "$STRANDED" "$KEY" "$BRANCH"
+c19_rc=$?
+if [ "$c19_rc" == "3" ] && diff -q "$WORK/stranded.before" "$STRANDED" >/dev/null; then
+  pass "C19" "a second reconcile pass returns 3 and leaves the file byte-identical"
+else
+  fail "C19" "second pass rc=$c19_rc (want 3) or the file changed"
+fi
+
+# --- C20: an item that is no longer there is reported, not invented --------
+
+MISSING="$WORK/missing.md"
+write_claim_fixture "$MISSING"
+cp "$MISSING" "$WORK/missing.before"
+backlog_apply_stranded "$MISSING" "an item nobody ever wrote" "$BRANCH"
+c20_rc=$?
+if [ "$c20_rc" == "2" ] && diff -q "$WORK/missing.before" "$MISSING" >/dev/null; then
+  pass "C20" "an unmatched key returns 2 and leaves the file untouched"
+else
+  fail "C20" "unmatched key rc=$c20_rc (want 2) or the file changed"
+fi
+
+# --- C21: a salvaged item is left alone ------------------------------------
+# The 2026-08-13 case: PR #27 shipped the stranded work by hand, so the item
+# already reads [done #27]. Re-marking it stranded would be a lie.
+
+SALVAGED="$WORK/salvaged.md"
+write_claim_fixture "$SALVAGED"
+sed -i '' "s|^- \[ \] $(printf '%s' "$KEY" | sed 's/[[\.*^$/]/\\&/g')|- [done #27] $KEY|" "$SALVAGED" 2>/dev/null
+cp "$SALVAGED" "$WORK/salvaged.before"
+backlog_apply_stranded "$SALVAGED" "$KEY" "$BRANCH"
+c21_rc=$?
+if [ "$c21_rc" == "3" ] && diff -q "$WORK/salvaged.before" "$SALVAGED" >/dev/null; then
+  pass "C21" "an item already marked [done #N] is left untouched, rc 3"
+else
+  fail "C21" "salvaged-item rc=$c21_rc (want 3) or the file changed"
+fi
+
+# --- C22: an unwritable backlog fails loudly, without a temp file left over -
+
+UNWRITABLE="$WORK/unwritable.md"
+write_claim_fixture "$UNWRITABLE"
+chmod 444 "$UNWRITABLE"
+backlog_apply_stranded "$UNWRITABLE" "$KEY" "$BRANCH" 2>/dev/null
+c22_rc=$?
+chmod 644 "$UNWRITABLE"
+leftovers="$(ls "$WORK" | grep -c 'reconcile\.' || true)"
+assert_eq "C22" "1|0" "$c22_rc|$leftovers" \
+  "an unwritable backlog returns 1 and leaves no .reconcile temp file behind"
+
+# --- C23: reconcile is wired into run.sh, before the count it changes ------
+# Same brittleness caveat as C12, and the same justification: ordering IS the
+# fix. Reconciling after stock_backlog would let the night draw an item that is
+# already built.
+
+recon_pre="$(grep -n '^reconcile_stranded_claims "pre-loop"' "$RUN_SH" | cut -d: -f1)"
+stock_pre="$(grep -n '^stock_backlog "pre-loop"' "$RUN_SH" | cut -d: -f1)"
+recon_loop="$(grep -n 'reconcile_stranded_claims "after cycle' "$RUN_SH" | cut -d: -f1)"
+if [ -z "$recon_pre" ] || [ -z "$stock_pre" ] || [ -z "$recon_loop" ]; then
+  fail "C23" "run.sh is missing a reconcile call site (pre=${recon_pre:-none}, stock=${stock_pre:-none}, in-loop=${recon_loop:-none})"
+elif [ "$recon_pre" -lt "$stock_pre" ] && [ "$recon_loop" -gt "$stock_pre" ]; then
+  pass "C23" "run.sh reconciles before the pre-loop count (line $recon_pre < $stock_pre) and again inside the loop (line $recon_loop)"
+else
+  fail "C23" "reconcile is mis-ordered: pre=$recon_pre, stock=$stock_pre, in-loop=$recon_loop"
+fi
+
 # --- Summary ---------------------------------------------------------------
 
 echo ""
