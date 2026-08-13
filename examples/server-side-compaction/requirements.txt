@@ -1,0 +1,10 @@
+# Needed for the live run (python3 main.py with ANTHROPIC_API_KEY set) and for
+# the schema check (python3 verify_fixture_schema.py, which needs no key and no
+# network). The offline self-test (python3 test_compaction.py) needs nothing
+# beyond the stdlib.
+#
+# Pinned: 0.121.0 is the version whose generated types this example was written
+# against - beta_compact_20260112_edit_param, beta_compaction_block,
+# beta_compaction_iteration_usage, and the BetaStopReason literal that includes
+# "compaction".
+anthropic==0.121.0

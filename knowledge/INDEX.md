@@ -22,6 +22,12 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   all-or-nothing `clear_at_least` and cache-invalidation tradeoffs, and the
   free `count_tokens` preview path — plus the asymmetry that trips people up
   (`count_tokens` returns `original_input_tokens` only, never `applied_edits`)
+- [[compaction]] — the *summarize* sibling: the `compact_20260112` edit's four
+  fields and its 50k-token trigger floor, `pause_after_compaction` +
+  `stop_reason: "compaction"`, the three ways to detect it (never
+  `applied_edits`), the null-summary failure mode both vendors' example
+  snippets crash on, `encrypted_content` round-tripping, why top-level
+  `usage.input_tokens` under-reports the bill, and why Haiku can't run it
 
 ## Skills
 - [[agent-skills]] — `SKILL.md` anatomy: progressive disclosure (3 load
@@ -71,7 +77,9 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   independently of message creation, and accepts several of the same request
   params — so effects that show up in the input prefix (context editing, prompt
   size) can be measured for real without a billed generation
-  (see [[context-editing]])
+  (see [[context-editing]]) — but only for effects the endpoint reproduces:
+  it applies existing compaction blocks and will **not** trigger new ones, so
+  compaction cannot be previewed for $0 (see [[compaction]])
 - Testing MCP servers offline: connect the SDK's in-memory `Client` straight
   to the server object, no subprocess/host needed (see [[mcp-python-sdk]]);
   for tools that do real outbound HTTP, that's only enough to test
