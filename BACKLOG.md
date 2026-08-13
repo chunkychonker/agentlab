@@ -75,7 +75,7 @@ Both are small; a builder can reasonably take them in one cycle.
   spending a cent on generation. Filed by the researcher on 2026-08-11 because
   the backlog was drained by cycle 1 and replenishment only runs after the last
   cycle — see `research/2026-08-11-context-editing-preview.md`.
-- [building] Server-side compaction (`compact_20260112`, beta `compact-2026-01-12`): the
+- [done #27] Server-side compaction (`compact_20260112`, beta `compact-2026-01-12`): the
   summarize-don't-prune sibling of context editing. Different response shape
   (compaction blocks, `pause_after_compaction`) and the quality-degradation
   criticism practitioners aim at it. Deliberately split out of the context-editing
