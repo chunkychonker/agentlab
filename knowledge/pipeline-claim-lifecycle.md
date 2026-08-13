@@ -96,12 +96,23 @@ run the monitor before the fallback can act.
 The literal prefix `- [ ] ` at column 0 is the interface between `BACKLOG.md`
 and the pipeline (`grep -c '^- \[ \]'`). An item written any other way — extra
 indent, different marker — is invisible to both the researcher and the
-replenishment gate. This regex is currently restated in `run.sh` (twice), in
-`PIPELINE.md`, and in the researcher's agent definition; four copies of one
-magic value.
+replenishment gate. The regex now has exactly one executable copy, at
+`.pipeline/backlog.sh:39` — it was duplicated across `run.sh` when this note
+was first written, and consolidating it there is what made the counting logic
+testable offline (`bash .pipeline/test_backlog.sh`).
+
+What remains elsewhere is prose about the contract, not a second
+implementation of it: `PIPELINE.md` (lines 90 and 105) describes the `- [ ] `
+prefix, and `agentlab-researcher.md:26` says "topmost unclaimed `[ ]` item"
+in the looser, unanchored form. Those still have to agree with the regex in
+meaning, but they are not copies that can drift character-by-character.
 
 Note `grep -c` with zero matches prints `0` **and exits 1**, so the `|| true`
-in `run.sh` is load-bearing, not defensive noise.
+at `backlog.sh:39` is load-bearing, not defensive noise — the reasoning is
+recorded at `backlog.sh:30-31`, next to the code it protects rather than only
+here. (`run.sh`'s one remaining `|| true`, on the `git branch -D` at line 204,
+is a different thing entirely: it tolerates a failed cleanup of an empty
+recovery branch.)
 
 ## Related
 

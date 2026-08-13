@@ -102,7 +102,9 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   + `reset_to_clean_main` releases the claim with no PR for `gh pr list` to
   find, and the replenishment gate is satisfied by the researcher's own
   empty-backlog fallback (so it has never once fired). Plus the literal
-  `^- \[ \]` counting contract and its four duplicated copies
+  `^- \[ \]` counting contract, now consolidated to a single executable copy
+  at `.pipeline/backlog.sh:39`, and why the surrounding `|| true` is
+  load-bearing
 - [[doc-transcript-drift]] — READMEs that paste program output rot silently;
   why diff-scoped nightly review structurally cannot catch an invariant
   spanning two files that are never edited together, the MATCH / DRIFT /
