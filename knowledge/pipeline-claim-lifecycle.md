@@ -43,6 +43,34 @@ and its commit message begins `wip:`.
 by any recovery path that discards the work. Exclusion state and work product
 want different durability.
 
+**Resolved 2026-08-13.** `run.sh`'s `reconcile_stranded_claims` now scans
+`cycle/*-unshipped-*` (local *and* origin — a failed push leaves the branch local
+only), reads the claim out of the branch's `BACKLOG.md` diff against its merge
+base, and re-applies it to main as `- [stranded <branch>] `. That marker is not
+`- [ ] `, so the item leaves both the researcher's pick and the replenishment
+count, and it names the branch a human has to salvage. Decisions live in
+`backlog.sh` (`backlog_claimed_line`, `backlog_claim_key`,
+`backlog_apply_stranded`) and are tested offline as C15–C23; the git plumbing
+stays in `run.sh`.
+
+Two properties worth keeping if this is ever rewritten:
+
+- **It reconciles, it does not salvage.** It never opens a PR for a stranded
+  branch and never deletes one. Whether that work should ship is a judgment
+  about intent, which is the line this pipeline does not cross.
+- **Ordering is the fix, not the marker.** The pre-loop call must run *before*
+  `stock_backlog`, because reconciling lowers the unclaimed count; counting
+  first would let the night draw an item that is already built. The in-loop call
+  after each `snapshot_dirty_main` is what stops cycle *k+1* rebuilding what
+  cycle *k* just stranded — the actual 2026-08-12 failure.
+
+An item matched by text, not by line number: the item text is byte-identical on
+main and on the branch, and it contains backticks, parentheses and brackets, so
+every comparison is literal. A regex built from the item text misfires. The same
+trap bit the implementation itself — `${line#- [building] }` treats `[building]`
+as a *character class* matching one char from `{b,u,i,l,d,n,g}`, silently strips
+nothing, and hands back the whole line as the key. C17 exists because of it.
+
 ## Failure 2 — replenishment measures a backlog it did not fill
 
 Replenishment is gated on `unclaimed < CYCLES` and, before the fix proposed on

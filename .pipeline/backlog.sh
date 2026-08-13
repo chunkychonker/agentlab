@@ -88,3 +88,129 @@ backlog_ensure_stocked () {
   backlog_should_replenish "$after" "$cycles" && return 1
   return 0
 }
+
+# --- Stranded claims -------------------------------------------------------
+#
+# A claim ('[ ]' -> '[researching]' -> '[building]') lives only in the working
+# tree until a PR merges. When a cycle fails, run.sh's snapshot_dirty_main
+# carries that working tree — claim included — onto a cycle/*-unshipped-* branch
+# and returns to a main whose BACKLOG.md reads '- [ ] ' again. The work exists;
+# the claim pointing at it left with it, so the next cycle re-picks the topic and
+# rebuilds what is already built. Observed 2026-08-12 (a 529 in maintain).
+#
+# The fix is to re-apply the claim to main in a form that says where the work
+# went: '- [stranded <branch>] '. That is not '- [ ] ', so it is invisible to
+# both backlog_count_unclaimed and the researcher's pick, and it names the branch
+# a human must salvage. See knowledge/pipeline-claim-lifecycle.md.
+
+# The marker a reconciled item carries. Named once: run.sh logs it, the
+# self-test asserts on it, and neither restates the literal.
+BACKLOG_STRANDED_MARKER="stranded"
+
+# The claimed BACKLOG.md line inside <diff-text>, on stdout, without the diff's
+# leading '+'.
+#
+# <diff-text> is a unified diff of BACKLOG.md between a branch and its merge base
+# with main. A claim shows up there as an added line carrying a claimed marker.
+# Only the FIRST such line is reported: one cycle claims one item, and a branch
+# carrying two claims is a state this function refuses to guess at.
+#
+# Failure modes:
+#   no added claim line in <diff-text> -> return 1, nothing on stdout. That is
+#   the normal case for a snapshot branch that failed before the researcher
+#   edited BACKLOG.md, so callers treat it as "skip", not "error".
+backlog_claimed_line () {
+  local diff="$1" line found=""
+  # A here-string, not a pipeline: `... | while` would run the loop in a subshell
+  # and $found would not survive it. bash 3.2 has <<< .
+  while IFS= read -r line; do
+    [ -n "$found" ] && continue
+    case "$line" in
+      '+- [researching] '*|'+- [building] '*) found="${line#+}" ;;
+    esac
+  done <<< "$diff"
+  [ -z "$found" ] && return 1
+  printf '%s\n' "$found"
+}
+
+# The item text of <claimed-line>, on stdout — everything after the marker.
+#
+# That text is the item's identity: it is byte-identical on main (where the line
+# still reads '- [ ] <text>') and on the branch, so callers match on it
+# literally. Literal matching is deliberate — item text contains backticks,
+# parentheses and brackets, so any regex built from it would misfire.
+#
+# Failure modes:
+#   <claimed-line> carries no recognised claim marker -> return 1, no stdout.
+backlog_claim_key () {
+  local line="$1"
+  # The brackets MUST be escaped here. The word after '#' is a glob pattern, so
+  # an unescaped [building] is a character class matching ONE character from
+  # {b,u,i,l,d,n,g} — it silently strips nothing and the whole line comes back
+  # as the key. (The case patterns above are quoted, so they are already
+  # literal; only the expansions need this.)
+  case "$line" in
+    '- [researching] '*) printf '%s\n' "${line#- \[researching\] }" ;;
+    '- [building] '*)    printf '%s\n' "${line#- \[building\] }" ;;
+    *) return 1 ;;
+  esac
+}
+
+# Rewrite the item whose text is <key> in <path> to '- [stranded <branch>] <key>'.
+#
+# This is a reconciler: it decides from the file's current contents, and calling
+# it twice changes nothing the second time. It rewrites <path> in place only when
+# there is something to change, so a no-op leaves the file's mtime alone and
+# `git status` stays clean.
+#
+# Failure modes (distinct codes — run.sh logs them differently, and "already
+# handled" must never be reported as "could not find"):
+#   0  rewritten: the item read '- [ ] <key>' and now reads stranded
+#   1  <path> is not a readable regular file, or is not writable
+#   2  no line in <path> has the item text <key> — the item was reworded or
+#      removed since the branch was cut; a human has to look
+#   3  nothing to do: already stranded, or already '[done #N]' (salvaged), or
+#      claimed by a cycle in flight right now
+backlog_apply_stranded () {
+  local path="$1" key="$2" branch="$3"
+  if [ ! -f "$path" ] || [ ! -r "$path" ] || [ ! -w "$path" ]; then
+    echo "backlog_apply_stranded: '$path' is not a readable, writable file" >&2
+    return 1
+  fi
+
+  local tmp line rest changed=0 seen=0
+  tmp="$path.reconcile.$$"
+  : > "$tmp" || return 1
+
+  # `|| [ -n "$line" ]` so a final line with no trailing newline is not dropped.
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ "$line" = "- [ ] $key" ]; then
+      seen=1; changed=1
+      printf '%s\n' "- [$BACKLOG_STRANDED_MARKER $branch] $key" >> "$tmp"
+      continue
+    fi
+    # Any other marker carrying the same item text: already reconciled, already
+    # shipped, or in flight. All three mean "leave it alone", and all three are
+    # matched by suffix so no marker's spelling is hard-coded here beyond the
+    # '- [' the format itself guarantees.
+    case "$line" in
+      '- ['*"] $key")
+        seen=1
+        printf '%s\n' "$line" >> "$tmp"
+        continue
+        ;;
+    esac
+    printf '%s\n' "$line" >> "$tmp"
+  done < "$path"
+
+  if [ "$seen" -eq 0 ]; then
+    rm -f "$tmp"
+    return 2
+  fi
+  if [ "$changed" -eq 0 ]; then
+    rm -f "$tmp"
+    return 3
+  fi
+  mv "$tmp" "$path" || return 1
+  return 0
+}

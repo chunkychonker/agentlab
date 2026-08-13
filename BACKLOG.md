@@ -108,7 +108,7 @@ Both are small; a builder can reasonably take them in one cycle.
   currently refuses with `AmbiguousTranscript`), and whether the other
   transcripts are in fact deterministic — only two were ever verified. Stays
   report-only; the health check never fixes and never blocks.
-- [ ] Reconcile orphaned backlog claims left behind by a failed cycle.
+- [building] Reconcile orphaned backlog claims left behind by a failed cycle.
   `knowledge/pipeline-claim-lifecycle.md` documents it as failure 1:
   `snapshot_dirty_main` + `reset_to_clean_main` carry finished work off to a
   `cycle/<date>-unshipped-*` branch and restore a `BACKLOG.md` where the item
