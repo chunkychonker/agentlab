@@ -198,3 +198,23 @@ for practitioner discussion/reception, not just vendor docs.
 - Budget roughly 20–25 min per cycle, plus ~12 min when the health check runs.
 
 Logs land in `logs/` (git-ignored).
+
+### What a dirty `main` does to the night
+
+Before any phase runs, the preflight classifies the working tree
+(`worktree_disposition` in `.pipeline/preflight.sh`) and the two dirty outcomes
+are treated as opposites:
+
+- **A modified tracked file aborts the run.** The per-cycle and postflight
+  snapshots already rescue a failed cycle, so a tracked edit surviving to the
+  next night means something outside the pipeline changed the repo. That wants
+  a human, not a guess.
+- **Untracked-only dirt does not.** Strays are moved to
+  `.pipeline/strays/<timestamp>/` (git-ignored, never deleted, never committed)
+  and the night proceeds. Aborting over a leftover scratch file costs a full
+  cycle and protects nothing.
+
+The second case is why this split exists: on 2026-08-14 a single untracked
+`.claude/settings.local.json` ended the run three seconds in. If a file you
+wanted goes missing from the repo root, look in `.pipeline/strays/` before
+assuming the pipeline ate it.

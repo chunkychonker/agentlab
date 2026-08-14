@@ -20,3 +20,9 @@ graphify-out/
 # main reports anything, untracked files included. scrub_artifacts already
 # excludes this path from `git clean -fdx`, so it survives between runs.
 .claude/settings.local.json
+
+# Untracked strays the preflight moved out of main's way so a scratch file
+# could not abort the night (see .pipeline/preflight.sh, STRAY_DIR). Contents
+# are whatever was left lying in the repo — never pipeline output, so never
+# committed. Safe to delete by hand once you have looked at what landed there.
+.pipeline/strays/

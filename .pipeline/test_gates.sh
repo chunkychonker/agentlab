@@ -6,10 +6,13 @@
 #                           health_item_subject)
 #   .pipeline/backlog.sh  — the health-filing half (backlog_has_unresolved,
 #                           backlog_file_health_finding)
+#   .pipeline/preflight.sh — what a dirty main means (worktree_disposition),
+#                           plus run.sh's stash_strays, extracted and run
 #
-# plus the call sites all three have in .pipeline/run.sh. No network, no
-# ANTHROPIC_API_KEY, no git, no `claude` — all it touches is a throwaway temp
-# dir plus read-only greps of run.sh.
+# plus the call sites all four have in .pipeline/run.sh. No network, no
+# ANTHROPIC_API_KEY, no `claude` — all it touches is a throwaway temp dir plus
+# read-only greps of run.sh. It does run real `git`, but only ever inside a
+# throwaway repo under that temp dir, never against this one.
 #
 # One file rather than three because the two changes are one feature: the
 # review verdict and the health report are both things an agent writes and
@@ -57,14 +60,15 @@ trap 'chmod -R u+rwX "$WORK" 2>/dev/null; rm -rf "$WORK"' EXIT
 
 # Sourcing must be silent and must not touch anything — the libs are declaration
 # files, and run.sh sources them under `set -uo pipefail` before any phase runs.
-src_noise="$( { . "$REPO/.pipeline/verdict.sh"; . "$REPO/.pipeline/health.sh"; . "$REPO/.pipeline/backlog.sh"; } 2>&1 )"
+src_noise="$( { . "$REPO/.pipeline/verdict.sh"; . "$REPO/.pipeline/health.sh"; . "$REPO/.pipeline/backlog.sh"; . "$REPO/.pipeline/preflight.sh"; } 2>&1 )"
 src_rc=$?
 assert_eq "INV1" "0|" "$src_rc|$src_noise" \
-  "sourcing verdict.sh, health.sh and backlog.sh exits 0 and prints nothing"
+  "sourcing verdict.sh, health.sh, backlog.sh and preflight.sh exits 0 and prints nothing"
 
 . "$REPO/.pipeline/verdict.sh"
 . "$REPO/.pipeline/health.sh"
 . "$REPO/.pipeline/backlog.sh"
+. "$REPO/.pipeline/preflight.sh"
 
 # --- verdict.sh ------------------------------------------------------------
 #
@@ -338,6 +342,121 @@ assert_eq "B12" "1" \
   "$(grep -c "^- \[ \] $BACKLOG_HEALTH_PREFIX 2026-08-14): examples/tool-error-policy/" "$BL")" \
   "a filed item matches the literal '- [ ] ' prefix the researcher picks on"
 
+# --- preflight.sh: classification ------------------------------------------
+#
+# The acceptance criteria for "what does a dirty main mean". The asymmetry is
+# the whole point and P7 is the case that carries it: untracked-only dirt is
+# recoverable, but ONE tracked change blocks the night no matter how much
+# untracked noise sits beside it.
+
+# disp_case <id> <expected-word> <expected-rc> <what> [porcelain-line...]
+# No lines means "clean tree" (the empty string git actually returns).
+disp_case () {
+  local id="$1" want_word="$2" want_rc="$3" what="$4"; shift 4
+  local text=""
+  [ "$#" -gt 0 ] && text="$(printf '%s\n' "$@")"
+  local got_word got_rc
+  got_word="$(worktree_disposition "$text")"
+  got_rc=$?
+  assert_eq "$id" "$want_word|$want_rc" "$got_word|$got_rc" "$what"
+}
+
+disp_case "P1" "CLEAN"   0 "an empty status is CLEAN"
+disp_case "P2" "CLEAN"   0 "a blank-line-only status is CLEAN" ""
+disp_case "P3" "STRAY"   2 "one untracked file is a STRAY" "?? scratch.txt"
+disp_case "P4" "STRAY"   2 "several untracked files are STRAYs" \
+  "?? scratch.txt" "?? notes/" "?? .claude/settings.local.json"
+disp_case "P5" "BLOCKED" 1 "an unstaged tracked edit BLOCKS" " M .pipeline/run.sh"
+disp_case "P6" "BLOCKED" 1 "a staged tracked edit BLOCKS" "M  BACKLOG.md"
+disp_case "P7" "BLOCKED" 1 "one tracked edit BLOCKS even amid untracked files" \
+  "?? scratch.txt" " M BACKLOG.md" "?? notes/"
+disp_case "P8" "BLOCKED" 1 "a merge conflict BLOCKS" "UU knowledge/INDEX.md"
+disp_case "P9" "BLOCKED" 1 "a staged rename BLOCKS" "R  old.md -> new.md"
+disp_case "P10" "BLOCKED" 1 "a staged delete BLOCKS" "D  examples/gone.py"
+# A `??` path whose name would need parsing to read. The status code is in the
+# first two columns regardless, so classification must not care.
+disp_case "P11" "STRAY"  2 "a quoted untracked path is still a STRAY" \
+  '?? "scratch file.txt"' '?? "odd\nname.txt"'
+
+# --- preflight.sh: the mover it feeds --------------------------------------
+#
+# stash_strays lives in run.sh (it does I/O, so it is not in the lib), but it
+# is the half that can lose someone's file, so it gets a real test rather than
+# an ordering grep. Extracted verbatim and run against a REAL throwaway git
+# repo: the subtle behaviour is git's own (`ls-files --others` listing files
+# individually where `status` collapses a directory, and --exclude-standard
+# skipping ignored paths), and a stubbed git would only test the stub.
+
+eval "$(sed -n '/^stash_strays () {/,/^}/p' "$RUN_SH")"
+if ! declare -f stash_strays >/dev/null 2>&1; then
+  fail "S0" "could not extract stash_strays from run.sh — the tests below are vacuous"
+else
+  pass "S0" "stash_strays extracted verbatim from run.sh"
+
+  TMPREPO="$WORK/strayrepo"
+  mkdir -p "$TMPREPO"
+  (
+    cd "$TMPREPO" || exit 1
+    git -c init.defaultBranch=main init -q . >/dev/null 2>&1
+    printf 'tracked\n' > tracked.md
+    # Mirrors this repo's own .gitignore, and the strays line is load-bearing
+    # rather than scenery: without it the moved strays are themselves untracked
+    # output and S4 below fails, because the tree is dirty all over again one
+    # line after being rescued. R7 is what asserts the real repo carries it.
+    printf 'ignored-here\n' > .gitignore
+    printf 'secret.env\n' >> .gitignore
+    printf '.pipeline/strays/\n' >> .gitignore
+    git add tracked.md .gitignore >/dev/null 2>&1
+    git -c user.email=t@t -c user.name=t commit -qm init >/dev/null 2>&1
+  ) || fail "S0b" "could not build the temp repo"
+
+  # The strays: a plain file, one nested two deep (status would collapse the
+  # whole directory into `?? nested/`), one whose name needs quoting, and one
+  # git ignores (which the preflight never sees, so the mover must leave it).
+  mkdir -p "$TMPREPO/nested/deeper"
+  printf 'x\n' > "$TMPREPO/scratch.txt"
+  printf 'x\n' > "$TMPREPO/nested/deeper/note.md"
+  printf 'x\n' > "$TMPREPO/stray with spaces.txt"
+  printf 'x\n' > "$TMPREPO/secret.env"
+
+  stray_rc=0
+  stray_out="$(
+    cd "$TMPREPO" || exit 1
+    TS="testTS"; LOG="$WORK/stray.log"; STRAY_DIR=".pipeline/strays"
+    stash_strays 2>&1
+  )" || stray_rc=$?
+
+  assert_eq "S1" "0" "$stray_rc" "stash_strays exits 0 on an untracked-only tree"
+
+  dest="$TMPREPO/.pipeline/strays/testTS"
+  moved="$( [ -f "$dest/scratch.txt" ] && [ -f "$dest/nested/deeper/note.md" ] \
+    && [ -f "$dest/stray with spaces.txt" ] && echo "all" )"
+  assert_eq "S2" "all" "${moved:-missing}" \
+    "every stray is moved, nested path and quoted name preserved"
+
+  left="$( [ -e "$TMPREPO/scratch.txt" ] || [ -e "$TMPREPO/nested/deeper/note.md" ] \
+    || [ -e "$TMPREPO/stray with spaces.txt" ] && echo "leftover" )"
+  assert_eq "S3" "clean" "${left:-clean}" "no stray is left behind in the repo root"
+
+  # The contract the whole guard rests on: after the move, the preflight's own
+  # check must agree the tree is clean, or run.sh aborts one line later anyway.
+  after="$(cd "$TMPREPO" && git status --porcelain)"
+  assert_eq "S4" "CLEAN" "$(worktree_disposition "$after")" \
+    "the tree the mover leaves behind classifies CLEAN"
+
+  assert_eq "S5" "kept" \
+    "$( [ -f "$TMPREPO/secret.env" ] && echo kept || echo moved )" \
+    "a gitignored file is left alone — the preflight never counted it as dirt"
+
+  assert_eq "S6" "1" \
+    "$(printf '%s\n' "$stray_out" | grep -c '3 untracked stray')" \
+    "the run log reports how many strays moved"
+
+  assert_eq "S7" "tracked" \
+    "$( [ -f "$TMPREPO/tracked.md" ] && echo tracked || echo lost )" \
+    "a tracked file is never touched by the mover"
+fi
+
 # --- run.sh call sites -----------------------------------------------------
 #
 # Same brittleness caveat as test_backlog.sh's C12/C23, and the same
@@ -375,12 +494,35 @@ assert_eq "R4" "1" \
   "$(grep -c 'Never.*edit anything under' "$REPO/.claude/agents/agentlab-health.md")" \
   "agentlab-health.md still forbids the agent from editing BACKLOG.md itself"
 
+# The preflight must classify BEFORE scrub_artifacts runs: the scrub is
+# `git clean -fdx`, so a stray still lying in the tree when it fires is deleted
+# rather than rescued. Ordering IS the fix, same as R1.
+disp_ln="$(grep -n 'worktree_disposition "\$(git status --porcelain)"' "$RUN_SH" | head -1 | cut -d: -f1)"
+scrub_ln="$(grep -n '^scrub_artifacts$' "$RUN_SH" | head -1 | cut -d: -f1)"
+if [ -z "$disp_ln" ] || [ -z "$scrub_ln" ]; then
+  fail "R6" "run.sh is missing a preflight call site (disposition=${disp_ln:-none}, scrub=${scrub_ln:-none})"
+elif [ "$disp_ln" -lt "$scrub_ln" ]; then
+  pass "R6" "run.sh classifies the tree (line $disp_ln) before scrub_artifacts deletes anything (line $scrub_ln)"
+else
+  fail "R6" "scrub_artifacts runs before the disposition check: disp=$disp_ln, scrub=$scrub_ln"
+fi
+
+# Two out-of-file agreements STRAY_DIR cannot enforce from preflight.sh, both
+# of which silently undo the rescue if they drift: .gitignore keeps the moved
+# strays from re-dirtying the tree, and the scrub's -e keeps `git clean -fdx`
+# (which deletes ignored files too) from erasing them seconds later.
+assert_eq "R7" "1" "$(grep -c '^\.pipeline/strays/$' "$REPO/.gitignore")" \
+  ".gitignore lists .pipeline/strays/, so rescued strays do not re-dirty main"
+assert_eq "R8" "1" \
+  "$(grep -c 'git clean -fdx .*-e "\$STRAY_DIR"' "$RUN_SH")" \
+  "scrub_artifacts excludes \$STRAY_DIR from git clean -fdx"
+
 syntax_bad="$(for f in "$RUN_SH" "$REPO/.pipeline/verdict.sh" "$REPO/.pipeline/health.sh" \
-  "$REPO/.pipeline/backlog.sh" "$REPO/.pipeline/test_gates.sh"; do
+  "$REPO/.pipeline/backlog.sh" "$REPO/.pipeline/preflight.sh" "$REPO/.pipeline/test_gates.sh"; do
     bash -n "$f" 2>&1
   done)"
 assert_eq "R5" "" "$syntax_bad" \
-  "bash -n is clean on run.sh, the three libs, and this test"
+  "bash -n is clean on run.sh, the four libs, and this test"
 
 # --- Summary ---------------------------------------------------------------
 
