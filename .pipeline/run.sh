@@ -39,16 +39,17 @@ CLAUDE="claude -p --permission-mode bypassPermissions"
 
 echo "=== agentlab pipeline $TS ===" | tee -a "$LOG"
 
-# The backlog file the demo track draws from, and the three libraries holding
+# The backlog file the demo track draws from, and the four libraries holding
 # this script's decision logic: backlog.sh (is the queue stocked, is a claim
 # stranded, has this finding been filed), verdict.sh (does the review authorise
-# shipping), health.sh (what did the health check actually find). All three live
+# shipping), health.sh (what did the health check actually find),
+# preflight.sh (what does a dirty main mean). All four live
 # outside this script so they can be unit-tested offline
 # (`bash .pipeline/test_backlog.sh`, `bash .pipeline/test_gates.sh`) instead of
 # only being exercised on the rare night each gate fires. Sourcing defines
 # functions and constants only — it runs nothing and prints nothing.
 BACKLOG_FILE="BACKLOG.md"
-for lib in backlog verdict health; do
+for lib in backlog verdict health preflight; do
   if [ ! -r "$REPO/.pipeline/$lib.sh" ]; then
     echo "MISSING $REPO/.pipeline/$lib.sh — required. Aborting." | tee -a "$LOG"
     exit 1
@@ -93,17 +94,60 @@ fi
 # Untracked build artifacts (.venv, __pycache__, example dirs) from a
 # previous cycle's unmerged branch survive a plain `git switch main` and
 # accumulate on disk — main never had them tracked, so they just sit there.
-# Only safe to wipe them if main's working tree is otherwise clean. The
-# per-cycle and postflight snapshots below auto-rescue a FAILed cycle's dirty
-# main, so this should rarely trip — but it stays as a hard abort (not a
-# guess-and-clean) in case main is ever left dirty by something other than
-# this script, e.g. manual work done directly in the repo.
-if [ -n "$(git status --porcelain)" ]; then
-  echo "main has uncommitted or untracked changes (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting." | tee -a "$LOG"
-  exit 1
-fi
+# Only safe to wipe them if nothing git TRACKS is modified. worktree_disposition
+# (.pipeline/preflight.sh) draws exactly that line; the two dirty outcomes get
+# opposite treatment on purpose:
+#
+#   BLOCKED — a tracked file is modified. Hard abort, as this guard has always
+#             done. The per-cycle and postflight snapshots below auto-rescue a
+#             FAILed cycle, so reaching here means main was dirtied by
+#             something other than this script (manual work in the repo, an
+#             interrupted merge) and a human should look before a phase runs.
+#   STRAY   — dirt is untracked-only. Move it aside and carry on. Aborting the
+#             night over a scratch file costs a full cycle and protects
+#             nothing; nothing git tracks is at risk.
+#
+# Strays are MOVED, never deleted: this script does not get to decide that an
+# unrecognised file was worthless. scrub_artifacts wipes untracked files a few
+# lines below, but only ones it names as build output.
+stash_strays () {
+  local dest="$STRAY_DIR/$TS"
+  local f count=0
+  # ls-files rather than re-reading the porcelain: -z emits raw NUL-terminated
+  # paths, so quoting/spaces/newlines in a filename never need parsing, and
+  # --others lists files individually (status collapses a wholly-untracked
+  # directory into one entry) so the mkdir -p below rebuilds the real tree.
+  while IFS= read -r -d '' f; do
+    mkdir -p "$dest/$(dirname "$f")" || return 1
+    mv "$f" "$dest/$f" || return 1
+    echo "  stray moved aside: $f" >> "$LOG"
+    count=$(( count + 1 ))
+  done < <(git ls-files --others --exclude-standard -z)
+  echo "main had $count untracked stray(s) and no tracked changes — moved to $dest/, continuing." | tee -a "$LOG"
+}
+case "$(worktree_disposition "$(git status --porcelain)")" in
+  BLOCKED)
+    echo "main has uncommitted changes to tracked files (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting." | tee -a "$LOG"
+    exit 1
+    ;;
+  STRAY)
+    if ! stash_strays; then
+      echo "could not move strays out of main — resolve manually before the next run. Aborting." | tee -a "$LOG"
+      exit 1
+    fi
+    # Fail loudly rather than proceed on an assumption: if anything still shows
+    # up, the move did not achieve what the rest of this script now assumes.
+    if [ -n "$(git status --porcelain)" ]; then
+      echo "main still dirty after moving strays aside — resolve manually before the next run. Aborting." | tee -a "$LOG"
+      exit 1
+    fi
+    ;;
+esac
 scrub_artifacts () {
-  git clean -fdx -e logs/ -e '.claude/settings.local.json' -e '.env*' -e graphify-out/ >>"$LOG" 2>&1
+  # -x deletes IGNORED files too, so every path that must survive the scrub is
+  # named here whether or not .gitignore already lists it — $STRAY_DIR included,
+  # or the rescue above would be undone seconds after it happened.
+  git clean -fdx -e logs/ -e "$STRAY_DIR" -e '.claude/settings.local.json' -e '.env*' -e graphify-out/ >>"$LOG" 2>&1
 }
 scrub_artifacts
 
