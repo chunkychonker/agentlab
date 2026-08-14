@@ -16,6 +16,8 @@ is how the state actually flows:
                                                               │
                             working-tree diff ──▶ [3] reviewer ──▶ logs/last-review.md (PASS/FAIL)
                                                                           │
+                                                          run.sh parses the verdict
+                                                                          │
                                           PASS verdict ──▶ [4] maintainer ──▶ branch + commit + PR
                                                                                       │
                                                        clean, conflict-free ──▶ [5] auto-merge (run.sh)
@@ -31,7 +33,14 @@ is how the state actually flows:
    didn't write, runs the increment's tests and lint, scans for stubs, secrets,
    and bugs, and writes a `PASS`/`FAIL` verdict to `logs/last-review.md`. It does
    not fix code — a broken increment gets `FAIL`ed with specifics.
-4. **Maintainer** (`agentlab-maintainer`) — reads the verdict. Only on `PASS`
+4. **Maintainer** (`agentlab-maintainer`) — runs at all only if `run.sh` itself
+   parsed `logs/last-review.md` and found exactly one `VERDICT: PASS` line
+   (`.pipeline/verdict.sh`). The subagent is *also* told to read the verdict and
+   that instruction stays — but an instruction is not a gate, and the phase that
+   commits under your name should not be the phase that decides whether it may.
+   The parse fails closed: a missing verdict (the review phase died), a
+   malformed one, or a `FAIL` all skip this phase entirely and end the cycle.
+   Then, on `PASS`, the maintainer reads the verdict itself. Only on `PASS`
    does it branch, commit **authored as Steve Ling `<steveylingy@gmail.com>`**,
    push, and open a PR. On `FAIL` (or missing verdict) it ships nothing and logs
    why. It never fabricates, backdates, or pads commits, and never overrules a
@@ -52,13 +61,29 @@ is how the state actually flows:
    Report-only: findings never block, delay, or otherwise affect phases 1–5,
    and it never fixes anything itself. Report lands in `logs/last-health.md`
    (git-ignored, same handoff pattern as `logs/last-review.md`).
+7. **File health findings** (`run.sh`, deterministic bash — not a subagent) —
+   parses that report (`.pipeline/health.sh`) and appends each finding to
+   `BACKLOG.md` as an unclaimed item under `## Health-check findings`, then
+   commits and pushes. The health agent stays observational — it is forbidden
+   to touch `BACKLOG.md`, and that rule is correct — but until this step
+   existed, nothing ever filed the "future build cycle's job" this doc claims a
+   finding becomes, so every finding was written and then dropped. Same split
+   as replenishment: the agent produces the report, the script commits the
+   consequence. Idempotent, keyed on the finding's subject, so the same rot
+   re-reported next week adds nothing; a `[done #N]` fix deliberately does
+   *not* suppress, since a recurrence is new information. Runs only after a
+   health phase that exited clean — a partial report must not queue findings
+   that were never established.
 
-Two gates protect code that carries your name: the reviewer before the PR, and
-either a mechanical clean-merge check or **you** resolving a conflict by hand.
-Nothing reaches `main` without both — conflict resolution is never automated,
-since it requires judgment about intent that no part of this pipeline has.
-The health check is not a gate — it's a separate, non-blocking observability
-pass over what's already shipped.
+Three gates protect code that carries your name: a mechanical parse of the
+review verdict before the maintainer runs at all, the reviewer's own judgment
+behind it, and either a mechanical clean-merge check or **you** resolving a
+conflict by hand. Nothing reaches `main` without them — conflict resolution is
+never automated, since it requires judgment about intent that no part of this
+pipeline has. Note what the two mechanical gates have in common: neither asks a
+model whether to proceed. One greps a file the reviewer wrote; the other asks
+GitHub. The health check is not a gate — it's a separate, non-blocking
+observability pass over what's already shipped.
 
 ## Cycles per night
 
@@ -107,10 +132,20 @@ researcher — an item written without it is invisible to the pipeline.
 
 The decision itself (count, target, whether to act) lives in
 `.pipeline/backlog.sh`, apart from the `claude -p` call and the `git` push it
-triggers, so it can be tested with no network and no API key. Run
-`bash .pipeline/test_backlog.sh` by hand after editing `run.sh` or
-`backlog.sh`; it is on-demand only, like `eval/run_reviewer_eval.sh`, and the
-health check below does not cover it.
+triggers, so it can be tested with no network and no API key. Every decision
+`run.sh` makes without a model in the loop follows that shape — three
+sourceable libs, each doing one thing and doing no I/O beyond the file it is
+handed:
+
+| Lib | Decides | Test |
+|---|---|---|
+| `.pipeline/backlog.sh` | is the queue stocked, is a claim stranded, has this finding been filed | `bash .pipeline/test_backlog.sh` |
+| `.pipeline/verdict.sh` | does the review authorise shipping | `bash .pipeline/test_gates.sh` |
+| `.pipeline/health.sh` | what did the health check actually find | `bash .pipeline/test_gates.sh` |
+
+Run both suites by hand after editing `run.sh` or any lib. They are on-demand
+only, like `eval/run_reviewer_eval.sh`: they live outside `examples/`, so the
+health check below does not cover them.
 
 ## Mode: demo vs. project
 
