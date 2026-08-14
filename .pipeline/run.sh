@@ -39,17 +39,23 @@ CLAUDE="claude -p --permission-mode bypassPermissions"
 
 echo "=== agentlab pipeline $TS ===" | tee -a "$LOG"
 
-# The backlog file the demo track draws from, and the library holding the
-# replenishment decision logic. The logic lives outside this script so it can be
-# unit-tested offline (`bash .pipeline/test_backlog.sh`) instead of only being
-# exercised on the rare night the gate fires. Sourcing defines functions only.
+# The backlog file the demo track draws from, and the three libraries holding
+# this script's decision logic: backlog.sh (is the queue stocked, is a claim
+# stranded, has this finding been filed), verdict.sh (does the review authorise
+# shipping), health.sh (what did the health check actually find). All three live
+# outside this script so they can be unit-tested offline
+# (`bash .pipeline/test_backlog.sh`, `bash .pipeline/test_gates.sh`) instead of
+# only being exercised on the rare night each gate fires. Sourcing defines
+# functions and constants only — it runs nothing and prints nothing.
 BACKLOG_FILE="BACKLOG.md"
-BACKLOG_LIB="$REPO/.pipeline/backlog.sh"
-if [ ! -r "$BACKLOG_LIB" ]; then
-  echo "MISSING $BACKLOG_LIB — required for backlog replenishment. Aborting." | tee -a "$LOG"
-  exit 1
-fi
-. "$BACKLOG_LIB"
+for lib in backlog verdict health; do
+  if [ ! -r "$REPO/.pipeline/$lib.sh" ]; then
+    echo "MISSING $REPO/.pipeline/$lib.sh — required. Aborting." | tee -a "$LOG"
+    exit 1
+  fi
+  . "$REPO/.pipeline/$lib.sh"
+done
+unset lib
 
 # Preflight: both api.anthropic.com (claude -p) and github.com (git/gh) must be
 # reachable. This box's network is VPN-gated; the 403 auth and "can't reach
@@ -226,6 +232,26 @@ run_cycle () {
   run_phase opus "cycle $k/$CYCLES: review" \
     "Use the agentlab-reviewer subagent to independently review this cycle's working-tree diff, run its tests/lint, and write a PASS/FAIL verdict to logs/last-review.md. Do not modify the increment." || return 1
 
+  # The review gate, read mechanically — the same principle as the auto-merge
+  # gate below, applied to the phase that actually opens the PR. The maintainer
+  # is also instructed to check the verdict and that instruction stays, but an
+  # instruction is not a gate: it is one more model deciding, on the cheapest
+  # model in the pipeline, whether to ship code under a human's name. Here the
+  # maintain phase does not RUN unless a deterministic parse says PASS.
+  #
+  # Fails closed. MISSING (the review phase died, or wrote nothing after the
+  # pre-review `rm -f` above), MALFORMED (no verdict line, or two) and FAIL all
+  # take the same branch: no PR tonight, reason in the log. See verdict.sh for
+  # why an unreadable verdict must never be treated as permission.
+  local verdict
+  verdict="$(review_verdict "$REVIEW_VERDICT_FILE")"
+  echo "" | tee -a "$LOG"
+  if [ "$verdict" != "PASS" ]; then
+    echo "--- gate: review verdict is $verdict — cycle $k does not ship. See $REVIEW_VERDICT_FILE and $LOG. ---" | tee -a "$LOG"
+    return 1
+  fi
+  echo "--- gate: review verdict PASS (parsed from $REVIEW_VERDICT_FILE) — proceeding to maintain. ---" | tee -a "$LOG"
+
   run_phase sonnet "cycle $k/$CYCLES: maintain" \
     "Use the agentlab-maintainer subagent. Read logs/last-review.md; ONLY if the verdict is PASS, commit this cycle's work as Steve Ling <steveylingy@gmail.com>, push a branch, and open a PR. On FAIL or missing verdict, do nothing and say why."
 
@@ -308,6 +334,76 @@ replenish_action () {
     echo "backlog replenished: $unclaimed -> $new_count unclaimed, pushed to main." | tee -a "$LOG"
   else
     echo "backlog replenish commit/push failed — see $LOG; the postflight snapshot will rescue the edit." | tee -a "$LOG"
+  fi
+  return 0
+}
+
+# File the health check's findings as backlog items, then commit and push
+# BACKLOG.md if anything was added.
+#
+# The script does this, not the health agent: agentlab-health.md forbids it from
+# touching BACKLOG.md so it stays purely observational, and that is the right
+# rule. But it left the loop open — PIPELINE.md says fixing rot is "a future
+# build cycle's job (a normal backlog item)" and nothing ever filed that item,
+# so findings were reported and then dropped. Same split as replenish_action:
+# the agent produces the report, the script commits the consequence, with a
+# deterministic message and identity.
+#
+# Always returns 0, and never runs a phase or spends a token. A filing problem
+# is logged loudly but must not fail the night — the increments already shipped,
+# and a failed commit leaves the edit on disk for the postflight
+# snapshot_dirty_main to rescue.
+file_health_findings () {
+  if [ ! -r "$HEALTH_SNAPSHOT_FILE" ]; then
+    echo "no $HEALTH_SNAPSHOT_FILE to file findings from — skipping." | tee -a "$LOG"
+    return 0
+  fi
+
+  local findings
+  if ! findings="$(health_findings "$HEALTH_SNAPSHOT_FILE" 2>>"$LOG")"; then
+    echo "cannot parse $HEALTH_SNAPSHOT_FILE — no findings filed, see $LOG." | tee -a "$LOG"
+    return 0
+  fi
+
+  echo "" | tee -a "$LOG"
+  echo "--- phase: file health findings ---" | tee -a "$LOG"
+  if [ -z "$findings" ]; then
+    echo "health check reported no actionable findings — nothing to file." | tee -a "$LOG"
+    return 0
+  fi
+
+  local finding subject detail date_tag filed=0 dup=0 err=0 rc
+  date_tag="${TS%%_*}"
+  # A here-string, not a pipeline: `... | while` runs the loop in a subshell and
+  # the counters would not survive it. bash 3.2 has <<<.
+  while IFS= read -r finding; do
+    [ -z "$finding" ] && continue
+    subject="$(health_item_subject "$finding")"
+    # The detail is whatever the subject is not. Recomputed from the finding
+    # rather than passed along, so subject+detail can never disagree.
+    detail="${finding#"$subject"}"
+    detail="${detail# — }"
+    backlog_file_health_finding "$BACKLOG_FILE" "$date_tag" "$subject" "$detail"
+    rc=$?
+    case "$rc" in
+      0) filed=$(( filed + 1 ))
+         echo "  filed: $subject" | tee -a "$LOG" ;;
+      3) dup=$(( dup + 1 ))
+         echo "  already queued, left alone: $subject" | tee -a "$LOG" ;;
+      *) err=$(( err + 1 ))
+         echo "  could NOT file (rc=$rc): $subject" | tee -a "$LOG" ;;
+    esac
+  done <<< "$findings"
+
+  echo "health findings: $filed filed, $dup already queued, $err failed." | tee -a "$LOG"
+  [ "$filed" -eq 0 ] && return 0
+
+  if git add "$BACKLOG_FILE" >>"$LOG" 2>&1 \
+    && git commit -m "chore(backlog): file $filed health finding(s) from $date_tag" >>"$LOG" 2>&1 \
+    && git push origin main >>"$LOG" 2>&1; then
+    echo "filed findings committed and pushed to main." | tee -a "$LOG"
+  else
+    echo "health-finding commit/push failed — see $LOG; the postflight snapshot will rescue the edit." | tee -a "$LOG"
   fi
   return 0
 }
@@ -467,8 +563,18 @@ if [ -n "$LAST_HEALTH_LOG" ]; then
   [ "$DAYS_SINCE" -lt "$HEALTH_CADENCE_DAYS" ] && RUN_HEALTH=0
 fi
 if [ "$RUN_HEALTH" -eq 1 ]; then
-  run_phase sonnet "health" \
+  rm -f "$HEALTH_SNAPSHOT_FILE"
+  if run_phase sonnet "health" \
     "Use the agentlab-health subagent to run a full lab-scope health check. This cycle's timestamp is $TS — write the dated report to logs/lab-health-$TS.log and the latest-snapshot to logs/last-health.md, following the subagent's instructions exactly. This must not modify anything under examples/, knowledge/, research/, projects/, or BACKLOG.md, and must not affect tonight's PRs or merges above."
+  then
+    # Close the loop the health agent is forbidden to close itself. Runs only
+    # after a health phase that exited clean: a phase that died mid-report
+    # leaves a truncated snapshot, and filing from that would queue findings
+    # that were never actually established.
+    file_health_findings
+  else
+    echo "health phase failed — no findings filed from a partial report." | tee -a "$LOG"
+  fi
 else
   echo "" | tee -a "$LOG"
   echo "--- phase: health check skipped (last run $LAST_DATE, ${DAYS_SINCE}d ago, cadence=${HEALTH_CADENCE_DAYS}d) ---" | tee -a "$LOG"
