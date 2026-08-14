@@ -14,3 +14,9 @@ graphify-out/
 
 # Untracked embedded git repo(s) created by Claude Code worktrees.
 .claude/worktrees/
+
+# Machine-local Claude Code settings. Must stay out of git AND out of the
+# preflight's sight: run.sh aborts the night if `git status --porcelain` on
+# main reports anything, untracked files included. scrub_artifacts already
+# excludes this path from `git clean -fdx`, so it survives between runs.
+.claude/settings.local.json
