@@ -48,7 +48,7 @@ expands to the skill's own directory (correct at personal/project/plugin
 install locations) and is substituted in **two** places: the markdown body
 *and* `Bash(...)` rules inside the `allowed-tools` frontmatter field. Using
 the identical path in both is what lets Claude run a bundled script with
-**no permission prompt**:
+**no permission prompt** — **verified live on 2.1.221, see the finding below**:
 
 ```yaml
 allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/render.sh *)
@@ -57,26 +57,85 @@ allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/render.sh *)
 Run `${CLAUDE_SKILL_DIR}/scripts/render.sh <csv-file>` to render the chart.
 ```
 
-- Requires Claude Code **v2.1.129+** for the `allowed-tools` substitution
-  specifically (earlier versions leave the literal string unmatched → still
-  prompts). Check `claude --version` before relying on this.
+- Earlier docs fetches (2026-08-05/06) recorded a **v2.1.129+** version gate
+  for this substitution. **Correction (re-fetched 2026-08-16): that gate no
+  longer appears anywhere on the current docs page.** The only nearby version
+  note now is `${CLAUDE_PROJECT_DIR}` substitution requiring v2.1.196+;
+  `${CLAUDE_SKILL_DIR}` in `allowed-tools` carries no stated gate. Still check
+  `claude --version` before relying on this on an old install — just don't
+  cite 2.1.129 as the threshold going forward.
 - `allowed-tools` grants clear at the end of the invoking turn, not the whole
   session — re-invoking the skill re-applies the grant.
+- **Verified live (2026-08-16, claude 2.1.221)**: the docs' own single-token
+  form `Bash(${CLAUDE_SKILL_DIR}/scripts/x.sh *)` really does suppress the
+  Bash prompt. Two byte-identical project skills differing *only* in that one
+  frontmatter line, run under `claude -p --permission-mode default` (no
+  approval channel at all): the one with the rule executed its bundled script
+  and its sentinel file appeared on disk; the one without was denied and wrote
+  nothing. `disable-model-invocation: true` does not interfere with the grant.
+  Working proof + real transcripts: `examples/skill-permission-suppression`
+  (`run_e2e.sh`, `fixtures/{allow,deny}_transcript.jsonl`).
 - `Bash(prefix *)` is a general prefix-match rule (also used for
   `Bash(git add *)`, `Bash(python3 *)`, etc.) — pinning the rule to
-  interpreter+script-path (`Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/foo.py *)`)
-  is a reasonable extrapolation but not literally demonstrated in the docs;
-  verify live.
-- **Unresolved as of the docs' own citation**: [anthropics/claude-code#14956](https://github.com/anthropics/claude-code/issues/14956)
-  (open, v2.0.75, older `prefix:*` colon syntax) reports `allowed-tools`
-  reporting itself active while the Bash command still prompts. Not confirmed
-  fixed on current syntax/version — treat permission-prompt suppression as
-  best-effort and verify with a real session, same as triggering itself.
+  interpreter+script-path (`Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/foo.py *)`,
+  the two-token form `examples/skill-script-execution` ships) is a reasonable
+  extrapolation but not literally demonstrated in the docs, and the 2026-08-16
+  live run deliberately tested only the single-token form. **Still unverified.**
+- [anthropics/claude-code#14956](https://github.com/anthropics/claude-code/issues/14956)
+  (open, filed against v2.0.75, older `prefix:*` **colon** syntax) reports
+  `allowed-tools` claiming to be active while the Bash command still prompts.
+  Not re-litigated: the 2026-08-16 run used the current **space**-suffix syntax,
+  so it is evidence about that form only, not about the colon form. Prompt
+  suppression is now confirmed for the space-suffix `${CLAUDE_SKILL_DIR}` case;
+  treat `prefix:*` as still suspect.
 - Script-authoring guidance from the best-practices doc: "solve, don't defer"
   (handle expected errors explicitly inside the script, never let Claude
   improvise on a raw traceback), no "voodoo constants" (justify every
   hardcoded value in a comment), prefer a script over asking Claude to
   generate the same logic for anything deterministic.
+
+**How to test prompt-suppression live without a human answering prompts:**
+`claude -p` (headless) has a deterministic, documented account of what
+happens to an unapproved tool call: "a non-interactive `-p` run without a
+`--permission-prompt-tool` has no prompt to fall back to... the action
+doesn't run and Claude keeps working" (permission-modes docs). Headless
+mode's own built-in default permission mode is already `default` (Manual),
+which requires approval for Bash. So the whole "does allowed-tools suppress
+the prompt" question reduces to a scriptable, no-human-needed check: run the
+same skill twice — once with a matching `allowed-tools` rule, once
+without — under `claude -p --permission-mode default`, and check whether the
+bundled script's own side effect (e.g. a sentinel file it writes) actually
+happened. No prompt-answering machinery, no TTY, no guessing at the exact
+denial JSON shape in advance — capture a real transcript from the live run
+and build the parser against that (same order of operations
+[[claude-code-mcp-connection]] used for its own checks). `--bare` cannot be
+used for this test: it skips skill auto-discovery entirely, so the run
+always loads full ambient context and costs closer to a real generation than
+`--bare`'s fraction-of-a-cent estimate. Design: research note
+[2026-08-16-skill-permission-suppression](../research/2026-08-16-skill-permission-suppression.md);
+**executed 2026-08-16, result recorded above** — build:
+`examples/skill-permission-suppression`.
+
+**Observed `stream-json` shape of a *denied* headless tool call** (2.1.221,
+previously undocumented anywhere in the fetched docs — captured, not guessed):
+
+- The `tool_use` block is emitted normally; there is **no distinct "denied"
+  event type**. The denial arrives as an ordinary `tool_result`:
+  `{"type":"tool_result","content":"This command requires approval","is_error":true,...}`,
+  with `tool_use_result: "Error: This command requires approval"` on the
+  wrapping `user` event.
+- The final `result` event carries a `permission_denials` array —
+  `[{"tool_name":"Bash","tool_use_id":...,"tool_input":{...}}]` — empty when
+  nothing was denied. This is the CLI's own accounting and the most specific
+  signal available; an `is_error` tool_result *not* listed there is an
+  execution failure, not a denial.
+- **The run as a whole still reports success**: `"subtype":"success"`,
+  `"is_error": false`, exit code 0. Anything asserting only on the top-level
+  result would read a fully-denied run as a pass. Two mode-related traps in
+  the same area: ambient user settings can set `permissions.defaultMode` to
+  `auto` (a classifier may then approve the Bash call for reasons unrelated to
+  `allowed-tools`), so pass `--permission-mode default` explicitly *and* re-read
+  `permissionMode` back off the `system`/`init` event before trusting the run.
 
 Full write-up: research note [2026-08-06-skill-script-execution](../research/2026-08-06-skill-script-execution.md).
 

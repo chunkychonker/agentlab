@@ -40,8 +40,12 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   tiers), the documented/checkable frontmatter rules, the model-invocation
   trigger contract, Claude-Code-vs-API skill differences, what is/isn't
   offline-testable, the `${CLAUDE_SKILL_DIR}` + `allowed-tools` mechanism
-  for a bundled script to run without a permission prompt (v2.1.129+, and a
-  still-open bug report worth verifying live before relying on it), and
+  for a bundled script to run without a permission prompt (version-gate
+  claim corrected 2026-08-16 — no longer documented — and a still-open bug
+  report; **verified live 2026-08-16 on 2.1.221 — the single-token
+  space-suffix form does suppress the prompt**, via headless mode's
+  deterministic deny behavior, plus the captured `stream-json` shape of a
+  denied tool call), and
   Level-3 reference files: the one-level-deep rule, TOC-for->100-lines as a
   soft/inconsistently-followed recommendation (verified against Anthropic's
   own shipped `pdf` skill), and the two reference-syntax styles seen in the

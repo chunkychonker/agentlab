@@ -26,7 +26,7 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
 - [done #7] Anatomy of a skill: a minimal model-invoked skill with a clear trigger
 - [done #5, #10] A skill that shells out to a local script (like the recruiting scanner pattern)
 - [done #6, #11] Packaging a skill with reference files the model loads on demand
-- [ ] Verify the `${CLAUDE_SKILL_DIR}` + `allowed-tools` no-permission-prompt claim
+- [building] Verify the `${CLAUDE_SKILL_DIR}` + `allowed-tools` no-permission-prompt claim
   against the real Claude Code host. `knowledge/agent-skills.md` records it as
   documented but carrying a still-open bug report, "worth verifying live before
   relying on it", and `examples/skill-script-execution/` bundles exactly such a
