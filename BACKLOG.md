@@ -13,7 +13,7 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
 - [done #1] Minimal agent loop from scratch (Anthropic SDK): one tool, manual tool-use loop
 - [done #2] Multi-tool agent with a typed tool registry
 - [done #4] Subagent delegation: an orchestrator that fans out to specialist agents
-- [ ] Streaming the hand-written tool loop: the same one-tool loop as
+- [building] Streaming the hand-written tool loop: the same one-tool loop as
   `examples/minimal-agent-loop/`, but with `client.messages.stream()`, where a
   tool's input arrives as `input_json_delta` fragments that must be accumulated
   before the tool can be called at all. Increment: a pure event accumulator

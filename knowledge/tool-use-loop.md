@@ -46,4 +46,4 @@ Inject a fake client whose `.messages.create` returns a scripted
 
 Source: [tool-use overview](https://platform.claude.com/docs/en/docs/build-with-claude/tool-use/overview) (2026-07-27).
 
-Related: [[anthropic-models]], [[anthropic-python-sdk]]
+Related: [[anthropic-models]], [[anthropic-python-sdk]], [[streaming-tool-use]]

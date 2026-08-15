@@ -4,6 +4,12 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
 
 ## Coding agents
 - [[tool-use-loop]] — the hand-written Messages API tool loop + gotchas
+- [[streaming-tool-use]] — the streaming sibling: SSE event flow
+  (`message_start`/`content_block_start`/`_delta`/`_stop`/`message_delta`/
+  `message_stop`), the text-delta-vs-`input_json_delta` asymmetry (`tool_use`
+  input starts `{}` and arrives as raw JSON string fragments, parseable only
+  at `content_block_stop`), source-verified Python SDK event attribute names,
+  and the offline `SimpleNamespace`-event-replay testing trick
 - [[typed-tool-registry]] — `@beta_tool` + `client.beta.messages.tool_runner`: typed schemas, validation, registry pattern
 - [[orchestrator-workers]] — fan-out-to-specialists pattern; `client.messages.parse(output_format=...)` for the plan step; the three distinct "subagent" products and when each applies
 - [[tool-failure-taxonomy]] — the three dispositions for a failing tool call
@@ -67,7 +73,11 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   GitHub issues)
 
 ## Cross-cutting patterns & gotchas
-- Testing agent loops offline: inject a fake client (see [[tool-use-loop]])
+- Testing agent loops offline: inject a fake client (see [[tool-use-loop]]);
+  for a streaming loop, the same trick applies one layer down — replay a
+  scripted list of fake SSE events through a pure accumulator, and fake
+  `client.messages.stream()`'s context-manager protocol for the full loop
+  (see [[streaming-tool-use]])
 - Testing retry/backoff logic offline: inject `sleep` and `jitter` as parameters
   and keep the policy a pure function, so the test is instant and deterministic
   (see [[tool-failure-taxonomy]])
