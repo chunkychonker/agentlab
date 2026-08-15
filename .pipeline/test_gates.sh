@@ -8,11 +8,16 @@
 #                           backlog_file_health_finding)
 #   .pipeline/preflight.sh — what a dirty main means (worktree_disposition),
 #                           plus run.sh's stash_strays, extracted and run
+#   run.sh's check_reachable — is the network there (N1-N5), extracted and run
+#                           against a local server, not the real internet
 #
-# plus the call sites all four have in .pipeline/run.sh. No network, no
-# ANTHROPIC_API_KEY, no `claude` — all it touches is a throwaway temp dir plus
-# read-only greps of run.sh. It does run real `git`, but only ever inside a
-# throwaway repo under that temp dir, never against this one.
+# plus the call sites all four have in .pipeline/run.sh. No ANTHROPIC_API_KEY,
+# no `claude`, nothing outside this box — all it touches is a throwaway temp
+# dir plus read-only greps of run.sh. Two exceptions, both contained: it runs
+# real `git`, but only inside a throwaway repo under that temp dir; and it
+# opens a socket, but only on 127.0.0.1. Both are deliberate — the bugs these
+# cases cover are git's behaviour and curl's, and a stub would only test the
+# stub.
 #
 # One file rather than three because the two changes are one feature: the
 # review verdict and the health report are both things an agent writes and
@@ -455,6 +460,121 @@ else
   assert_eq "S7" "tracked" \
     "$( [ -f "$TMPREPO/tracked.md" ] && echo tracked || echo lost )" \
     "a tracked file is never touched by the mover"
+fi
+
+# --- run.sh's network preflight --------------------------------------------
+#
+# check_reachable answers "is the network there", and the 2026-08-15 abort was
+# it answering a different question: `--max-time 5` over a full GET bounds the
+# whole TRANSFER, so a working-but-slow link failed the gate mid-body
+# (`curl: (28) ... with 435800 bytes received`) and the night was logged as
+# NETWORK UNREACHABLE.
+#
+# Reproduced here rather than asserted about: a local server that answers HEAD
+# at once but trickles a GET body models exactly that shape — reachable, slow
+# to finish. Localhost only, no outside network, so this stays offline.
+
+SLOW_PID=""
+trap 'kill "$SLOW_PID" 2>/dev/null; chmod -R u+rwX "$WORK" 2>/dev/null; rm -rf "$WORK"' EXIT
+
+# Constants and function together: check_reachable reads the two timeouts, so
+# extracting the function alone would leave it undefined under `set -u`.
+eval "$(sed -n '/^CONNECT_TIMEOUT_S=/,/^}/p' "$RUN_SH")"
+if ! declare -f check_reachable >/dev/null 2>&1; then
+  fail "N0" "could not extract check_reachable from run.sh — the tests below are vacuous"
+else
+  pass "N0" "check_reachable extracted verbatim from run.sh"
+
+  # A connection that is refused outright is the case that MUST still abort the
+  # night. Port 1 on loopback refuses instantly — no waiting on a timeout.
+  n1_rc=0
+  check_reachable "http://127.0.0.1:1" >/dev/null 2>&1 || n1_rc=$?
+  assert_eq "N1" "unreachable" "$( [ "$n1_rc" -ne 0 ] && echo unreachable || echo reachable )" \
+    "a refused connection is still UNREACHABLE — the gate has not been defanged"
+
+  cat > "$WORK/slowserver.py" <<'PY'
+import http.server, socketserver, sys, time
+
+BODY_LEN = 1_000_000  # promised in the header, never fully delivered
+
+class H(http.server.BaseHTTPRequestHandler):
+    def _headers(self):
+        self.send_response(200)
+        self.send_header("Content-Length", str(BODY_LEN))
+        self.end_headers()
+
+    def do_HEAD(self):
+        self._headers()          # answered immediately, like a real server
+
+    def do_GET(self):
+        self._headers()
+        for _ in range(4):       # body trickles and never completes
+            try:
+                self.wfile.write(b"x" * 1000)
+                self.wfile.flush()
+            except Exception:
+                return
+            time.sleep(1.5)
+
+    def log_message(self, *a):
+        pass
+
+srv = socketserver.TCPServer(("127.0.0.1", 0), H)
+with open(sys.argv[1], "w") as f:
+    f.write(str(srv.server_address[1]))
+srv.serve_forever()
+PY
+
+  # Launched from a subshell so the server is not a job of THIS shell: bash
+  # otherwise prints its own "Terminated: 15" line when it reaps the kill
+  # below, which lands in the middle of the suite's one-line-per-case output.
+  ( python3 "$WORK/slowserver.py" "$WORK/port" >/dev/null 2>&1 & echo $! > "$WORK/pid" )
+  SLOW_PID="$(cat "$WORK/pid" 2>/dev/null)"
+  slow_port=""
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    [ -s "$WORK/port" ] && slow_port="$(cat "$WORK/port")" && break
+    sleep 0.3
+  done
+
+  if [ -z "$slow_port" ]; then
+    fail "N2" "the slow local server never came up — cannot reproduce the 2026-08-15 shape"
+    fail "N3" "skipped: no slow server"
+  else
+    SLOW_URL="http://127.0.0.1:$slow_port/"
+
+    # The regression. This is the night that was lost: reachable, just slow.
+    n2_rc=0
+    check_reachable "$SLOW_URL" >/dev/null 2>&1 || n2_rc=$?
+    assert_eq "N2" "reachable" "$( [ "$n2_rc" -eq 0 ] && echo reachable || echo unreachable )" \
+      "a reachable host with a slow body is REACHABLE — the 2026-08-15 abort does not recur"
+
+    # And the old shape against the same server, to keep this honest: if this
+    # ever starts passing, the server stopped reproducing the bug and N2 has
+    # gone vacuous. A tighter cap than run.sh's former 5s, purely so the suite
+    # does not sit here for five seconds proving a known-broken thing broken.
+    n3_rc=0
+    curl -sS --max-time 2 -o /dev/null "$SLOW_URL" >/dev/null 2>&1 || n3_rc=$?
+    assert_eq "N3" "times out" "$( [ "$n3_rc" -ne 0 ] && echo "times out" || echo "completes" )" \
+      "a full GET under a total-time cap still fails here — N2 is testing something real"
+  fi
+
+  kill "$SLOW_PID" 2>/dev/null
+  SLOW_PID=""
+fi
+
+# The flags ARE the contract (see the comment block above check_reachable), and
+# nothing else in the suite would notice them silently reverting to a body
+# download.
+assert_eq "N4" "1" \
+  "$(grep -c 'curl -sS -I --connect-timeout "\$CONNECT_TIMEOUT_S" --max-time "\$RESPONSE_TIMEOUT_S"' "$RUN_SH")" \
+  "check_reachable still issues HEAD bounded by --connect-timeout, not a bare GET"
+
+# --max-time is a hang backstop; if it ever drops near the connect timeout it
+# silently becomes the gate again, which is the whole 2026-08-15 failure.
+if [ "${RESPONSE_TIMEOUT_S:-0}" -gt "${CONNECT_TIMEOUT_S:-0}" ]; then
+  pass "N5" "the response backstop (${RESPONSE_TIMEOUT_S}s) stays above the connect timeout (${CONNECT_TIMEOUT_S}s)"
+else
+  fail "N5" "response timeout ${RESPONSE_TIMEOUT_S:-unset}s is not above connect timeout ${CONNECT_TIMEOUT_S:-unset}s — the payload gate is back"
 fi
 
 # --- run.sh call sites -----------------------------------------------------

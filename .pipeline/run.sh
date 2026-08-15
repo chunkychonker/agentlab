@@ -62,9 +62,32 @@ unset lib
 # reachable. This box's network is VPN-gated; the 403 auth and "can't reach
 # main" failures on 2026-08-02/03/04 were VPN-off, not credential or repo
 # problems — check connectivity first so that shows up as one clear message.
-# No -f: any HTTP response (even 404) means the connection succeeded, which is
-# all this checks. Only DNS/timeout/refused failures should trip it.
-check_reachable () { curl -sS --max-time 5 -o /dev/null "$1"; }
+# No -f: any HTTP response (even 404, or a 405 from a server that dislikes
+# HEAD) means the connection succeeded, which is all this checks. Only DNS
+# failure, refusal, or a connection that never establishes should trip it.
+#
+# The flags are the whole contract, so read them before changing them:
+#
+#   -I                 HEAD, not GET. This check must never depend on the SIZE
+#                      of what the other end serves.
+#   --connect-timeout  bounds DNS + TCP + TLS, i.e. "is the network there".
+#   --max-time         a backstop against a connection that opens and then
+#                      hangs forever; it must stay far above the connect
+#                      timeout so it cannot become the effective gate.
+#
+# It used to be `--max-time 5` over a full GET, which bounds the ENTIRE
+# transfer — so the gate was really asking "can this box download github.com's
+# homepage in 5 seconds". That homepage is ~574KB, and on 2026-08-15 the run
+# died with `curl: (28) ... with 435800 bytes received`: DNS, TCP and TLS had
+# all succeeded and the body was mid-flight. A working-but-slow link read as
+# NETWORK UNREACHABLE, and the message sent the reader off to check a VPN that
+# was fine. Bounding the connection instead of the payload is the fix; see
+# N1-N4 in test_gates.sh.
+CONNECT_TIMEOUT_S=5
+RESPONSE_TIMEOUT_S=20
+check_reachable () {
+  curl -sS -I --connect-timeout "$CONNECT_TIMEOUT_S" --max-time "$RESPONSE_TIMEOUT_S" -o /dev/null "$1"
+}
 if ! check_reachable "https://api.anthropic.com" || ! check_reachable "https://github.com"; then
   echo "NETWORK UNREACHABLE (api.anthropic.com / github.com) — check VPN. Aborting." | tee -a "$LOG"
   exit 1

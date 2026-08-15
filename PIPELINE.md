@@ -218,3 +218,16 @@ The second case is why this split exists: on 2026-08-14 a single untracked
 `.claude/settings.local.json` ended the run three seconds in. If a file you
 wanted goes missing from the repo root, look in `.pipeline/strays/` before
 assuming the pipeline ate it.
+
+### If the log says NETWORK UNREACHABLE
+
+`check_reachable` sends a HEAD bounded by `--connect-timeout`, so it fails only
+when DNS, TCP or TLS fails — a genuinely absent network, usually the VPN.
+
+Trust that message only from the current implementation. Until 2026-08-15 the
+check was a full GET under `--max-time 5`, which bounded the whole transfer
+rather than the connection, so it also fired when the link merely ran slow:
+github.com's homepage is ~574KB, and the run that night died with `curl: (28)
+... with 435800 bytes received` — connected, mid-download, reported as
+unreachable. Nights logged as VPN-off before that date (2026-08-02/03/04) may
+have been this instead.
