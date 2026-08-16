@@ -43,13 +43,14 @@ echo "=== agentlab pipeline $TS ===" | tee -a "$LOG"
 # this script's decision logic: backlog.sh (is the queue stocked, is a claim
 # stranded, has this finding been filed), verdict.sh (does the review authorise
 # shipping), health.sh (what did the health check actually find),
-# preflight.sh (what does a dirty main mean). All four live
+# pipeline_health.sh (what did the pipeline observer find),
+# preflight.sh (what does a dirty main mean). All five live
 # outside this script so they can be unit-tested offline
 # (`bash .pipeline/test_backlog.sh`, `bash .pipeline/test_gates.sh`) instead of
 # only being exercised on the rare night each gate fires. Sourcing defines
 # functions and constants only — it runs nothing and prints nothing.
 BACKLOG_FILE="BACKLOG.md"
-for lib in backlog verdict health preflight; do
+for lib in backlog verdict health pipeline_health preflight; do
   if [ ! -r "$REPO/.pipeline/$lib.sh" ]; then
     echo "MISSING $REPO/.pipeline/$lib.sh — required. Aborting." | tee -a "$LOG"
     exit 1
@@ -475,6 +476,82 @@ file_health_findings () {
   return 0
 }
 
+# File the pipeline observer's findings as backlog items, then commit and push
+# BACKLOG.md if anything was added.
+#
+# The exact sibling of file_health_findings, and deliberately so: same split
+# (the agent reports, the script commits the consequence with a deterministic
+# message and identity), same reconciler semantics, same never-fail-the-night
+# posture. It differs in three places only — which snapshot it reads, which
+# parser it calls, and what the commit message says.
+#
+# It files into the SAME backlog section as the health findings, under the same
+# BACKLOG_HEALTH_PREFIX, so both observers' rot queues behind planned work in
+# one place and backlog_file_health_finding is reused unchanged. That shares a
+# dedupe namespace between the two: safe because the subjects are disjoint in
+# practice (an example directory or a wikilink vs. a run log, a claim line, or
+# an abort cause), and the observer is instructed to make its subjects
+# self-describing precisely so they read correctly next to portfolio findings.
+#
+# Always returns 0, and never runs a phase or spends a token. A filing problem
+# is logged loudly but must not fail the night — the increments already
+# shipped, and a failed commit leaves the edit on disk for the postflight
+# snapshot_dirty_main to rescue.
+file_pipeline_findings () {
+  if [ ! -r "$PIPELINE_SNAPSHOT_FILE" ]; then
+    echo "no $PIPELINE_SNAPSHOT_FILE to file findings from — skipping." | tee -a "$LOG"
+    return 0
+  fi
+
+  local findings
+  if ! findings="$(pipeline_findings "$PIPELINE_SNAPSHOT_FILE" 2>>"$LOG")"; then
+    echo "cannot parse $PIPELINE_SNAPSHOT_FILE — no findings filed, see $LOG." | tee -a "$LOG"
+    return 0
+  fi
+
+  echo "" | tee -a "$LOG"
+  echo "--- phase: file pipeline findings ---" | tee -a "$LOG"
+  if [ -z "$findings" ]; then
+    echo "pipeline observer reported no actionable findings — nothing to file." | tee -a "$LOG"
+    return 0
+  fi
+
+  local finding subject detail date_tag filed=0 dup=0 err=0 rc
+  date_tag="${TS%%_*}"
+  # A here-string, not a pipeline: `... | while` runs the loop in a subshell and
+  # the counters would not survive it. bash 3.2 has <<<.
+  while IFS= read -r finding; do
+    [ -z "$finding" ] && continue
+    # health_item_subject, not a local copy: the dedupe key must agree with
+    # backlog_has_unresolved, and two definitions would drift apart silently.
+    subject="$(health_item_subject "$finding")"
+    detail="${finding#"$subject"}"
+    detail="${detail# — }"
+    backlog_file_health_finding "$BACKLOG_FILE" "$date_tag" "$subject" "$detail"
+    rc=$?
+    case "$rc" in
+      0) filed=$(( filed + 1 ))
+         echo "  filed: $subject" | tee -a "$LOG" ;;
+      3) dup=$(( dup + 1 ))
+         echo "  already queued, left alone: $subject" | tee -a "$LOG" ;;
+      *) err=$(( err + 1 ))
+         echo "  could NOT file (rc=$rc): $subject" | tee -a "$LOG" ;;
+    esac
+  done <<< "$findings"
+
+  echo "pipeline findings: $filed filed, $dup already queued, $err failed." | tee -a "$LOG"
+  [ "$filed" -eq 0 ] && return 0
+
+  if git add "$BACKLOG_FILE" >>"$LOG" 2>&1 \
+    && git commit -m "chore(backlog): file $filed pipeline finding(s) from $date_tag" >>"$LOG" 2>&1 \
+    && git push origin main >>"$LOG" 2>&1; then
+    echo "filed pipeline findings committed and pushed to main." | tee -a "$LOG"
+  else
+    echo "pipeline-finding commit/push failed — see $LOG; the postflight snapshot will rescue the edit." | tee -a "$LOG"
+  fi
+  return 0
+}
+
 # Re-apply claims that a failed cycle carried off to a cycle/*-unshipped-*
 # branch, so no cycle re-picks a topic that is already built. <label> names the
 # call site in the log.
@@ -645,6 +722,49 @@ if [ "$RUN_HEALTH" -eq 1 ]; then
 else
   echo "" | tee -a "$LOG"
   echo "--- phase: health check skipped (last run $LAST_DATE, ${DAYS_SINCE}d ago, cadence=${HEALTH_CADENCE_DAYS}d) ---" | tee -a "$LOG"
+fi
+
+# The pipeline observer: the same closed loop as the health check above, but
+# pointed at the machine instead of the portfolio. It runs last because it
+# reads what the night did, and it is deliberately cheap — everything it needs
+# is on disk or behind `gh`, no venvs, no example re-runs, no API cost beyond
+# the phase itself.
+#
+# The window is bounded by the last observation rather than a fixed number of
+# days so the cost stays proportional to how long it has been, not to how much
+# history has accumulated. The cutoff is INCLUSIVE of the last observation's
+# date: this run's own log is excluded below (it has no `=== done ===` line yet
+# and would be misread as an abort), so the night that ran the previous
+# observation is only covered now.
+PIPELINE_OBSERVER_CADENCE_DAYS=7
+LAST_PIPELINE_LOG="$(ls -t logs/lab-pipeline-*.log 2>/dev/null | head -1)"
+RUN_PIPELINE_OBS=1
+PIPE_DAYS_SINCE="n/a"
+PIPE_LAST_DATE="none"
+PIPE_CUTOFF="ALL"
+if [ -n "$LAST_PIPELINE_LOG" ]; then
+  PIPE_LAST_DATE="$(basename "$LAST_PIPELINE_LOG" | sed -E 's/^lab-pipeline-([0-9]{4}-[0-9]{2}-[0-9]{2}).*/\1/')"
+  PIPE_LAST_EPOCH="$(date -j -f "%Y-%m-%d" "$PIPE_LAST_DATE" +%s 2>/dev/null || echo 0)"
+  PIPE_NOW_EPOCH="$(date +%s)"
+  PIPE_DAYS_SINCE=$(( (PIPE_NOW_EPOCH - PIPE_LAST_EPOCH) / 86400 ))
+  [ "$PIPE_DAYS_SINCE" -lt "$PIPELINE_OBSERVER_CADENCE_DAYS" ] && RUN_PIPELINE_OBS=0
+  PIPE_CUTOFF="$PIPE_LAST_DATE"
+fi
+if [ "$RUN_PIPELINE_OBS" -eq 1 ]; then
+  rm -f "$PIPELINE_SNAPSHOT_FILE"
+  if run_phase sonnet "pipeline observer" \
+    "Use the agentlab-pipeline-observer subagent to observe the pipeline itself. This run's timestamp is $TS — write the dated report to logs/lab-pipeline-$TS.log and the latest-snapshot to logs/last-pipeline-health.md, following the subagent's instructions exactly, including the documented section headings (a script parses that snapshot). Window: examine logs/run-*.log dated on or after $PIPE_CUTOFF (the literal string ALL means examine every run log present), but EXCLUDE logs/run-$TS.log — that is this run, still in progress, and it has not written its final line yet. This must not modify anything under examples/, knowledge/, research/, projects/, .pipeline/, .claude/, or BACKLOG.md, must not commit or push, and must not affect tonight's PRs or merges above."
+  then
+    # Same rule as the health phase: file only after a phase that exited clean,
+    # since a phase that died mid-report leaves a truncated snapshot and filing
+    # from that would queue findings that were never actually established.
+    file_pipeline_findings
+  else
+    echo "pipeline observer phase failed — no findings filed from a partial report." | tee -a "$LOG"
+  fi
+else
+  echo "" | tee -a "$LOG"
+  echo "--- phase: pipeline observer skipped (last run $PIPE_LAST_DATE, ${PIPE_DAYS_SINCE}d ago, cadence=${PIPELINE_OBSERVER_CADENCE_DAYS}d) ---" | tee -a "$LOG"
 fi
 
 # Postflight: guarantee main is clean before this script exits, no matter what
