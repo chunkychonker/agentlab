@@ -4,14 +4,17 @@
 #   .pipeline/verdict.sh  — does the review authorise shipping (review_verdict)
 #   .pipeline/health.sh   — what did the health check find (health_findings,
 #                           health_item_subject)
+#   .pipeline/pipeline_health.sh — what did the pipeline observer find
+#                           (pipeline_findings), the sibling of health.sh
 #   .pipeline/backlog.sh  — the health-filing half (backlog_has_unresolved,
-#                           backlog_file_health_finding)
+#                           backlog_file_health_finding), shared by both
+#                           observers
 #   .pipeline/preflight.sh — what a dirty main means (worktree_disposition),
 #                           plus run.sh's stash_strays, extracted and run
 #   run.sh's check_reachable — is the network there (N1-N5), extracted and run
 #                           against a local server, not the real internet
 #
-# plus the call sites all four have in .pipeline/run.sh. No ANTHROPIC_API_KEY,
+# plus the call sites all five have in .pipeline/run.sh. No ANTHROPIC_API_KEY,
 # no `claude`, nothing outside this box — all it touches is a throwaway temp
 # dir plus read-only greps of run.sh. Two exceptions, both contained: it runs
 # real `git`, but only inside a throwaway repo under that temp dir; and it
@@ -65,13 +68,14 @@ trap 'chmod -R u+rwX "$WORK" 2>/dev/null; rm -rf "$WORK"' EXIT
 
 # Sourcing must be silent and must not touch anything — the libs are declaration
 # files, and run.sh sources them under `set -uo pipefail` before any phase runs.
-src_noise="$( { . "$REPO/.pipeline/verdict.sh"; . "$REPO/.pipeline/health.sh"; . "$REPO/.pipeline/backlog.sh"; . "$REPO/.pipeline/preflight.sh"; } 2>&1 )"
+src_noise="$( { . "$REPO/.pipeline/verdict.sh"; . "$REPO/.pipeline/health.sh"; . "$REPO/.pipeline/pipeline_health.sh"; . "$REPO/.pipeline/backlog.sh"; . "$REPO/.pipeline/preflight.sh"; } 2>&1 )"
 src_rc=$?
 assert_eq "INV1" "0|" "$src_rc|$src_noise" \
-  "sourcing verdict.sh, health.sh, backlog.sh and preflight.sh exits 0 and prints nothing"
+  "sourcing verdict.sh, health.sh, pipeline_health.sh, backlog.sh and preflight.sh exits 0 and prints nothing"
 
 . "$REPO/.pipeline/verdict.sh"
 . "$REPO/.pipeline/health.sh"
+. "$REPO/.pipeline/pipeline_health.sh"
 . "$REPO/.pipeline/backlog.sh"
 . "$REPO/.pipeline/preflight.sh"
 
@@ -222,6 +226,105 @@ assert_eq "H11" "a finding with no separator" \
 assert_eq "H12" "examples/foo/" \
   "$(health_item_subject 'examples/foo/ — first reason — second clause')" \
   "only the FIRST em dash splits, so a multi-clause reason keeps one subject"
+
+# --- pipeline_health.sh ----------------------------------------------------
+
+# A fixture in the shape agentlab-pipeline-observer.md specifies, including
+# every line form that must NOT be treated as a finding. The OK line is the
+# one that distinguishes this parser from health_findings: this report is a
+# complete record of the window, and only the bad outcomes are filed.
+PIPE_FIXTURE="$WORK/last-pipeline-health.md"
+cat > "$PIPE_FIXTURE" <<'EOF'
+CHECKED: 2026-08-23
+Runs examined: 7 (2026-08-16 .. 2026-08-22)
+Aborted: 2  Partial: 1  Phase failures: 1
+
+Scope note: logs/run-2026-08-23_024702.log is this run and was excluded.
+
+## Run outcomes
+- OK       run-2026-08-16_024702 — shipped 2/2
+- OK       run-2026-08-17_024701 — shipped 2/2
+- PARTIAL  run-2026-08-18_024703 — shipped 1/2, cycle 2 clean VERDICT: FAIL
+- ABORTED  run-2026-08-19_024702 — NETWORK UNREACHABLE (api.anthropic.com / github.com)
+- ABORTED  run-2026-08-21_024702 — NETWORK UNREACHABLE (api.anthropic.com / github.com)
+
+## Recurring abort causes
+- NETWORK UNREACHABLE — 2x on 2026-08-19, 2026-08-21
+
+Note: a single abort is noise; these two share a verbatim cause.
+
+## Phase failures
+- run-2026-08-18_024703 cycle 2/2: build — exited non-zero
+
+## Claim-state drift
+- "Verify the skill allowed-tools claim" — marked [building], shipped in PR #33 (merged), never advanced
+
+## Schedule gaps
+- no run log for 2026-08-20
+
+## Quarantined strays
+(none)
+
+## Notes the observer wanted to add
+- the 02:47 slot collides with Time Machine on this box
+EOF
+
+pfindings="$(pipeline_findings "$PIPE_FIXTURE")"
+p1_rc=$?
+p1_count="$(printf '%s\n' "$pfindings" | grep -c . )"
+assert_eq "PH1" "0|7" "$p1_rc|$p1_count" \
+  "the fixture yields exactly its 7 findings (1 partial + 2 aborted + 1 cause + 1 phase + 1 claim + 1 gap, minus 2 OK)"
+
+assert_eq "PH2" "0" "$(printf '%s\n' "$pfindings" | grep -c 'run-2026-08-16\|run-2026-08-17')" \
+  "OK runs are recorded in the report but are never findings"
+assert_eq "PH3" "1" "$(printf '%s\n' "$pfindings" | grep -c '^run-2026-08-18_024703 — shipped 1/2')" \
+  "a PARTIAL line becomes a finding, label and alignment padding stripped"
+assert_eq "PH4" "1" "$(printf '%s\n' "$pfindings" | grep -c '^run-2026-08-19_024702 — NETWORK')" \
+  "an ABORTED line becomes a finding, label and alignment padding stripped"
+assert_eq "PH5" "1" "$(printf '%s\n' "$pfindings" | grep -cF 'no run log for 2026-08-20')" \
+  "a schedule gap becomes a finding"
+assert_eq "PH6" "0" "$(printf '%s\n' "$pfindings" | grep -c 'Time Machine')" \
+  "an undocumented section is ignored — the contract is the documented shape"
+assert_eq "PH7" "0" "$(printf '%s\n' "$pfindings" | grep -cF 'single abort is noise')" \
+  "prose between sections is not a finding"
+
+# A healthy report: every section present, all '(none)' except the OK record.
+# This is the case that must stay silent, and the one we want to be common.
+cat > "$WORK/pipe-healthy.md" <<'EOF'
+CHECKED: 2026-08-23
+Runs examined: 7 (2026-08-16 .. 2026-08-22)
+
+## Run outcomes
+- OK       run-2026-08-16_024702 — shipped 2/2
+
+## Recurring abort causes
+(none)
+
+## Phase failures
+(none)
+
+## Claim-state drift
+(none)
+
+## Schedule gaps
+(none)
+
+## Quarantined strays
+(none)
+EOF
+pipe_healthy="$(pipeline_findings "$WORK/pipe-healthy.md")"
+assert_eq "PH8" "0|" "$?|$pipe_healthy" \
+  "a clean pipeline report yields zero findings and exit 0 (not an error)"
+
+pipeline_findings "$WORK/does-not-exist.md" >/dev/null 2>&1
+assert_eq "PH9" "1" "$?" "an unreadable pipeline snapshot returns 1"
+
+# The dedupe key is health_item_subject, shared with the portfolio observer
+# rather than reimplemented — if these ever disagree, filing silently stops
+# deduping and the same finding is queued every cadence.
+assert_eq "PH10" "run-2026-08-19_024702" \
+  "$(health_item_subject 'run-2026-08-19_024702 — NETWORK UNREACHABLE (api.anthropic.com / github.com)')" \
+  "a pipeline finding's subject splits on the first em dash, same rule as the portfolio observer"
 
 # --- backlog.sh: filing ----------------------------------------------------
 
@@ -614,6 +717,30 @@ assert_eq "R4" "1" \
   "$(grep -c 'Never.*edit anything under' "$REPO/.claude/agents/agentlab-health.md")" \
   "agentlab-health.md still forbids the agent from editing BACKLOG.md itself"
 
+pfile_ln="$(grep -n '^    file_pipeline_findings$' "$RUN_SH" | head -1 | cut -d: -f1)"
+pobs_ln="$(grep -n 'agentlab-pipeline-observer subagent' "$RUN_SH" | head -1 | cut -d: -f1)"
+if [ -z "$pfile_ln" ] || [ -z "$pobs_ln" ]; then
+  fail "R9" "run.sh is missing a pipeline-observer call site (phase=${pobs_ln:-none}, file=${pfile_ln:-none})"
+elif [ "$pfile_ln" -gt "$pobs_ln" ]; then
+  pass "R9" "run.sh files pipeline findings after the observer phase (line $pfile_ln > $pobs_ln)"
+else
+  fail "R9" "file_pipeline_findings runs before the observer phase: phase=$pobs_ln, file=$pfile_ln"
+fi
+
+# Same rule as R4, and for the same reason: run.sh does the filing, so the
+# agent must stay observational or the two would both write BACKLOG.md.
+assert_eq "R10" "1" \
+  "$(grep -c 'Never\*\* edit anything under' "$REPO/.claude/agents/agentlab-pipeline-observer.md")" \
+  "agentlab-pipeline-observer.md still forbids the agent from editing BACKLOG.md itself"
+
+# The observer runs at the end of the night, so this run's own log has not had
+# its `=== done ===` line written yet. Handing it to the observer would make
+# every night report itself as ABORTED — a finding filed on every cadence,
+# forever. The exclusion lives in the phase prompt, so pin it there.
+assert_eq "R11" "1" \
+  "$(grep -c 'EXCLUDE logs/run-\$TS.log' "$RUN_SH")" \
+  "the observer phase prompt excludes this run's own in-progress log"
+
 # The preflight must classify BEFORE scrub_artifacts runs: the scrub is
 # `git clean -fdx`, so a stray still lying in the tree when it fires is deleted
 # rather than rescued. Ordering IS the fix, same as R1.
@@ -638,11 +765,12 @@ assert_eq "R8" "1" \
   "scrub_artifacts excludes \$STRAY_DIR from git clean -fdx"
 
 syntax_bad="$(for f in "$RUN_SH" "$REPO/.pipeline/verdict.sh" "$REPO/.pipeline/health.sh" \
-  "$REPO/.pipeline/backlog.sh" "$REPO/.pipeline/preflight.sh" "$REPO/.pipeline/test_gates.sh"; do
+  "$REPO/.pipeline/pipeline_health.sh" "$REPO/.pipeline/backlog.sh" \
+  "$REPO/.pipeline/preflight.sh" "$REPO/.pipeline/test_gates.sh"; do
     bash -n "$f" 2>&1
   done)"
 assert_eq "R5" "" "$syntax_bad" \
-  "bash -n is clean on run.sh, the four libs, and this test"
+  "bash -n is clean on run.sh, the five libs, and this test"
 
 # --- Summary ---------------------------------------------------------------
 

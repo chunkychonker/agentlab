@@ -2,8 +2,9 @@
 
 A nightly pipeline that ships N increments: research → build → review →
 maintain → auto-merge, repeated `.pipeline/cycles` times, bracketed by a
-backlog replenishment check before and after the loop, plus a lab-wide health
-check every 7th night. Each phase is a
+backlog replenishment check before and after the loop, plus two every-7th-night
+observers — a lab-wide health check over the portfolio, and an observer over
+the pipeline's own run logs. Each phase is a
 headless Claude Code run (`claude -p`) that delegates to one specialist
 subagent (except auto-merge, which is deterministic bash). The phases don't
 talk to each other directly — they coordinate through this repo's files, which
@@ -74,6 +75,36 @@ is how the state actually flows:
    *not* suppress, since a recurrence is new information. Runs only after a
    health phase that exited clean — a partial report must not queue findings
    that were never established.
+8. **Pipeline observer** (`agentlab-pipeline-observer`) — the sibling of the
+   health check, pointed at the machine instead of the portfolio. Phase 6 asks
+   "does what we shipped still work"; this asks "did the nights actually run,
+   did they ship what they claimed, did the same failure recur unnoticed, did
+   the bookkeeping keep up". It reads `logs/run-*.log` and pipeline state and
+   reports: aborted and partial runs, abort causes seen more than once, phases
+   that exited non-zero, claims stranded after their work merged, calendar days
+   with no run log at all, and quarantined strays nobody revisited. Same 7-day
+   cadence as the health check, keyed off `logs/lab-pipeline-*.log` timestamps
+   (`PIPELINE_OBSERVER_CADENCE_DAYS`), and runs last because it reads what the
+   night did. Cheap — everything it needs is on disk or behind `gh`; no venvs,
+   no example re-runs. Report lands in `logs/last-pipeline-health.md`.
+
+   Its window is bounded by the last observation rather than a fixed number of
+   days, so cost stays proportional to elapsed time rather than to accumulated
+   history. It is explicitly told to **exclude the current run's own log** —
+   that log has no `=== done ===` line yet, and handing it over would make
+   every night report itself as aborted, filing the same false finding forever.
+   Why it exists: nothing in the pipeline read its own logs. Every pipeline
+   improvement to date (#28, #29, #30, #31) arrived on a human-initiated
+   branch, and the reachability probe's false negative sat misdiagnosed as "VPN
+   off" across several nights before a human read the logs together.
+9. **File pipeline findings** (`run.sh`, deterministic bash — not a subagent) —
+   the exact analogue of phase 7, parsing `.pipeline/pipeline_health.sh` and
+   filing through the same `backlog_file_health_finding` into the same
+   `## Health-check findings` section. Both observers share that section and
+   its dedupe namespace deliberately: rot queues behind planned work in one
+   place, and the subjects are disjoint in practice (an example directory or a
+   wikilink vs. a run log, an abort cause, or a claim line). The observer is
+   told to make its subjects self-describing so they read correctly there.
 
 Three gates protect code that carries your name: a mechanical parse of the
 review verdict before the maintainer runs at all, the reviewer's own judgment
@@ -142,6 +173,7 @@ handed:
 | `.pipeline/backlog.sh` | is the queue stocked, is a claim stranded, has this finding been filed | `bash .pipeline/test_backlog.sh` |
 | `.pipeline/verdict.sh` | does the review authorise shipping | `bash .pipeline/test_gates.sh` |
 | `.pipeline/health.sh` | what did the health check actually find | `bash .pipeline/test_gates.sh` |
+| `.pipeline/pipeline_health.sh` | what did the pipeline observer actually find | `bash .pipeline/test_gates.sh` |
 
 Run both suites by hand after editing `run.sh` or any lib. They are on-demand
 only, like `eval/run_reviewer_eval.sh`: they live outside `examples/`, so the
@@ -171,6 +203,7 @@ can't silently re-price the nightly job.
 | maintainer | sonnet | reads a verdict, runs `git` and `gh` |
 | replenish | sonnet | appends checklist lines |
 | health | sonnet | runs existing test suites and reports |
+| pipeline observer | sonnet | reads run logs and git state, reports |
 
 The two opus phases are the ones holding judgment. The reviewer especially:
 it is the only thing standing between a bad increment and a PR with your name
@@ -195,7 +228,8 @@ for practitioner discussion/reception, not just vendor docs.
   launchd runs a missed job on next wake, so a Mac asleep at 02:47 will start
   the run whenever the lid next opens; `pmset repeat wakeorpoweron` keeps that
   from landing in the middle of a workday.
-- Budget roughly 20–25 min per cycle, plus ~12 min when the health check runs.
+- Budget roughly 20–25 min per cycle, plus ~12 min when the health check runs
+  and a few minutes more when the pipeline observer runs alongside it.
 
 Logs land in `logs/` (git-ignored).
 
