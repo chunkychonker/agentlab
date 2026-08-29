@@ -41,7 +41,7 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
 - [done #9] MCP server wrapping a public REST API (e.g. Hacker News Algolia)
 - [done #19] Connecting a custom MCP server to Claude Code and calling it end-to-end
 - [done #20] MCP resources vs tools: when to use which
-- [ ] MCP prompts, the third primitive: `examples/mcp-resources-vs-tools/` sorts
+- [building] MCP prompts, the third primitive: `examples/mcp-resources-vs-tools/` sorts
   model-driven from application-driven and leaves user-driven prompts out
   entirely. Increment: add a prompt to a server (arguments included), test
   list/get through the in-memory `Client` the way

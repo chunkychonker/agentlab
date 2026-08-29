@@ -165,4 +165,7 @@ above tests the server object via the SDK's in-memory `Client` — for
 connecting the same server to the real Claude Code host and proving it gets
 called end-to-end, see that note instead), [[mcp-resources]] (this note
 covers tools only — resources are a separate primitive with the opposite
-failure shape: they raise on the client instead of returning `is_error=True`).
+failure shape: they raise on the client instead of returning `is_error=True`),
+[[mcp-prompts]] (the third primitive — `@mcp.prompt()` mirrors `@mcp.tool()`
+but returns `str`/`list[Message]`, is user-triggered, and *raises* `MCPError`
+on a missing required argument rather than returning a tool-style error).

@@ -93,6 +93,9 @@ host's own docs for how it's actually surfaced.
 Research note: [2026-08-09-mcp-resources-vs-tools](../research/2026-08-09-mcp-resources-vs-tools.md).
 
 Related: [[mcp-python-sdk]] (the tool-side SDK mechanics this note
-contrasts against), [[agent-skills]] (the same "fail at declaration, not at
-use" pattern for template/parameter mismatches), [[tool-use-loop]] (the
-model-driven tool-calling loop resources are deliberately *not* part of).
+contrasts against), [[mcp-prompts]] (the third primitive — user-controlled;
+also *raises* on bad input like resources do, but the SDK gives it `-32603`
+where resources get the spec-correct `-32602`), [[agent-skills]] (the same
+"fail at declaration, not at use" pattern for template/parameter mismatches),
+[[tool-use-loop]] (the model-driven tool-calling loop resources are
+deliberately *not* part of).

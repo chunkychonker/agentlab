@@ -1,0 +1,9 @@
+# Needed for BOTH server.py (mcp.run()) and the offline self-test
+# (test_server.py, via the in-memory `Client`). Same pin as the other MCP
+# examples in this repo; pydantic comes in transitively.
+#
+# `mcp[cli]` (adds `mcp dev`/`mcp run`/`mcp install`, requires npx on PATH)
+# is optional and NOT required for the self-test -- see README
+# "Poke it manually". Install it yourself if you want that:
+#   pip install "mcp[cli]>=2.0.0,<3"
+mcp>=2.0.0,<3

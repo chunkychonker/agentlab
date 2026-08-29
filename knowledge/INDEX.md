@@ -75,6 +75,14 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   how Claude Code actually surfaces resources today (`@`-mention +
   synthetic list/read tools, verified against current docs, not stale
   GitHub issues)
+- [[mcp-prompts]] — the third primitive: user-controlled message templates,
+  `prompts/list`+`prompts/get`, arguments as a flat named-string list (no
+  schema; no-default = required), `@mcp.prompt()` = `@mcp.tool()` with a
+  `str`/`list[Message]` return, the spec-vs-SDK error-code gap (missing
+  required arg raises `MCPError` `-32603`, not the spec's `-32602` — and
+  resources get `-32602` in the same SDK), and how Claude Code surfaces them
+  (`/server:prompt (MCP)`, positional whitespace-split args, merged into the
+  skills `/` namespace)
 
 ## Cross-cutting patterns & gotchas
 - Testing agent loops offline: inject a fake client (see [[tool-use-loop]]);
@@ -98,7 +106,13 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   to the server object, no subprocess/host needed (see [[mcp-python-sdk]]);
   for tools that do real outbound HTTP, that's only enough to test
   registration/schema — test the I/O-doing function itself by injecting an
-  `httpx.MockTransport`-backed client (see [[mcp-python-sdk]], [[hn-algolia-api]])
+  `httpx.MockTransport`-backed client (see [[mcp-python-sdk]], [[hn-algolia-api]]).
+  The same in-memory `Client` covers all three primitives —
+  `list_tools`/`call_tool`, `list_resources`/`read_resource`,
+  `list_prompts`/`get_prompt` — but each has a different failure shape: tool
+  errors don't raise (`is_error=True`), resource and prompt errors both
+  *raise* `MCPError`, and the two disagree on the code (`-32602` for
+  resources, `-32603` for prompts — see [[mcp-prompts]])
 - Testing an MCP server against the *real* Claude Code host (not the SDK
   client): the in-memory `Client` above can't prove this — it needs a real,
   billed `claude` CLI invocation with `--mcp-config`/`--strict-mcp-config`/
