@@ -34,6 +34,14 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   `applied_edits`), the null-summary failure mode both vendors' example
   snippets crash on, `encrypted_content` round-tripping, why top-level
   `usage.input_tokens` under-reports the bill, and why Haiku can't run it
+- [[prompt-caching]] — where `cache_control` breakpoints go in a message list
+  that grows every turn: the 4-breakpoint cap, the 20-block lookback, the
+  tools/system/rolling/anchor layout for a hand-written tool loop, per-model
+  minimum cacheable prefix (Haiku 4.5 wants 4,096), the
+  `cache_creation_input_tokens` / `cache_read_input_tokens` / `input_tokens`
+  identity and the 1.25×/0.10× multipliers, why `count_tokens` can't preview it
+  for $0, the practitioner cache-killers, and the direct tension with
+  [[context-editing]]
 
 ## Skills
 - [[agent-skills]] — `SKILL.md` anatomy: progressive disclosure (3 load
@@ -93,7 +101,9 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   size) can be measured for real without a billed generation
   (see [[context-editing]]) — but only for effects the endpoint reproduces:
   it applies existing compaction blocks and will **not** trigger new ones, so
-  compaction cannot be previewed for $0 (see [[compaction]])
+  compaction cannot be previewed for $0 (see [[compaction]]); likewise it runs
+  no caching logic and returns no cache fields, so prompt caching can't be
+  previewed for $0 either (see [[prompt-caching]])
 - Testing MCP servers offline: connect the SDK's in-memory `Client` straight
   to the server object, no subprocess/host needed (see [[mcp-python-sdk]]);
   for tools that do real outbound HTTP, that's only enough to test
