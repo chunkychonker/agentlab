@@ -58,7 +58,8 @@ clear_tool_inputs         bool | Sequence[str] | None
 - **Clearing invalidates the cached prompt prefix.** That is the entire reason
   `clear_at_least` exists — clear enough to be worth the cache write. This is
   the most common practitioner criticism of the feature, and it means the
-  token saving is not the whole cost story.
+  token saving is not the whole cost story. See [[prompt-caching]] for the
+  other side of this tension.
 - **Your client keeps the full history.** The edit is per-request and
   server-side; you do not sync local state to it. Corollary: you cannot inspect
   the effect by printing your own messages list — you have to ask the API.
@@ -103,4 +104,4 @@ offline with a fake counter, and the endpoint asymmetry above is absorbed in
 exactly one adapter function.
 
 Related: [[tool-use-loop]], [[anthropic-python-sdk]], [[anthropic-models]],
-[[tool-failure-taxonomy]]
+[[tool-failure-taxonomy]], [[prompt-caching]]

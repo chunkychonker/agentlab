@@ -85,7 +85,7 @@ Both are small; a builder can reasonably take them in one cycle.
   after it. Today the last cycle of every drain-the-backlog night finds nothing
   to claim and has to file its own work.
 
-- [ ] Prompt caching across a long tool loop: where the `cache_control` breakpoints
+- [building] Prompt caching across a long tool loop: where the `cache_control` breakpoints
   go in a message list that grows every turn, and proving the saving instead of
   assuming it. Increment: a pure placement policy (message list in → list with
   breakpoints out, respecting the documented cap — 4 at last check, confirm

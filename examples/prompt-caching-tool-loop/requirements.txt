@@ -1,0 +1,11 @@
+# Only needed for the live run (python3 main.py with ANTHROPIC_API_KEY set).
+# Both offline self-tests (python3 test_placement.py, python3 test_report.py)
+# need nothing beyond the stdlib.
+#
+# Pinned: 1.2.0 is the current release, and the version whose response shape
+# this example was written against - `usage.cache_creation_input_tokens`,
+# `usage.cache_read_input_tokens` and `usage.input_tokens` are unchanged from
+# the 0.x line. Note that `context-editing-preview/` and
+# `server-side-compaction/` still pin 0.121.0; they are separate examples with
+# their own virtualenvs, so the pins do not have to agree.
+anthropic==1.2.0
