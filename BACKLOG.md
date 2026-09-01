@@ -21,6 +21,43 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
   shell, tested offline by replaying a recorded event sequence — same
   inject-a-fake-client trick the loop example already uses, no key needed.
   Confirm the current event names against the `claude-api` skill first.
+- [ ] Parallel specialist execution in the orchestrator. `examples/orchestrator-subagents/`
+  runs its `run_specialist` calls strictly one after another and its README names
+  concurrent fan-out the "natural next increment". Increment: dispatch the
+  independent subtasks of a `Plan` at once (`concurrent.futures.ThreadPoolExecutor`,
+  or `asyncio.gather` if the shell goes async), with `plan_task` and `synthesize`
+  unchanged and results reassembled in plan order rather than completion order.
+  Test offline in the style of `examples/orchestrator-subagents/test_agent.py`: a
+  fake client that blocks on a latch so the test can assert the specialist calls
+  overlap, plus a second assertion that the synthesised answer does not depend on
+  which finished first. No key for the test. Worth a README note on the
+  `[[prompt-caching]]` cache-killer that parallel calls sharing a prefix each pay
+  the full cache write.
+- [ ] `thinking` blocks in the streaming accumulator. `examples/streaming-tool-loop/`
+  lists them as explicitly out of scope: `accumulate()` raises on a
+  `content_block_start` for a `thinking` block instead of assembling it. But a
+  tool loop with extended thinking on must echo those blocks back verbatim,
+  signature included, or the next turn is a 400. Increment: extend the pure
+  accumulator to build `thinking` blocks from their delta + signature-delta
+  events alongside `text` and `tool_use`, keep them in `content` in wire shape,
+  and leave the loud-failure contract intact for genuinely malformed sequences.
+  Test offline by replaying a recorded thinking+tool_use event list through
+  `accumulate()` — the same trick `examples/streaming-tool-loop/test_agent.py`
+  already uses, no key. Confirm the delta event names against the `claude-api`
+  skill first, as the #32 item did for the base events.
+- [ ] `strict: true` tool schemas as prevention rather than cure.
+  `knowledge/tool-failure-taxonomy.md` records strict schema-constrained sampling
+  as removing "one whole error class", and both `examples/typed-tool-registry/`
+  and `examples/tool-error-policy/` push it out of scope. Increment: a
+  typed-tool-registry-shaped example whose tool schemas set the strict flag,
+  showing the model can no longer emit an input that fails Pydantic validation —
+  the `.call(...)` `ValueError` path `test_agent.py` exercises becomes
+  unreachable from the model side. Offline part: assert the emitted schema
+  carries the strict marker and is otherwise well-formed (pure, no key, like the
+  existing schema-shape checks). Live part: one cheap run contrasting a strict
+  and a non-strict registry on an input the loose one fumbles. Confirm the exact
+  field and beta-header name against the `claude-api` skill before building; do
+  not guess it.
 
 ## Skills
 - [done #7] Anatomy of a skill: a minimal model-invoked skill with a clear trigger
@@ -49,6 +86,20 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
   actually surfaces it rather than trusting the spec — the same discipline as
   `knowledge/claude-code-mcp-connection.md`, which found the host's real
   behaviour differed from the docs.
+- [ ] MCP resources through the real Claude Code host, not the in-memory `Client`.
+  `examples/mcp-resources-vs-tools/` proves the protocol-level contract offline
+  and explicitly defers the live `@`-mention flow to "PR #19's territory";
+  `knowledge/mcp-resources.md` describes how the host surfaces resources
+  (`@`-mention plus synthetic list/read tools) only "against current docs", never
+  verified live. Increment: a scripted end-to-end run in the style of
+  `examples/mcp-connect-claude-code/run_e2e.sh` — register the `notes` server,
+  drive the `claude` CLI with `--bare --strict-mcp-config --mcp-config ...
+  --output-format stream-json --verbose`, `@`-mention `notes://index`, and assert
+  from the transcript whether the host emits synthetic resource list/read tools
+  and under what `mcp__` names — then correct `knowledge/mcp-resources.md` with
+  what actually happened, the docs-vs-reality discipline
+  `knowledge/claude-code-mcp-connection.md` already applied. Costs one small
+  billed run; state that in the README like `examples/mcp-connect-claude-code/` does.
 
 ## Coding agents (deferred, was next before Skills/MCP got prioritized 2026-07-29)
 - [done #23] Tool-use error handling and retries done well
@@ -96,6 +147,33 @@ Both are small; a builder can reasonably take them in one cycle.
   and nothing in the lab measures that conflict. Unlike #25 this cannot be
   previewed for $0 — `count_tokens` reports no cache fields — so the runner needs
   one cheap real generation; say so plainly in the README.
+- [ ] Measure the context-editing vs prompt-caching trade — nothing in the lab does
+  yet. `examples/prompt-caching-tool-loop/` and `knowledge/context-editing.md`
+  both flag it: `clear_tool_uses_20250919` invalidates every cache breakpoint
+  below the edit, so a long loop running both trades a smaller prompt against a
+  colder cache. Increment: compose the pure `place_breakpoints` policy from
+  `examples/prompt-caching-tool-loop/placement.py` with the
+  `clear_tool_uses_20250919` edit from `examples/context-editing-preview/policy.py`
+  over one growing tool loop, and report `cache_creation_input_tokens` /
+  `cache_read_input_tokens` / `input_tokens` across the turn the edit fires: the
+  net of tokens the clear removes against tokens re-billed as a fresh cache write.
+  Offline test over the composed policy (pure, no key). The tokens the clear
+  removes can be previewed for $0 with `count_tokens` as in #25; the cache-write
+  cost that same clear incurs cannot (#35), so the net still needs one cheap real
+  generation — say so in the README.
+- [ ] Previewing `clear_thinking_20251015` for $0, the sibling edit
+  `examples/context-editing-preview/` names as out of scope. Increment: a second
+  pure policy type beside `ClearToolUsesPolicy` in `policy.py` that serialises the
+  `clear_thinking_20251015` `context_management` edit, plus a shell that counts a
+  thinking-heavy transcript twice — plain vs edited — to report the tokens dropped
+  by clearing reasoning blocks. The same $0 `count_tokens` discipline as #25,
+  which already showed the endpoint applies these edits without a billed call.
+  Offline self-test in the style of
+  `examples/context-editing-preview/test_preview.py`: pure serialisation plus a
+  synthetic thinking transcript, no key, no network. Check the field shapes
+  against `knowledge/context-editing.md` and the `claude-api` skill first, and
+  note whether `count_tokens` needs real thinking blocks in the input or accepts
+  synthetic ones.
 
 ## Pipeline & repo hygiene
 - [ ] Teach the health check to run
