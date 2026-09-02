@@ -33,7 +33,7 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
   which finished first. No key for the test. Worth a README note on the
   `[[prompt-caching]]` cache-killer that parallel calls sharing a prefix each pay
   the full cache write.
-- [ ] `thinking` blocks in the streaming accumulator. `examples/streaming-tool-loop/`
+- [building] `thinking` blocks in the streaming accumulator. `examples/streaming-tool-loop/`
   lists them as explicitly out of scope: `accumulate()` raises on a
   `content_block_start` for a `thinking` block instead of assembling it. But a
   tool loop with extended thinking on must echo those blocks back verbatim,

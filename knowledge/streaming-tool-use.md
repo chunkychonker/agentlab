@@ -58,6 +58,12 @@ drive the same dispatch loop end-to-end offline.
 
 ## Adjacent, not the same thing
 
+- **Thinking deltas** — a `thinking` block streams as `thinking_delta`
+  (`.thinking` string, append like text) then one `signature_delta` just before
+  `content_block_stop`; `redacted_thinking` streams delta-less. The
+  `streaming-tool-loop` accumulator raised on a `thinking` `content_block_start`
+  until the increment in `research/2026-09-02-streaming-thinking-accumulator.md`.
+  Full round-trip / 400 contract and per-mode shapes: [[thinking-blocks]].
 - **Fine-grained tool streaming** (`eager_input_streaming`, opt-in per tool) —
   changes partial-JSON delivery to skip server-side buffering for lower
   latency. Not investigated yet; a real feature layered on top of the base
