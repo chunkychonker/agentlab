@@ -252,6 +252,20 @@ Four properties are load-bearing, and each is a test in `test_gates.sh`:
   unrun, for the same reason an unrecognised model does: a typo would otherwise
   turn the gate into a silent no-op.
 
+One thing this does not catch. `increment_built` looks under `examples/` and
+`projects/`, but an increment that targets the pipeline itself lands in
+`.pipeline/` — this change did — and then no file under either root is newer, so
+the gate fails a build phase that in fact succeeded. It is not a corner case:
+eight of the fifteen merges before this one touched neither root, and one of
+those (#26, `cycle/2026-08-12-backlog-replenish-ordering`) was a builder cycle.
+The error direction is the safe one — a loud stop, not a silent ship on stale
+input — and the log names the postcondition and the state, so the failure is
+legible. Widening the roots is deliberately not done here: `run.sh` writes into
+`.pipeline/strays` when it stashes an untracked file, so measuring `.pipeline`
+would let a run that stashed a stray forge its own freshness, turning the gate
+into a no-op on exactly the nights something went wrong. Doing it safely needs
+its own increment and its own tests.
+
 The five `phase_no_postcondition` phases are not ungated, they are gated
 elsewhere and more narrowly — the reviewer by `review_verdict` on a
 `logs/last-review.md` that was `rm -f`d beforehand, replenish by a
