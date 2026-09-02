@@ -164,7 +164,7 @@ researcher — an item written without it is invisible to the pipeline.
 The decision itself (count, target, whether to act) lives in
 `.pipeline/backlog.sh`, apart from the `claude -p` call and the `git` push it
 triggers, so it can be tested with no network and no API key. Every decision
-`run.sh` makes without a model in the loop follows that shape — three
+`run.sh` makes without a model in the loop follows that shape — six
 sourceable libs, each doing one thing and doing no I/O beyond the file it is
 handed:
 
@@ -174,6 +174,8 @@ handed:
 | `.pipeline/verdict.sh` | does the review authorise shipping | `bash .pipeline/test_gates.sh` |
 | `.pipeline/health.sh` | what did the health check actually find | `bash .pipeline/test_gates.sh` |
 | `.pipeline/pipeline_health.sh` | what did the pipeline observer actually find | `bash .pipeline/test_gates.sh` |
+| `.pipeline/preflight.sh` | what does a dirty `main` mean for this run | `bash .pipeline/test_gates.sh` |
+| `.pipeline/postcondition.sh` | did a phase actually produce the artifact the next one needs | `bash .pipeline/test_gates.sh` |
 
 Run both suites by hand after editing `run.sh` or any lib. They are on-demand
 only, like `eval/run_reviewer_eval.sh`: they live outside `examples/`, so the
@@ -191,9 +193,10 @@ prompts. See `projects/README.md` for how to start one.
 
 ## Model per phase
 
-`run_phase` takes the model as its first argument; nothing inherits the
-interactive default from `~/.claude/settings.json`, so changing that default
-can't silently re-price the nightly job.
+`run_phase` takes the model as its first argument (the third is the phase's
+postcondition, below); nothing inherits the interactive default from
+`~/.claude/settings.json`, so changing that default can't silently re-price the
+nightly job.
 
 | Phase | Model | Why |
 |---|---|---|
@@ -211,6 +214,52 @@ on it, so it is the last phase that should ever be downgraded to save tokens.
 An unrecognised model name aborts that phase rather than falling back to a
 default, since a silent fallback is exactly how the full-opus bill would
 return unnoticed.
+
+## Phase postconditions
+
+A phase's exit code says the process ended, not that it produced anything. On
+2026-09-01 the 600s `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` ceiling killed the
+researcher mid-phase, the `claude` CLI still exited 0, and the build phase ran
+against a `research/` whose newest note was the previous night's — the cycle
+went on to review and ship an increment built from stale input.
+
+So `run_phase` takes a **required** third argument: the name of a function from
+`.pipeline/postcondition.sh` that answers "did this phase leave the artifact the
+next phase hard-depends on?" It is called only after a clean exit, with the time
+the phase *started*, and a non-zero answer fails the phase.
+
+| Phase | Postcondition | Answers |
+|---|---|---|
+| researcher | `research_note_fresh` | is there a `research/*.md` newer than this phase |
+| builder | `increment_built` | is there a file under `examples/` or `projects/` newer than this phase |
+| every other phase | `phase_no_postcondition` | nothing downstream hard-depends on this phase's artifact |
+
+Four properties are load-bearing, and each is a test in `test_gates.sh`:
+
+- **STALE is not MISSING.** `research/` was full on the failure night — of the
+  *previous* nights' notes. Only "newer than this phase started" catches it;
+  "does the directory have anything in it" passes on the exact failure it is for.
+  Both are non-zero, but the log says which.
+- **The floor is per phase, not per run.** With `CYCLES=2` both cycles' notes
+  carry the same date, so a run-start floor would let cycle 1's note satisfy
+  cycle 2's gate and the bug would survive its own fix.
+- **It fails closed**, like `verdict.sh`: an artifact the postcondition cannot
+  confirm is not a licence to advance.
+- **The argument is required, and checked.** `phase_no_postcondition` is how a
+  phase spells "no gate" explicitly, so a phase added later inherits one by
+  decision rather than by omission — the timing/order coupling `CLAUDE.md` ranks
+  worst. And a name that is not a defined shell function aborts the phase
+  unrun, for the same reason an unrecognised model does: a typo would otherwise
+  turn the gate into a silent no-op.
+
+The five `phase_no_postcondition` phases are not ungated, they are gated
+elsewhere and more narrowly — the reviewer by `review_verdict` on a
+`logs/last-review.md` that was `rm -f`d beforehand, replenish by a
+`git status --porcelain BACKLOG.md` check on the next line, health and the
+observer by reading their own reports on the success branch only, the maintainer
+by the auto-merge gate re-reading git and the PR. Each call site says so in a
+comment; duplicating those as freshness checks would give one fact two
+enforcement points to drift apart at.
 
 ## Tools available to the pipeline
 
