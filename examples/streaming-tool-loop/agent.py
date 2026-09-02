@@ -8,11 +8,18 @@ sequence of SSE events, and a `tool_use` block's `input` shows up as
 the tool can be called at all. That accumulation lives in `accumulator.py`, kept
 pure so it can be proven correct offline; this file is the imperative shell.
 
+The loop runs with extended thinking enabled, which is the reason the
+accumulator has to understand `thinking` blocks at all: the assistant turn is
+echoed back verbatim with the tool result, and a thinking block that is dropped
+or edited on the way is a 400. Nothing in the dispatch path needed to change —
+`message.content` already goes back whole.
+
 The calculator tool is duplicated from `minimal-agent-loop` on purpose: every
 example here is self-contained, and nothing in this repo imports across examples.
 
-See the research note this came from:
+See the research notes this came from:
     research/2026-08-16-streaming-tool-loop.md
+    research/2026-09-02-streaming-thinking-accumulator.md
 
 Run it live (needs a key):
     export ANTHROPIC_API_KEY=sk-ant-...
@@ -30,7 +37,11 @@ import os
 
 from accumulator import (
     CONTENT_BLOCK_DELTA,
+    CONTENT_BLOCK_START,
+    CONTENT_BLOCK_STOP,
     TEXT_DELTA,
+    THINKING_BLOCK,
+    THINKING_DELTA,
     TOOL_USE_BLOCK,
     accumulate,
 )
@@ -38,6 +49,15 @@ from accumulator import (
 # Model id lives in one constant so switching tiers is a one-line change.
 # Cheapest current model; any current id works. See knowledge/anthropic-models.md.
 MODEL = "claude-haiku-4-5"
+
+# Extended thinking, manual mode. THINKING is tied to MODEL being a 4.5-era
+# model: {"type": "enabled", "budget_tokens": N} is deprecated on the 4.6 models
+# and rejected with a 400 on 4.7 and later, which require {"type": "adaptive"}
+# instead. budget_tokens must be >= 1024 and strictly < max_tokens, which is why
+# MAX_TOKENS is well above it. See knowledge/thinking-blocks.md.
+THINKING_BUDGET_TOKENS = 1024
+MAX_TOKENS = 4096
+THINKING = {"type": "enabled", "budget_tokens": THINKING_BUDGET_TOKENS}
 
 
 # --------------------------------------------------------------------------- #
@@ -144,19 +164,40 @@ SYSTEM_PROMPT = (
 )
 
 
-def _echo_text_deltas(events):
-    """Yield every event unchanged, printing text fragments as they arrive.
+def _echo_deltas(events):
+    """Yield every event unchanged, printing text and thinking fragments as they arrive.
 
     This is where the "streaming" is actually visible to a human. It is a
     side-effecting pass-through wrapped *around* the event iterator, which is why
     ``accumulate()`` itself can stay pure — the printing lives in the shell.
+
+    Reasoning is labelled, since ``thinking_delta`` and ``text_delta`` fragments
+    otherwise arrive as one undifferentiated run of prose: a thinking block's
+    start prints a ``[thinking]`` marker and its stop a newline. Only indices
+    opened as thinking blocks are tracked, so a text block's stop prints nothing.
     """
+    thinking_indices: set[int] = set()
+
     for event in events:
-        if (
-            getattr(event, "type", None) == CONTENT_BLOCK_DELTA
-            and getattr(event.delta, "type", None) == TEXT_DELTA
-        ):
-            print(event.delta.text, end="", flush=True)
+        event_type = getattr(event, "type", None)
+
+        if event_type == CONTENT_BLOCK_START:
+            if getattr(event.content_block, "type", None) == THINKING_BLOCK:
+                thinking_indices.add(event.index)
+                print("[thinking] ", end="", flush=True)
+
+        elif event_type == CONTENT_BLOCK_DELTA:
+            delta_type = getattr(event.delta, "type", None)
+            if delta_type == TEXT_DELTA:
+                print(event.delta.text, end="", flush=True)
+            elif delta_type == THINKING_DELTA:
+                print(event.delta.thinking, end="", flush=True)
+
+        elif event_type == CONTENT_BLOCK_STOP:
+            if event.index in thinking_indices:
+                thinking_indices.discard(event.index)
+                print(flush=True)
+
         yield event
 
 
@@ -180,12 +221,13 @@ def run_agent_streaming(
     for _ in range(max_turns):
         with client.messages.stream(
             model=MODEL,
-            max_tokens=1024,
+            max_tokens=MAX_TOKENS,
             system=SYSTEM_PROMPT,
+            thinking=THINKING,
             tools=TOOLS,
             messages=messages,
         ) as stream:
-            events = _echo_text_deltas(stream) if verbose else stream
+            events = _echo_deltas(stream) if verbose else stream
             # One turn's worth of events in, one assembled message out. The tool
             # is dispatched only after the block it belongs to has closed.
             message = accumulate(events)
@@ -202,6 +244,12 @@ def run_agent_streaming(
         # tool_use block with a matching tool_result block in a single user turn.
         # The accumulator's blocks are already plain dicts in the API's wire
         # shape, so they can go straight back into `messages`.
+        #
+        # Verbatim is load-bearing with thinking on: `thinking` and
+        # `redacted_thinking` blocks must go back complete, unmodified and in
+        # order, or the next request is a 400. Appending `message.content` whole
+        # (rather than filtering to the blocks this loop cares about) is what
+        # makes that true for free.
         messages.append({"role": "assistant", "content": message.content})
 
         tool_results = []

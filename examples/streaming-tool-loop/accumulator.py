@@ -10,8 +10,16 @@ and each following ``content_block_delta`` carries ``partial_json`` — a raw
 string fragment of JSON. Only the concatenation of every fragment for that index,
 parsed at that index's ``content_block_stop``, is the real input.
 
-See the research note this came from:
-    research/2026-08-16-streaming-tool-loop.md
+Extended thinking adds two more block types to assemble. A ``thinking`` block
+arrives as ``thinking_delta`` string fragments plus a trailing ``signature_delta``
+carrying the encrypted signature; a ``redacted_thinking`` block arrives complete
+in its ``content_block_start`` with no deltas at all. Both must come back out in
+wire shape so the loop can echo them into the next turn unmodified — a tool-use
+turn that drops or edits them is a 400.
+
+See the research notes this came from:
+    research/2026-08-16-streaming-tool-loop.md          (text / tool_use)
+    research/2026-09-02-streaming-thinking-accumulator.md  (thinking blocks)
 """
 
 from __future__ import annotations
@@ -34,9 +42,13 @@ PING = "ping"
 
 TEXT_DELTA = "text_delta"
 INPUT_JSON_DELTA = "input_json_delta"
+THINKING_DELTA = "thinking_delta"
+SIGNATURE_DELTA = "signature_delta"
 
 TEXT_BLOCK = "text"
 TOOL_USE_BLOCK = "tool_use"
+THINKING_BLOCK = "thinking"
+REDACTED_THINKING_BLOCK = "redacted_thinking"
 
 # Events that are recognized but contribute nothing to the reconstructed blocks.
 # ``message_start`` carries a Message whose ``content`` is always empty, and
@@ -48,10 +60,12 @@ _IGNORED_EVENT_TYPES = frozenset({MESSAGE_START, MESSAGE_STOP, PING})
 class AccumulatedMessage:
     """A finished message rebuilt from a stream.
 
-    ``content`` is in index order; each block is either
-    ``{"type": "text", "text": str}`` or
-    ``{"type": "tool_use", "id": str, "name": str, "input": dict}`` — the same
-    wire shape the Messages API accepts when echoing an assistant turn back.
+    ``content`` is in index order; each block is one of
+    ``{"type": "text", "text": str}``,
+    ``{"type": "tool_use", "id": str, "name": str, "input": dict}``,
+    ``{"type": "thinking", "thinking": str, "signature": str}``, or
+    ``{"type": "redacted_thinking", "data": str}`` — the same wire shape the
+    Messages API accepts when echoing an assistant turn back.
     """
 
     stop_reason: str | None
@@ -140,17 +154,119 @@ class _OpenToolUse:
         return {"type": TOOL_USE_BLOCK, "id": self.id, "name": self.name, "input": parsed}
 
 
-def _open_block(index: int, content_block) -> _OpenText | _OpenToolUse:
+@dataclass
+class _OpenThinking:
+    """A thinking block still receiving ``thinking_delta``/``signature_delta`` fragments.
+
+    Both kinds of fragment are held as strings and joined in ``finish``. The
+    ``thinking`` and ``signature`` fields on the opening ``content_block_start``
+    are always ``""`` (the same "empty, not absent" seed ``tool_use`` uses for
+    ``input``), so nothing is read from them — exactly as ``_OpenToolUse``
+    ignores the opening ``input={}``.
+
+    Failure modes:
+      - ``ValueError`` naming the index if ``apply`` gets a delta whose type is
+        neither ``thinking_delta`` nor ``signature_delta``.
+    ``finish`` never fails: both fields are plain string joins.
+    """
+
+    thinking_parts: list[str] = field(default_factory=list)
+    signature_parts: list[str] = field(default_factory=list)
+
+    def apply(self, index: int, delta) -> None:
+        """Record one thinking or signature fragment.
+
+        Raises ValueError if the delta is neither a ``thinking_delta`` nor a
+        ``signature_delta`` — including a ``text_delta`` or ``input_json_delta``
+        misrouted to a thinking index.
+        """
+        delta_type = getattr(delta, "type", None)
+        if delta_type == THINKING_DELTA:
+            self.thinking_parts.append(delta.thinking)
+            return
+        if delta_type == SIGNATURE_DELTA:
+            self.signature_parts.append(delta.signature)
+            return
+        raise ValueError(
+            f"content block {index}: thinking block received {delta_type!r} delta, "
+            f"expected {THINKING_DELTA!r} or {SIGNATURE_DELTA!r}"
+        )
+
+    def finish(self, index: int) -> dict:
+        """Return the finished thinking block. Never fails.
+
+        Both joins can legitimately produce ``""``. Zero ``thinking_delta``s is
+        the documented ``display:"omitted"`` case, *not* the truncation an empty
+        ``tool_use`` input signals. Zero ``signature_delta``s yields
+        ``signature: ""`` and is passed through rather than raised on: a pure
+        accumulator cannot know the model or display mode, so the loud failure
+        for a genuinely missing signature belongs at the API boundary, which
+        rejects it. See the README's signature-policy table.
+        """
+        return {
+            "type": THINKING_BLOCK,
+            "thinking": "".join(self.thinking_parts),
+            "signature": "".join(self.signature_parts),
+        }
+
+
+@dataclass
+class _OpenRedactedThinking:
+    """A redacted_thinking block: opaque ``data``, captured whole at its start.
+
+    Unlike every other block type this carries no deltas — the stream sends
+    ``content_block_start`` with the full ``data`` and then ``content_block_stop``.
+
+    Failure modes:
+      - ``ValueError`` naming the index from ``apply`` for *any* delta.
+      - ``ValueError`` at construction (in ``_open_block``) if the opening
+        ``content_block`` has no string ``data``.
+    ``finish`` never fails.
+    """
+
+    data: str
+
+    def apply(self, index: int, delta) -> None:
+        """Always raises ValueError: a redacted_thinking block has no deltas."""
+        raise ValueError(
+            f"content block {index}: {REDACTED_THINKING_BLOCK} block received a "
+            f"{getattr(delta, 'type', None)!r} delta, but it takes no deltas"
+        )
+
+    def finish(self, index: int) -> dict:
+        """Return the finished redacted_thinking block. Never fails."""
+        return {"type": REDACTED_THINKING_BLOCK, "data": self.data}
+
+
+# Every block type the accumulator can hold open. Named once so the union does
+# not have to be re-typed at each use site.
+_OpenBlock = _OpenText | _OpenToolUse | _OpenThinking | _OpenRedactedThinking
+
+
+def _open_block(index: int, content_block) -> _OpenBlock:
     """Build the right open-block accumulator for a content_block_start.
 
     Raises ValueError for block types this example does not handle (e.g.
-    ``thinking``) rather than dropping them silently.
+    ``server_tool_use``) rather than dropping them silently, and for a
+    ``redacted_thinking`` start with no string ``data`` to round-trip.
     """
     block_type = getattr(content_block, "type", None)
     if block_type == TEXT_BLOCK:
         return _OpenText(text=content_block.text)
     if block_type == TOOL_USE_BLOCK:
         return _OpenToolUse(id=content_block.id, name=content_block.name)
+    if block_type == THINKING_BLOCK:
+        # The start's own thinking/signature are always ""; the content arrives
+        # entirely as deltas.
+        return _OpenThinking()
+    if block_type == REDACTED_THINKING_BLOCK:
+        data = getattr(content_block, "data", None)
+        if not isinstance(data, str):
+            raise ValueError(
+                f"content block {index}: {REDACTED_THINKING_BLOCK} start carries no "
+                f"string 'data' field (got {data!r}); it cannot be round-tripped"
+            )
+        return _OpenRedactedThinking(data=data)
     raise ValueError(f"content block {index}: unsupported block type {block_type!r}")
 
 
@@ -174,10 +290,18 @@ def accumulate(events: Iterable[object]) -> AccumulatedMessage:
         finished, a delta whose type does not match its block, an unsupported
         block type, a block left unclosed when the stream ends, or a gap in the
         block indices (which would break index-to-position correspondence).
+      - ``ValueError`` naming the index for a ``thinking_delta``/``signature_delta``
+        on an index that is not an open ``thinking`` block, any delta on a
+        ``redacted_thinking`` index, or a ``redacted_thinking`` start with no
+        string ``data``.
       - ``json.JSONDecodeError`` if a tool_use block's accumulated
         ``partial_json`` is not valid JSON at its ``content_block_stop``.
+
+    Deliberately *not* failures: a ``thinking`` block that closes having received
+    zero ``thinking_delta``s (the ``display:"omitted"`` case) or zero
+    ``signature_delta``s. Both yield ``""`` for that field.
     """
-    open_blocks: dict[int, _OpenText | _OpenToolUse] = {}
+    open_blocks: dict[int, _OpenBlock] = {}
     finished: dict[int, dict] = {}
     stop_reason: str | None = None
 

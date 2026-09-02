@@ -10,6 +10,14 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   input starts `{}` and arrives as raw JSON string fragments, parseable only
   at `content_block_stop`), source-verified Python SDK event attribute names,
   and the offline `SimpleNamespace`-event-replay testing trick
+- [[thinking-blocks]] — the `thinking` / `redacted_thinking` round-trip
+  contract: pass every block back complete, unmodified, in order within a
+  tool-use turn or get a 400; `signature` byte-preservation; filtering by
+  `type == "thinking"` silently drops `redacted_thinking`; the streaming shape
+  (`thinking_delta` then one `signature_delta`; `display:"omitted"` sends no
+  thinking text; `redacted_thinking` is delta-less); and manual-vs-adaptive
+  model support (manual `budget_tokens` is 400 on 4.7+, event shapes identical
+  across modes)
 - [[typed-tool-registry]] — `@beta_tool` + `client.beta.messages.tool_runner`: typed schemas, validation, registry pattern
 - [[orchestrator-workers]] — fan-out-to-specialists pattern; `client.messages.parse(output_format=...)` for the plan step; parallelizing the delegate step with `ThreadPoolExecutor.map` (input-order results, sharing one sync client across the pool, latency-not-token win, and the shared-prefix cache-killer); the three distinct "subagent" products and when each applies
 - [[tool-failure-taxonomy]] — the three dispositions for a failing tool call

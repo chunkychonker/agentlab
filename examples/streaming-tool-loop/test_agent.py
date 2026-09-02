@@ -4,7 +4,8 @@ Run:
     python test_agent.py
 
 Covers the acceptance criteria from
-``research/2026-08-16-streaming-tool-loop.md``:
+``research/2026-08-16-streaming-tool-loop.md`` (1-5) and
+``research/2026-09-02-streaming-thinking-accumulator.md`` (6-8):
 
   1. Replaying the docs' own tool-use SSE transcript through ``accumulate()``
      rebuilds the ``tool_use`` block's id, name, and fully-parsed ``input``
@@ -19,6 +20,15 @@ Covers the acceptance criteria from
      handing the tool a wrong or empty input.
   5. Out-of-order / structurally broken block events raise ``ValueError``
      naming the index, and the ``max_turns`` cap still stops a runaway loop.
+  6. A ``thinking`` block is rebuilt from its ``thinking_delta`` fragments plus
+     its ``signature_delta``, a ``display:"omitted"`` block (no thinking deltas)
+     is legal rather than an error, and a ``redacted_thinking`` block survives
+     its delta-less start/stop pair with ``data`` intact.
+  7. The loop echoes the thinking block back **unmodified and ahead of** the
+     ``tool_use`` block on the tool-result turn - the thing that keeps a
+     thinking-enabled tool turn from 400ing.
+  8. The verbose shell prints thinking and text fragments as they stream while
+     passing every event through unchanged.
 
 Everything is built from ``SimpleNamespace`` fakes with the same attributes the
 SDK's raw event objects have, so no SDK import is needed.
@@ -26,7 +36,9 @@ SDK's raw event objects have, so no SDK import is needed.
 
 from __future__ import annotations
 
+import io
 import json
+from contextlib import redirect_stdout
 from types import SimpleNamespace
 
 import agent
@@ -87,6 +99,20 @@ def _text_deltas(index: int, fragments: list[str]) -> list[SimpleNamespace]:
 
 def _json_deltas(index: int, fragments: list[str]) -> list[SimpleNamespace]:
     return [_block_delta(index, type="input_json_delta", partial_json=f) for f in fragments]
+
+
+def _thinking_deltas(index: int, fragments: list[str]) -> list[SimpleNamespace]:
+    return [_block_delta(index, type="thinking_delta", thinking=f) for f in fragments]
+
+
+def _signature_delta(index: int, signature: str) -> SimpleNamespace:
+    return _block_delta(index, type="signature_delta", signature=signature)
+
+
+def _thinking_start(index: int) -> SimpleNamespace:
+    # The real start seeds BOTH fields empty - "empty, not absent", the same way
+    # a tool_use block opens with input={}.
+    return _block_start(index, type="thinking", thinking="", signature="")
 
 
 # The tool_use half of this is transcribed verbatim from the streaming docs'
@@ -184,10 +210,12 @@ class FakeStreamingMessages:
     def __init__(self, scripted_turns):
         self._scripted = list(scripted_turns)
         self.calls = []  # each entry is the messages list passed to stream()
+        self.requests = []  # each entry is the full kwargs passed to stream()
 
     def stream(self, **kwargs) -> FakeStream:
         # Copy so later mutation of `messages` doesn't rewrite our record.
         self.calls.append(list(kwargs["messages"]))
+        self.requests.append(dict(kwargs))
         return FakeStream(self._scripted.pop(0))
 
 
@@ -330,8 +358,45 @@ def _bad_sequences() -> list[tuple[str, list[SimpleNamespace]]]:
             ],
         ),
         (
+            # `thinking` used to live here; it is a supported type now, so the
+            # guard is exercised with a real API block type this example still
+            # does not assemble.
             "unsupported block type",
-            [_block_start(0, type="thinking", thinking="")],
+            [_block_start(0, type="server_tool_use", id="srvtoolu_x", name="web_search")],
+        ),
+        (
+            # The axonhub#1105 service-side bug: a signature_delta whose index
+            # pointed at a tool_use block. Must not be silently absorbed.
+            "signature_delta whose index is the tool_use block",
+            [
+                _block_start(0, type="tool_use", id="toolu_z", name="calculator", input={}),
+                _signature_delta(0, "EqQBCgIYAhIM1gbcDa9GJwZA2b"),
+            ],
+        ),
+        (
+            "thinking_delta into a text block",
+            [
+                _block_start(0, type="text", text=""),
+                *_thinking_deltas(0, ["oops"]),
+            ],
+        ),
+        (
+            "text_delta into a thinking block",
+            [
+                _thinking_start(0),
+                _block_delta(0, type="text_delta", text="oops"),
+            ],
+        ),
+        (
+            "any delta at all for a redacted_thinking index",
+            [
+                _block_start(0, type="redacted_thinking", data="EroBCoYBGAIiQL"),
+                *_thinking_deltas(0, ["oops"]),
+            ],
+        ),
+        (
+            "redacted_thinking start with no data to round-trip",
+            [_block_start(0, type="redacted_thinking")],
         ),
         (
             "tool input that parses to a non-object",
@@ -386,6 +451,230 @@ def test_loop_enforces_max_turns() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# 6. Thinking and redacted_thinking blocks
+#
+# Fixtures follow the streaming docs' thinking trace, quoted in
+# research/2026-09-02-streaming-thinking-accumulator.md: the block opens with
+# BOTH `thinking` and `signature` empty, one or more `thinking_delta`s carry the
+# reasoning text, and a single `signature_delta` lands just before the stop.
+# --------------------------------------------------------------------------- #
+
+# The docs print the signature truncated ("EqQBCgIYAhIM1gbcDa9GJwZA2b..."), so
+# this is a stand-in of the right shape rather than a transcription. Only its
+# byte-for-byte survival through the accumulator is under test; its contents are
+# opaque to every line of code here.
+DOC_SIGNATURE = "EqQBCgIYAhIM1gbcDa9GJwZA2b7dEgxgDcpOiZOaMMbrxx4aDGKvsY0i5nFvR3ImIA"
+DOC_THINKING_FRAGMENTS = [
+    "I need to find the GCD",
+    " of 27 and 18. Let me use",
+    " the Euclidean algorithm.",
+]
+
+DOC_THINKING_EVENTS = [
+    _message_start(),
+    _thinking_start(0),
+    _ping(),
+    *_thinking_deltas(0, DOC_THINKING_FRAGMENTS),
+    # Exactly one, immediately before the stop, per the docs.
+    _signature_delta(0, DOC_SIGNATURE),
+    _block_stop(0),
+    _block_start(1, type="text", text=""),
+    *_text_deltas(1, ["The GCD of 27 and 18", " is 9."]),
+    _block_stop(1),
+    _message_delta("end_turn"),
+    _message_stop(),
+]
+
+
+def test_thinking_transcript_rebuilds_thinking_and_signature() -> None:
+    message = accumulate(DOC_THINKING_EVENTS)
+
+    assert message.stop_reason == "end_turn", message.stop_reason
+    assert message.content == [
+        {
+            "type": "thinking",
+            "thinking": "".join(DOC_THINKING_FRAGMENTS),
+            # Byte-for-byte: the server decrypts this, so any normalisation is a 400.
+            "signature": DOC_SIGNATURE,
+        },
+        {"type": "text", "text": "The GCD of 27 and 18 is 9."},
+    ], message.content
+    print("ok  thinking_delta fragments + signature_delta rebuild a thinking block")
+
+
+def test_omitted_thinking_block_is_legal_with_empty_thinking() -> None:
+    # display:"omitted" (the default on the newest models): no thinking_delta
+    # events at all. The block opens, takes one signature_delta, and closes.
+    # thinking == "" is a legal finished value, NOT the truncation an empty
+    # tool_use input signals.
+    events = [
+        _message_start(),
+        _thinking_start(0),
+        _signature_delta(0, DOC_SIGNATURE),
+        _block_stop(0),
+        _block_start(1, type="text", text=""),
+        *_text_deltas(1, ["9."]),
+        _block_stop(1),
+        _message_delta("end_turn"),
+        _message_stop(),
+    ]
+
+    message = accumulate(events)
+
+    assert message.content[0] == {
+        "type": "thinking",
+        "thinking": "",
+        "signature": DOC_SIGNATURE,
+    }, message.content
+    print("ok  display:omitted thinking block yields thinking=\"\" without raising")
+
+
+def test_signature_policy_allows_missing_and_joins_fragments() -> None:
+    """The two decisions this example makes where the docs are silent.
+
+    (a) Zero signature_delta events -> signature "" and no exception: a pure
+        accumulator cannot know the model or display mode, so the loud failure
+        for a genuinely missing signature belongs at the API boundary.
+    (b) More than one signature_delta -> joined in arrival order, which is a
+        superset of the documented "exactly one" and identity for it.
+    """
+    no_signature = accumulate(
+        [_thinking_start(0), *_thinking_deltas(0, ["hmm"]), _block_stop(0)]
+    )
+    assert no_signature.content == [
+        {"type": "thinking", "thinking": "hmm", "signature": ""}
+    ], no_signature.content
+
+    split_signature = accumulate(
+        [
+            _thinking_start(0),
+            *_thinking_deltas(0, ["hmm"]),
+            _signature_delta(0, DOC_SIGNATURE[:10]),
+            _signature_delta(0, DOC_SIGNATURE[10:]),
+            _block_stop(0),
+        ]
+    )
+    assert split_signature.content == [
+        {"type": "thinking", "thinking": "hmm", "signature": DOC_SIGNATURE}
+    ], split_signature.content
+    print("ok  missing signature is allowed and split signatures join in order")
+
+
+# Likewise a stand-in: the docs describe `data` as opaque and never print a real
+# one. Shape only; the test is that it comes back unchanged.
+REDACTED_DATA = "EroBCoYBGAIiQAmvSHSk1Xl1z9vOJRPPZ8bVDo7QqPqIWLpqTGWvBOaB9ivQ"
+
+
+def test_redacted_thinking_survives_its_deltaless_start_stop_pair() -> None:
+    # redacted_thinking arrives COMPLETE in content_block_start - no deltas at
+    # all - and must be round-tripped byte-for-byte. See the README note on this
+    # shape's provenance.
+    events = [
+        _message_start(),
+        _block_start(0, type="redacted_thinking", data=REDACTED_DATA),
+        _block_stop(0),
+        _block_start(1, type="text", text=""),
+        *_text_deltas(1, ["Done."]),
+        _block_stop(1),
+        _message_delta("end_turn"),
+        _message_stop(),
+    ]
+
+    message = accumulate(events)
+
+    assert message.content == [
+        {"type": "redacted_thinking", "data": REDACTED_DATA},
+        {"type": "text", "text": "Done."},
+    ], message.content
+    print("ok  redacted_thinking block round-trips its opaque data with no deltas")
+
+
+# --------------------------------------------------------------------------- #
+# 7. The loop with thinking on: the assistant turn must go back unmodified
+# --------------------------------------------------------------------------- #
+
+THINKING_TURN_ONE_EVENTS = [
+    _message_start(),
+    _thinking_start(0),
+    *_thinking_deltas(0, ["The user wants 4839 * 1284.", " I should use the calculator."]),
+    _signature_delta(0, DOC_SIGNATURE),
+    _block_stop(0),
+    _block_start(1, type="tool_use", id=CALC_TOOL_USE_ID, name="calculator", input={}),
+    *_json_deltas(1, ["", '{"expression"', ': "4839', " * 12", '84"}']),
+    _block_stop(1),
+    _message_delta("tool_use"),
+    _message_stop(),
+]
+
+
+def test_loop_echoes_thinking_block_ahead_of_tool_use() -> None:
+    client = FakeClient([THINKING_TURN_ONE_EVENTS, TURN_TWO_EVENTS])
+
+    answer = agent.run_agent_streaming(
+        client, "What is 4839 * 1284, and is that more than five million?"
+    )
+
+    assert answer == "4839 * 1284 = 6213276, which is more than five million.", answer
+    assert len(client.messages.calls) == 2, client.messages.calls
+
+    # The whole point: on the SECOND request the assistant turn still carries the
+    # thinking block, complete, unmodified, and BEFORE the tool_use block. Drop
+    # it, reorder it, or edit the signature and the real API answers 400.
+    assistant_turn = client.messages.calls[1][-2]
+    assert assistant_turn["role"] == "assistant"
+    assert assistant_turn["content"] == [
+        {
+            "type": "thinking",
+            "thinking": "The user wants 4839 * 1284. I should use the calculator.",
+            "signature": DOC_SIGNATURE,
+        },
+        {
+            "type": "tool_use",
+            "id": CALC_TOOL_USE_ID,
+            "name": "calculator",
+            "input": {"expression": "4839 * 1284"},
+        },
+    ], assistant_turn["content"]
+
+    # ...and the tool still ran on the reassembled input, thinking notwithstanding.
+    tool_result_turn = client.messages.calls[1][-1]
+    assert tool_result_turn["role"] == "user"
+    assert tool_result_turn["content"][0]["tool_use_id"] == CALC_TOOL_USE_ID
+    assert tool_result_turn["content"][0]["content"] == "6213276", tool_result_turn
+
+    # The request that produced it asked for thinking in the first place, with a
+    # budget the API will accept: budget_tokens >= 1024 and strictly < max_tokens
+    # (equal or greater is a 400 before a single token is generated).
+    request = client.messages.requests[0]
+    assert request["thinking"] == {"type": "enabled", "budget_tokens": 1024}, request
+    assert 1024 <= request["thinking"]["budget_tokens"] < request["max_tokens"], request
+
+    print("ok  loop echoes the thinking block unmodified, ahead of the tool_use")
+
+
+# --------------------------------------------------------------------------- #
+# 8. The verbose shell: printing is a pass-through, never a transformation
+# --------------------------------------------------------------------------- #
+
+def test_echo_deltas_prints_thinking_and_text_and_passes_events_through() -> None:
+    buffer = io.StringIO()
+    with redirect_stdout(buffer):
+        echoed = list(agent._echo_deltas(DOC_THINKING_EVENTS))
+
+    printed = buffer.getvalue()
+    assert "[thinking] " + "".join(DOC_THINKING_FRAGMENTS) in printed, printed
+    assert "The GCD of 27 and 18 is 9." in printed, printed
+    # The signature is not prose; it must not be echoed as if it were.
+    assert DOC_SIGNATURE not in printed, printed
+    # Pass-through: every event, same objects, same order. accumulate() must see
+    # an identical stream whether or not the shell is printing.
+    assert echoed == DOC_THINKING_EVENTS
+    assert accumulate(echoed).content == accumulate(DOC_THINKING_EVENTS).content
+
+    print("ok  verbose echo prints thinking + text and yields every event unchanged")
+
+
+# --------------------------------------------------------------------------- #
 # The duplicated calculator: this example ships its own copy, so it gets its own
 # guard that forbidden input is rejected rather than executed.
 # --------------------------------------------------------------------------- #
@@ -408,6 +697,12 @@ def main() -> int:
         test_truncated_tool_input_raises_json_error,
         test_broken_block_sequences_raise_value_error,
         test_loop_enforces_max_turns,
+        test_thinking_transcript_rebuilds_thinking_and_signature,
+        test_omitted_thinking_block_is_legal_with_empty_thinking,
+        test_signature_policy_allows_missing_and_joins_fragments,
+        test_redacted_thinking_survives_its_deltaless_start_stop_pair,
+        test_loop_echoes_thinking_block_ahead_of_tool_use,
+        test_echo_deltas_prints_thinking_and_text_and_passes_events_through,
         test_calculator_rejects_forbidden_input,
     ]
     for t in tests:

@@ -1,3 +1,6 @@
 # Only needed for the live run (python3 agent.py with ANTHROPIC_API_KEY set).
 # The offline self-test (python3 test_agent.py) needs nothing beyond the stdlib.
+#
+# Python 3.10+: accumulator.py builds the `_OpenBlock` union alias at import time,
+# and `A | B` is only a runtime expression from 3.10 on.
 anthropic>=0.120.0
