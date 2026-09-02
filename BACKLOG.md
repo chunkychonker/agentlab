@@ -21,7 +21,7 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
   shell, tested offline by replaying a recorded event sequence — same
   inject-a-fake-client trick the loop example already uses, no key needed.
   Confirm the current event names against the `claude-api` skill first.
-- [stranded cycle/2026-09-01-unshipped-140847-1] Parallel specialist execution in the orchestrator. `examples/orchestrator-subagents/`
+- [ ] Parallel specialist execution in the orchestrator. `examples/orchestrator-subagents/`
   runs its `run_specialist` calls strictly one after another and its README names
   concurrent fan-out the "natural next increment". Increment: dispatch the
   independent subtasks of a `Plan` at once (`concurrent.futures.ThreadPoolExecutor`,
