@@ -61,6 +61,42 @@ Verified against installed `anthropic==0.120.2` source, 2026-07-29
   "name": ...}`) — older, more broadly documented, worth falling back to if
   `output_format` ever 400s on a specific model.
 
+## Parallelizing the delegate step
+
+The N specialist calls are independent (own system prompt, own one-message
+history, no shared state), so they can run at once. For the plain sync
+Messages API the small change is a thread pool, not `asyncio`:
+
+- **`concurrent.futures.ThreadPoolExecutor.map(fn, iterable)` yields results in
+  *input* order**, blocking as needed, regardless of completion order — so
+  "reassemble in plan order" is free, no `future → index` bookkeeping. It also
+  re-raises a worker's exception when you iterate to that slot, so one failing
+  specialist fails the whole fan-out loudly instead of returning a partial
+  list. Both `concurrent.futures` and `threading` are stdlib — no new dep.
+- **Sharing one sync `Anthropic` client across the pool is fine here.** It
+  wraps a single pooled HTTP client (`httpx2` in the 1.x SDK) with a default
+  `max_connections=100`; `copy()`/`with_options()` are described as supporting
+  "thread-safe usage patterns"; the SDK ships `to_thread`/`asyncify` for
+  exactly this. There is no one-sentence "the sync client is thread-safe"
+  guarantee in the docs, but the ThreadPoolExecutor-over-one-client pattern is
+  standard. SDK auto-retry (2×, incl. 429/5xx) is per-call and unaffected.
+- **Parallelism cuts wall-clock, not tokens.** Same plan + N specialist +
+  synthesize calls either way. Anthropic's own multi-agent Research system
+  (orchestrator + 3–5 parallel subagents) costs ~15× a single chat — the fan
+  out is a latency win, not a cost win; don't oversell it.
+- **Cache-killer if the fan-out calls share a prefix.** See [[prompt-caching]]:
+  a cache entry is only visible after the first response *begins*, so N
+  parallel calls sharing a big prefix, all fired before any returns, pay N
+  cache writes (1.25×) and zero reads. Serialize the first call, or accept the
+  cost. Independent specialist calls that share *nothing* (distinct system +
+  messages, as in the orchestrator example) sidestep this entirely — worth
+  stating explicitly when you review such code.
+
+Keep the sequential orchestrator as the baseline and add the parallel variant
+beside it (expand/contract): a positional "calls happen in this order" test is
+only valid for the serial path — a thread pool appends to any call-recording
+list in completion order.
+
 ## Three different "subagent" products — don't conflate them
 
 - **Plain Messages API orchestration** (above): just multiple
