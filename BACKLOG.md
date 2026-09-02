@@ -204,3 +204,17 @@ Both are small; a builder can reasonably take them in one cycle.
 - Prefer the latest Claude models and the current Anthropic SDK. Check the
   `claude-api` skill before writing any API code — do not guess model ids or params.
 - Every build must actually run. No stubs, no placeholder TODOs left behind.
+
+## Health-check findings
+Filed automatically by `.pipeline/run.sh` from `logs/last-health.md`.
+Full detail is in the dated `logs/lab-health-*.log` for that date.
+- [ ] fix (health 2026-09-02): run-2026-08-29_114701 — no "=== done"; log stops mid "cycle 2/2: review" with no verdict and no "Aborting." line. Cycle 1 was a clean review FAIL (mcp-prompts knowledge note not reconciled with the build); cycle 2 research h...
+- [ ] fix (health 2026-09-02): run-2026-08-30_114704 — "main has uncommitted changes to tracked files (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting." Aborted at preflight; downstream of run-2026-08-29's t...
+- [ ] fix (health 2026-09-02): run-2026-08-31_114702 — "NETWORK UNREACHABLE (api.anthropic.com / github.com) — check VPN. Aborting." Sole line in the log; first occurrence since the PR #31 probe fix.
+- [ ] fix (health 2026-09-02): run-2026-09-01_134705 — shipped 0/2. Cycle 1 clean VERDICT: FAIL (no increment: researcher killed by the 600s ceiling, builder correctly refused to build). Cycle 2 verdict MISSING (same 600s researcher kill; review phase wro...
+- [ ] fix (health 2026-09-02): "Background tasks still running after 600s; terminating. Set CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 to wait indefinitely." — 2 nights: 2026-08-29 (cycle 2 research) and 2026-09-01 (cycle 1 research, cycle 2 research, and the pipeline-observer phase — 3 occurrences that night). Direct cause of run-2026-09-01 shipping 0/2 a...
+- [ ] fix (health 2026-09-02): (none)
+- [ ] fix (health 2026-09-02): BACKLOG.md:24 "Parallel specialist execution in the orchestrator" marked [building], shipped in PR #37 (merged 2026-09-02, branch cycle/2026-09-02-parallel-specialist-execution) — never advanced to [done #37]. Both maintain/auto-merge and the post-loop reconcile for that cycle have already run, so no remaining pipeline step will correct it.
+- [ ] fix (health 2026-09-02): BACKLOG.md:36 "thinking blocks in the streaming accumulator" marked [building], shipped in PR #38 (merged 2026-09-02, branch cycle/2026-09-02-streaming-thinking-accumulator) — never advanced to [done #38]. Same as PR #37: both of tonight's cycles shipped without a mark-done, the 2026-08-16 PR #33 failure mode recurring on both cycles.
+- [ ] fix (health 2026-09-02): no run log for 2026-08-17 through 2026-08-28 — 12 consecutive scheduled nights with no logs/run-*.log present. logs/pause-resume.log records a manual pause/resume dated 2026-08-18/19; whether the nightly job ran on any of these dates cannot be det...
+- [ ] fix (health 2026-09-02): .pipeline/strays/2026-08-31-manual/ — 1 file (HANDOFF-2026-08-31.md, ~15 KB), ~2 days old (dir mtime 2026-08-31 03:43). Hand-named, not preflight's bare-timestamp format, so parked here manually; nothing ever revisits .pipeline/strays/.
