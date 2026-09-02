@@ -11,7 +11,7 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   at `content_block_stop`), source-verified Python SDK event attribute names,
   and the offline `SimpleNamespace`-event-replay testing trick
 - [[typed-tool-registry]] — `@beta_tool` + `client.beta.messages.tool_runner`: typed schemas, validation, registry pattern
-- [[orchestrator-workers]] — fan-out-to-specialists pattern; `client.messages.parse(output_format=...)` for the plan step; the three distinct "subagent" products and when each applies
+- [[orchestrator-workers]] — fan-out-to-specialists pattern; `client.messages.parse(output_format=...)` for the plan step; parallelizing the delegate step with `ThreadPoolExecutor.map` (input-order results, sharing one sync client across the pool, latency-not-token win, and the shared-prefix cache-killer); the three distinct "subagent" products and when each applies
 - [[tool-failure-taxonomy]] — the three dispositions for a failing tool call
   (retry locally / report to the model with `is_error` / abort loudly), the
   `is_error` wire contract and what a good error message looks like, and
@@ -40,8 +40,8 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   minimum cacheable prefix (Haiku 4.5 wants 4,096), the
   `cache_creation_input_tokens` / `cache_read_input_tokens` / `input_tokens`
   identity and the 1.25×/0.10× multipliers, why `count_tokens` can't preview it
-  for $0, the practitioner cache-killers, and the direct tension with
-  [[context-editing]]
+  for $0, the practitioner cache-killers (incl. parallel fan-out sharing a
+  prefix — N writes, 0 reads), and the direct tension with [[context-editing]]
 
 ## Skills
 - [[agent-skills]] — `SKILL.md` anatomy: progressive disclosure (3 load

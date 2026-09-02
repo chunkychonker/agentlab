@@ -11,8 +11,8 @@ From the research note:
 
 | File | What it is |
 |------|-----------|
-| `agent.py` | `Plan`/`Subtask` pydantic schema, `plan_task`, `run_specialist`, `synthesize`, and `run_orchestrator`, which runs all three stages in order. |
-| `test_agent.py` | Offline self-test: the schema's `max_length=3` constraint, all three `plan_task` paths (success, validation error, no text block), `run_specialist`, `synthesize`, and the full 4-call orchestrator sequence. No key, no network. |
+| `agent.py` | `Plan`/`Subtask` pydantic schema, `plan_task`, `run_specialist`, `synthesize`, and two orchestrators over the same three stages: `run_orchestrator` (specialists one after another) and `run_orchestrator_parallel` (specialists at once, via `run_specialists_parallel`). |
+| `test_agent.py` | Offline self-test, 12 checks: the schema's `max_length=3` constraint, all three `plan_task` paths (success, validation error, no text block), `run_specialist`, `synthesize`, the full 4-call sequential orchestrator sequence, and the parallel fan-out (calls genuinely overlap, results stay in plan order, call accounting, `max_workers` validation, worker-error propagation). No key, no network. |
 | `requirements.txt` | `anthropic>=0.120.2`, `pydantic>=2` - needed for **both** the live run and the self-test. |
 
 ## The pattern
@@ -32,13 +32,93 @@ From the research note:
    with `system=f"You are a specialist in {subtask.specialist}..."` and no
    shared conversation history. This is what makes each call an
    independently instructed mini-agent instead of just another turn in one
-   conversation. Run sequentially, not in parallel (see below).
+   conversation. Run one after another by `run_orchestrator`, or all at
+   once by `run_orchestrator_parallel` (see below) - the calls are
+   independent either way.
 3. **Synthesize** - one final `client.messages.create(...)` call whose
    prompt contains the original task plus every specialist's output, asking
    for one combined answer.
 
 `run_orchestrator(client, task)` runs all three stages and returns the final
 synthesized text.
+
+## Sequential vs parallel fan-out
+
+Two orchestrators, same three stages, same API calls, same answer - they
+differ only in how the delegate step is dispatched:
+
+| | `run_orchestrator` | `run_orchestrator_parallel` |
+|---|---|---|
+| Delegate step | one `run_specialist` call after another | `run_specialists_parallel`: `ThreadPoolExecutor.map` over `plan.subtasks` |
+| Wall-clock for N specialists | sum of N latencies | roughly the slowest single call |
+| Token cost | identical | identical |
+| Order of `client.messages.create` calls | fixed, safe to assert positionally | completion order - not meaningful |
+| Order of results | plan order | plan order |
+
+The whole concurrency story is one stdlib call:
+[`Executor.map`](https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.Executor.map)
+**yields results in *input* order**, blocking as needed, no matter which call
+finishes first - so "reassemble in plan order rather than completion order"
+needs no `future -> index` bookkeeping. `map` also **re-raises a worker's
+exception** when iteration reaches that slot, so one failing specialist fails
+the whole fan-out loudly instead of quietly returning a short list.
+`run_specialists_parallel` rejects `max_workers < 1` with `ValueError` before
+any API call, and never opens more threads than `MAX_PARALLEL_SPECIALISTS`
+(4 - the `Plan` schema caps `subtasks` at 3, so that is one of headroom).
+
+`run_orchestrator` stays as-is on purpose (expand/contract): it is the
+deterministic baseline, and
+`test_run_orchestrator_makes_exactly_four_calls_in_order` unpacks
+`create_calls` positionally, which is only valid for a serial implementation.
+The five new tests assert on the *count and contents* of `create_calls`, never
+their positions, and `test_specialists_run_concurrently_not_serially` blocks
+every scripted call on a `threading.Barrier(3)` with a 5-second timeout - a
+serial loop leaves that barrier one party short and dies with
+`BrokenBarrierError`, so the test proves overlap rather than just observing
+that three calls happened.
+
+**This buys latency, not money.** The fan-out still makes the same plan + N
+specialist + synthesize calls; nothing about it reduces tokens. Anthropic's own
+multi-agent research system (orchestrator plus 3-5 parallel subagents) costs
+roughly 15x the tokens of a single chat -
+[How we built our multi-agent research system](https://www.anthropic.com/engineering/built-multi-agent-research-system).
+
+### One sync client, shared across the pool
+
+All the workers share the single `anthropic.Anthropic` instance created in
+`main()`. That is deliberate: the sync client wraps **one** pooled HTTP client
+(`httpx2` in the 1.x SDK) whose default
+[`max_connections` is 100](https://www.python-httpx.org/advanced/resource-limits/),
+so three concurrent specialist calls are nowhere near the pool limit, and the
+SDK's automatic retries (2 by default, covering 408/409/429/5xx) are per-call
+and unaffected by concurrency. Caveat worth stating: the SDK docs do not
+contain a single sentence promising "the sync client is thread-safe" - the
+evidence is the shared pooled client, the `copy()`/`with_options()`
+"thread-safe usage patterns" language, and the SDK's own `to_thread`/`asyncify`
+helpers. If a live run ever shows connection errors under fan-out, the fallback
+is a `client.with_options()` copy per worker, or `max_workers=1` (which
+degenerates to the sequential path).
+
+### Prompt caching and parallel fan-out
+
+These specialist calls **share no prefix** - each has its own `system` string
+and its own single user message - so prompt caching is not in play here at all,
+and fanning them out costs nothing extra. That is worth saying explicitly,
+because the moment a fan-out's calls *do* share a large common prefix (same big
+system prompt, same tools, same shared context block), dispatching them
+concurrently is a cache anti-pattern. From Anthropic's
+[prompt caching docs](https://platform.claude.com/docs/en/build-with-claude/prompt-caching):
+
+> For concurrent requests, note that a cache entry only becomes available after
+> the first response begins. If you need cache hits for parallel requests, wait
+> for the first response before sending subsequent requests.
+
+So N parallel calls sharing a prefix, all fired before any of them returns, pay
+**N cache writes (1.25x base input) and zero reads**. Serialized, the same work
+is 1 write plus N-1 reads at 0.10x. The fix is to let the first call return
+before firing the rest - i.e. exactly the latency you were trying to avoid, so
+pick one. More cache-killers in
+[`knowledge/prompt-caching.md`](../../knowledge/prompt-caching.md).
 
 ## Why `client.messages.parse(output_format=...)` instead of XML parsing
 
@@ -81,8 +161,13 @@ ok  plan_task raises RuntimeError when parsed_output is None (no text block at a
 ok  run_specialist returns scripted text and its system prompt names the specialist
 ok  synthesize's prompt contains every specialist's output and the original task
 ok  run_orchestrator makes exactly 1 parse + 2 specialist + 1 synthesis call, in order
+ok  run_specialists_parallel's calls are in flight together (barrier of 3 releases)
+ok  results stay in plan order when the last subtask's call returns first
+ok  run_orchestrator_parallel makes 1 parse + 3 specialist + 1 synthesis call
+ok  run_specialists_parallel(max_workers=0) raises ValueError before any API call
+ok  a specialist's exception propagates out of run_specialists_parallel
 
-All 7 self-tests passed.
+All 12 self-tests passed.
 ```
 
 ## Run it live (needs a key)
@@ -94,9 +179,14 @@ python agent.py
 ```
 
 It asks Claude to plan and write a short launch announcement for a
-fictional CLI tool, prints the plan, each specialist's output, and the
-final synthesized answer. Without `ANTHROPIC_API_KEY` set, `agent.py` prints
-a one-line note and exits 0, same as the other two examples.
+fictional CLI tool, then prints the plan, the wall-clock seconds the parallel
+fan-out took, each specialist's output, and the final synthesized answer.
+`main()` uses `run_specialists_parallel`, so with three specialists that
+`fan-out took N.NNs` line should read roughly one specialist's latency rather
+than three. No live transcript is committed here - the repo's checks all run
+without a key, so the only numbers verified in-repo are the offline self-test's.
+Without `ANTHROPIC_API_KEY` set, `agent.py` prints a one-line note and exits 0,
+same as the other two examples.
 
 Model id is the constant `MODEL` at the top of `agent.py` (default
 `claude-haiku-4-5`). See
@@ -112,10 +202,17 @@ instead of `output_format` - same idea, older and more broadly supported.
 
 ## Explicitly out of scope for today
 
-- **Parallel specialist execution.** `run_orchestrator` calls each
-  specialist sequentially, not via `ThreadPoolExecutor`/`asyncio.gather` -
-  kept simple for determinism and a straightforward offline test. Natural
-  next increment.
+- **Async (`AsyncAnthropic` / `asyncio.gather`).** The module is synchronous
+  top to bottom, so a thread pool is the small change; going async would mean
+  `async def` on every helper and an async fake client in the test, for no
+  benefit at N <= 3 calls.
+- **Making the parallel path the default.** `run_orchestrator` stays the
+  sequential baseline and keeps its positional-order test; flipping the default
+  is a later expand/contract step, not this one.
+- **A second timeout layer around the fan-out.** `ThreadPoolExecutor.map` takes
+  a `timeout`, but the SDK already imposes a per-request timeout (10 minutes by
+  default) and its own retries; stacking another one is its own topic (cf.
+  [`examples/tool-error-policy/`](../tool-error-policy/)).
 - **The Claude Agent SDK's real `subagents`/`AgentDefinition` feature**
   (`claude_agent_sdk`) - a different, heavier product that runs on top of
   the Claude Code CLI runtime, with real context isolation and parallel

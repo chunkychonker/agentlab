@@ -83,7 +83,19 @@ fresh write, zero reads); tool reordering (order is in the hash — beware
 frameworks that sort tools or iterate a dict); model alias vs dated snapshot are
 separate namespaces; >5-min pause evicts the 5-min entry; toggling `tool_choice`,
 `disable_parallel_tool_use`, or images present/absent invalidates the messages
-cache. Thinking and `output_config.effort` parameters are the expensive ones in
+cache.
+
+**Parallel fan-out sharing a prefix.** Docs: *"a cache entry only becomes
+available after the first response begins. If you need cache hits for parallel
+requests, wait for the first response before sending subsequent requests."* So
+N concurrent calls sharing a big prefix, all fired before any returns, pay **N
+cache writes (1.25×) and zero reads** instead of 1 write + (N−1) reads. Fix:
+serialize the first call, then fan out the rest. (Related, unfixed:
+[anthropic-sdk-python#1451](https://github.com/anthropics/anthropic-sdk-python/issues/1451)
+— even *back-to-back sequential* requests miss the just-written cache ~40% of
+the time; a ~2s gap reliably fixes it.) An orchestrator whose fan-out calls
+share *nothing* (distinct system + messages per specialist — see
+[[orchestrator-workers]]) is immune to this; say so when reviewing such code. Thinking and `output_config.effort` parameters are the expensive ones in
 that list: they are rendered into the prompt, so changing either *always*
 invalidates messages and, on models that render the config ahead of them, the
 tools and system caches as well - budget for a full rebuild unless you have

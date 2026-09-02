@@ -11,6 +11,11 @@ Three Messages-API calls, each with a distinct role:
   3. Synthesize - one final `client.messages.create(...)` call that combines
                   every specialist's output into one answer.
 
+The delegate step comes in two flavours with identical results:
+`run_orchestrator` runs the specialists one after another (the deterministic
+baseline), `run_orchestrator_parallel` runs them at once on a thread pool and
+reassembles their outputs in plan order. See README.md.
+
 This mirrors the classic "orchestrator-workers" pattern from Anthropic's
 Building Effective Agents post, but swaps the companion notebook's
 hand-rolled XML/regex parsing for `client.messages.parse(output_format=...)`
@@ -31,6 +36,9 @@ Run the offline self-test (no key, no network):
 from __future__ import annotations
 
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 
 import pydantic_core
 from pydantic import BaseModel, Field
@@ -38,6 +46,11 @@ from pydantic import BaseModel, Field
 # Model id lives in one constant so switching tiers is a one-line change.
 # Cheapest current model; any current id works. See knowledge/anthropic-models.md.
 MODEL = "claude-haiku-4-5"
+
+# Ceiling on concurrent specialist calls. `Plan` caps `subtasks` at 3, so this
+# is one worker of headroom; `run_specialists_parallel` never opens more
+# threads than this even if a caller asks for more.
+MAX_PARALLEL_SPECIALISTS = 4
 
 
 # --------------------------------------------------------------------------- #
@@ -161,9 +174,9 @@ def synthesize(client, task: str, results: list[tuple[Subtask, str]]) -> str:
 # --------------------------------------------------------------------------- #
 # Orchestrator - plan, then each specialist sequentially, then synthesize.
 #
-# Kept sequential (not ThreadPoolExecutor/asyncio.gather) for determinism and
-# a simple offline test. Parallelizing the specialist calls is the natural
-# next increment - see README.md.
+# This is the baseline: strictly ordered, so a test can assert the API calls
+# happen in a fixed sequence. `run_orchestrator_parallel` below is the
+# concurrent variant - same calls, same result, less wall-clock.
 # --------------------------------------------------------------------------- #
 
 
@@ -172,6 +185,67 @@ def run_orchestrator(client, task: str) -> str:
     plan = plan_task(client, task)
     results = [(subtask, run_specialist(client, subtask)) for subtask in plan.subtasks]
     return synthesize(client, task, results)
+
+
+# --------------------------------------------------------------------------- #
+# Parallel fan-out - the same specialist calls, dispatched at once.
+#
+# The specialists are independent (own system prompt, own one-message history,
+# no shared state), so nothing about running them concurrently changes the
+# result. `ThreadPoolExecutor.map` yields results in *input* order regardless
+# of which call finishes first, so "reassemble in plan order" needs no
+# future -> index bookkeeping. The synchronous `client` is shared across the
+# workers: it wraps one pooled HTTP client (see README.md).
+# --------------------------------------------------------------------------- #
+
+
+def run_specialists_parallel(
+    client,
+    subtasks: list[Subtask],
+    *,
+    max_workers: int,
+) -> list[str]:
+    """Run one `run_specialist` call per subtask across a thread pool and
+    return their text outputs in subtask (plan) order, not completion order.
+
+    Element `i` of the returned list is the output for `subtasks[i]`. The
+    number and content of the underlying `client.messages.create` calls is
+    identical to the sequential path - concurrency buys wall-clock, not tokens.
+
+    `max_workers` is capped at `MAX_PARALLEL_SPECIALISTS` (and at the number
+    of subtasks); asking for more threads than that just gets the cap.
+
+    Failure modes:
+    - `max_workers < 1` -> `ValueError`, raised before any API call is made.
+    - Any `run_specialist` call raising (e.g. `anthropic.RateLimitError` after
+      the SDK's own retries) -> that exception propagates out of this function
+      when `map` reaches its slot. Partial results are never returned, and the
+      pool is shut down on the way out.
+    - `subtasks == []` -> returns `[]` without creating an executor.
+    """
+    if max_workers < 1:
+        raise ValueError(f"max_workers must be >= 1, got {max_workers}")
+    if not subtasks:
+        return []
+    workers = min(max_workers, len(subtasks), MAX_PARALLEL_SPECIALISTS)
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="specialist") as pool:
+        # list(...) forces the map generator inside the `with` block, so a
+        # worker's exception surfaces here rather than escaping the pool.
+        return list(pool.map(partial(run_specialist, client), subtasks))
+
+
+def run_orchestrator_parallel(client, task: str) -> str:
+    """Run plan -> all specialists at once -> synthesize, and return the final
+    text. Same contract as `run_orchestrator`; only the delegate step differs.
+
+    Failure modes: propagates `plan_task`'s `RuntimeError` unchanged, and any
+    specialist exception raised out of `run_specialists_parallel`.
+    """
+    plan = plan_task(client, task)
+    outputs = run_specialists_parallel(
+        client, plan.subtasks, max_workers=len(plan.subtasks)
+    )
+    return synthesize(client, task, list(zip(plan.subtasks, outputs)))
 
 
 # --------------------------------------------------------------------------- #
@@ -203,12 +277,17 @@ def main() -> int:
     for i, subtask in enumerate(plan.subtasks, start=1):
         print(f"  {i}. [{subtask.specialist}] {subtask.instructions}")
 
-    results = []
-    for subtask in plan.subtasks:
-        print(f"\nRunning specialist: {subtask.specialist}...")
-        output = run_specialist(client, subtask)
-        print(f"  -> {output}")
-        results.append((subtask, output))
+    print(f"\nRunning {len(plan.subtasks)} specialists in parallel...")
+    started = time.perf_counter()
+    outputs = run_specialists_parallel(
+        client, plan.subtasks, max_workers=len(plan.subtasks)
+    )
+    elapsed = time.perf_counter() - started
+    print(f"  fan-out took {elapsed:.2f}s wall-clock for {len(plan.subtasks)} calls")
+
+    results = list(zip(plan.subtasks, outputs))
+    for subtask, output in results:
+        print(f"\n[{subtask.specialist}]\n  -> {output}")
 
     print("\nSynthesizing final answer...")
     final = synthesize(client, task, results)
