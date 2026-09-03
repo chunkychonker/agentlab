@@ -45,7 +45,7 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
   `accumulate()` — the same trick `examples/streaming-tool-loop/test_agent.py`
   already uses, no key. Confirm the delta event names against the `claude-api`
   skill first, as the #32 item did for the base events.
-- [ ] `strict: true` tool schemas as prevention rather than cure.
+- [building] `strict: true` tool schemas as prevention rather than cure.
   `knowledge/tool-failure-taxonomy.md` records strict schema-constrained sampling
   as removing "one whole error class", and both `examples/typed-tool-registry/`
   and `examples/tool-error-policy/` push it out of scope. Increment: a

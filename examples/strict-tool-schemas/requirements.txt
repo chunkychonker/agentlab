@@ -1,0 +1,9 @@
+# Needed for BOTH the live run (python agent.py) and the offline self-test
+# (python test_agent.py): the test imports `anthropic.beta_tool` directly to
+# build the real tool objects and inspect the `strict` flag on their payloads.
+#
+# >=1.3.0, not the >=0.120.0 the older examples pin: the SDK is v1 now, and
+# 1.3.0 is the version whose `beta_tool(..., strict=True)` and
+# `client.beta.messages.tool_runner` were read and exercised for the research
+# note behind this example.
+anthropic>=1.3.0
