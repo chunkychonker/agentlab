@@ -222,12 +222,16 @@ for practitioner discussion/reception, not just vendor docs.
 
 - Manually (recommended first, to shake out PATH/auth): `bash .pipeline/run.sh`
 - On a schedule: the launchd job `com.steeb.agentlab.daily` runs `run.sh` daily
-  at 02:47. See the repo setup notes for how to load/unload it. It runs
-  overnight deliberately — a job this long sharing a rolling 5-hour usage
-  window with interactive daytime work is what makes both feel starved.
-  launchd runs a missed job on next wake, so a Mac asleep at 02:47 will start
+  at 02:00 local time (America/Chicago). See the repo setup notes for how to
+  load/unload it. It runs overnight deliberately — a job this long sharing a
+  rolling 5-hour usage window with interactive daytime work is what makes both
+  feel starved.
+  launchd runs a missed job on next wake, so a Mac asleep at 02:00 will start
   the run whenever the lid next opens; `pmset repeat wakeorpoweron` keeps that
-  from landing in the middle of a workday.
+  from landing in the middle of a workday. That wake must stay EARLIER than the
+  02:00 slot, but not so much earlier that the `pmset -g` idle `sleep` timer
+  puts the Mac back down before the job fires (idle sleep is 10 min, so 01:55
+  is the intended wake — 01:50 would race its own trigger).
 - Budget roughly 20–25 min per cycle, plus ~12 min when the health check runs
   and a few minutes more when the pipeline observer runs alongside it.
 
