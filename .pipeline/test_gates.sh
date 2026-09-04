@@ -1,5 +1,6 @@
 #!/bin/bash
-# Offline self-test for the pipeline's two deterministic gates:
+# Offline self-test for the pipeline's deterministic gates — every decision
+# run.sh makes with no model in the loop:
 #
 #   .pipeline/verdict.sh  — does the review authorise shipping (review_verdict)
 #   .pipeline/health.sh   — what did the health check find (health_findings,
@@ -11,10 +12,14 @@
 #                           observers
 #   .pipeline/preflight.sh — what a dirty main means (worktree_disposition),
 #                           plus run.sh's stash_strays, extracted and run
+#   .pipeline/postcondition.sh — did a phase actually produce the artifact the
+#                           next one hard-depends on (artifact_freshness,
+#                           research_note_fresh, increment_built,
+#                           phase_no_postcondition)
 #   run.sh's check_reachable — is the network there (N1-N5), extracted and run
 #                           against a local server, not the real internet
 #
-# plus the call sites all five have in .pipeline/run.sh. No ANTHROPIC_API_KEY,
+# plus the call sites they have in .pipeline/run.sh. No ANTHROPIC_API_KEY,
 # no `claude`, nothing outside this box — all it touches is a throwaway temp
 # dir plus read-only greps of run.sh. Two exceptions, both contained: it runs
 # real `git`, but only inside a throwaway repo under that temp dir; and it
@@ -22,14 +27,15 @@
 # cases cover are git's behaviour and curl's, and a stub would only test the
 # stub.
 #
-# One file rather than three because the two changes are one feature: the
-# review verdict and the health report are both things an agent writes and
-# something downstream must act on WITHOUT a model in the loop. Splitting the
-# suite would split that invariant across files that could drift apart.
+# One file rather than one per lib because they are all one invariant: a phase
+# leaves something behind — a verdict, a health report, a research note, an
+# increment — and something downstream must act on it WITHOUT a model in the
+# loop. Splitting the suite would split that invariant across files that could
+# drift apart.
 #
 # On-demand only. It lives outside examples/, so the periodic lab health check
-# does not pick it up. Run it by hand after editing run.sh, verdict.sh,
-# health.sh, or backlog.sh's health section:
+# does not pick it up. Run it by hand after editing run.sh or any lib in
+# .pipeline/ (naming them here is how the list above drifted twice):
 #
 #   bash .pipeline/test_gates.sh
 #
@@ -68,16 +74,17 @@ trap 'chmod -R u+rwX "$WORK" 2>/dev/null; rm -rf "$WORK"' EXIT
 
 # Sourcing must be silent and must not touch anything — the libs are declaration
 # files, and run.sh sources them under `set -uo pipefail` before any phase runs.
-src_noise="$( { . "$REPO/.pipeline/verdict.sh"; . "$REPO/.pipeline/health.sh"; . "$REPO/.pipeline/pipeline_health.sh"; . "$REPO/.pipeline/backlog.sh"; . "$REPO/.pipeline/preflight.sh"; } 2>&1 )"
+src_noise="$( { . "$REPO/.pipeline/verdict.sh"; . "$REPO/.pipeline/health.sh"; . "$REPO/.pipeline/pipeline_health.sh"; . "$REPO/.pipeline/backlog.sh"; . "$REPO/.pipeline/preflight.sh"; . "$REPO/.pipeline/postcondition.sh"; } 2>&1 )"
 src_rc=$?
 assert_eq "INV1" "0|" "$src_rc|$src_noise" \
-  "sourcing verdict.sh, health.sh, pipeline_health.sh, backlog.sh and preflight.sh exits 0 and prints nothing"
+  "sourcing all six libs exits 0 and prints nothing"
 
 . "$REPO/.pipeline/verdict.sh"
 . "$REPO/.pipeline/health.sh"
 . "$REPO/.pipeline/pipeline_health.sh"
 . "$REPO/.pipeline/backlog.sh"
 . "$REPO/.pipeline/preflight.sh"
+. "$REPO/.pipeline/postcondition.sh"
 
 # --- verdict.sh ------------------------------------------------------------
 #
@@ -680,6 +687,138 @@ else
   fail "N5" "response timeout ${RESPONSE_TIMEOUT_S:-unset}s is not above connect timeout ${CONNECT_TIMEOUT_S:-unset}s — the payload gate is back"
 fi
 
+# --- postcondition.sh ------------------------------------------------------
+#
+# The gate that closes the 2026-09-01 failure: the 600s
+# CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS ceiling killed the researcher mid-phase,
+# the `claude` CLI still exited 0, and run.sh advanced to build against a
+# research/ whose newest note was the previous night's. An exit code is not
+# evidence that an artifact exists.
+#
+# Two properties carry the whole fix, and each is a case below:
+#
+#   STALE is not MISSING (PC2 against PC3). research/ was not empty on the
+#   failure night, it was full of the wrong nights' notes. A "does the directory
+#   have anything in it" check passes on exactly the failure it is for. Only
+#   "is there something newer than this phase started" catches it.
+#
+#   Build noise cannot forge freshness (PC11, PC12). Re-running an old example's
+#   self-test rewrites .venv/ and __pycache__/ mtimes, so without the -prune any
+#   night that merely ran the health check would report an increment it never
+#   built. The prune is load-bearing, so it is tested — and PC13 checks it does
+#   not swallow real work sitting in the same tree.
+#
+# Every non-FRESH case asserts a NON-ZERO return code. That is the fails-closed
+# posture PIPELINE.md states: a state the postcondition cannot confirm is not a
+# licence to advance. STALE and MISSING are diagnostic, not permission.
+#
+# The lib reads RELATIVE paths (RESEARCH_DIR="research"), exactly as run.sh
+# calls it from the repo root, so each case runs with its own sandbox as the
+# working directory. Old files get a real 2026-01-01 mtime rather than a
+# doctored floor: the comparison under test is against mtimes on disk, and
+# moving the floor instead would exercise arithmetic this lib does not do.
+
+PC_ROOT="$WORK/postcond"
+PC_FLOOR="$(date +%s)"   # every file created below this line is at or above it
+PC_OLD=202601010000      # touch -t stamp, comfortably under any real floor
+
+# pc_box <name> — create a sandbox directory and echo its path.
+pc_box () {
+  mkdir -p "$PC_ROOT/$1"
+  echo "$PC_ROOT/$1"
+}
+
+# pc_run <sandbox> <fn> [args...] — run <fn> with <sandbox> as the working
+# directory; print "<word>|<rc>" the way assert_eq wants it.
+pc_run () {
+  local box="$1"; shift
+  local word rc
+  word="$( cd "$PC_ROOT/$box" && "$@" )"
+  rc=$?
+  echo "$word|$rc"
+}
+
+if declare -f artifact_freshness >/dev/null 2>&1 \
+   && declare -f research_note_fresh >/dev/null 2>&1 \
+   && declare -f increment_built >/dev/null 2>&1; then
+  pass "PC0" "postcondition.sh defined its functions — the cases below are live"
+else
+  fail "PC0" "postcondition.sh defined nothing — every case below is vacuous"
+fi
+
+# The research phase.
+pc_b="$(pc_box nodir)"
+assert_eq "PC1" "MISSING|3" "$(pc_run nodir research_note_fresh "$PC_FLOOR")" \
+  "an absent research/ is MISSING, not a quiet pass"
+
+pc_b="$(pc_box emptydir)"; mkdir -p "$pc_b/research"
+assert_eq "PC2" "MISSING|3" "$(pc_run emptydir research_note_fresh "$PC_FLOOR")" \
+  "an empty research/ is MISSING"
+
+pc_b="$(pc_box oldnote)"; mkdir -p "$pc_b/research"
+: > "$pc_b/research/2026-08-31-yesterday.md"
+touch -t "$PC_OLD" "$pc_b/research/2026-08-31-yesterday.md"
+assert_eq "PC3" "STALE|2" "$(pc_run oldnote research_note_fresh "$PC_FLOOR")" \
+  "a research/ holding only previous nights' notes is STALE — the 2026-09-01 failure"
+
+pc_b="$(pc_box freshnote)"; mkdir -p "$pc_b/research"
+: > "$pc_b/research/2026-09-02-tonight.md"
+assert_eq "PC4" "FRESH|0" "$(pc_run freshnote research_note_fresh "$PC_FLOOR")" \
+  "a note written after the phase started is FRESH"
+
+# A floor that is not a timestamp cannot be compared, so it is not a pass.
+assert_eq "PC5" "MISSING|3" "$(pc_run freshnote research_note_fresh "not-a-number")" \
+  "a non-numeric floor fails closed instead of comparing garbage"
+
+assert_eq "PC6" "MISSING|3" "$(pc_run freshnote research_note_fresh "-1")" \
+  "a negative floor fails closed"
+
+# The phase writes notes; a fresh scratch file of another type is not the artifact.
+pc_b="$(pc_box wrongglob)"; mkdir -p "$pc_b/research"
+: > "$pc_b/research/note.md"; touch -t "$PC_OLD" "$pc_b/research/note.md"
+: > "$pc_b/research/scratch.txt"
+assert_eq "PC7" "STALE|2" "$(pc_run wrongglob research_note_fresh "$PC_FLOOR")" \
+  "a fresh non-.md file does not satisfy the research postcondition"
+
+# The build phase, which sweeps both increment roots and takes FRESH in either.
+pc_b="$(pc_box noroots)"
+assert_eq "PC8" "MISSING|3" "$(pc_run noroots increment_built "$PC_FLOOR")" \
+  "neither examples/ nor projects/ existing is MISSING"
+
+pc_b="$(pc_box oldwork)"; mkdir -p "$pc_b/examples/old-demo"
+: > "$pc_b/examples/old-demo/main.py"
+touch -t "$PC_OLD" "$pc_b/examples/old-demo/main.py"
+assert_eq "PC9" "STALE|2" "$(pc_run oldwork increment_built "$PC_FLOOR")" \
+  "a builder that shipped nothing leaves only pre-floor work — STALE"
+
+pc_b="$(pc_box otherroot)"; mkdir -p "$pc_b/examples/old-demo" "$pc_b/projects/live"
+: > "$pc_b/examples/old-demo/main.py"
+touch -t "$PC_OLD" "$pc_b/examples/old-demo/main.py"
+: > "$pc_b/projects/live/step-3.md"
+assert_eq "PC10" "FRESH|0" "$(pc_run otherroot increment_built "$PC_FLOOR")" \
+  "FRESH in projects/ is enough — project mode must not fail for an untouched examples/"
+
+# The -prune, tested from both sides.
+pc_b="$(pc_box venvnoise)"
+mkdir -p "$pc_b/examples/old-demo/__pycache__" "$pc_b/examples/old-demo/.venv/lib"
+: > "$pc_b/examples/old-demo/main.py"
+touch -t "$PC_OLD" "$pc_b/examples/old-demo/main.py"
+: > "$pc_b/examples/old-demo/__pycache__/main.cpython-313.pyc"
+assert_eq "PC11" "STALE|2" "$(pc_run venvnoise increment_built "$PC_FLOOR")" \
+  "a fresh __pycache__ entry does not forge an increment"
+
+: > "$pc_b/examples/old-demo/.venv/lib/pyvenv.cfg"
+assert_eq "PC12" "STALE|2" "$(pc_run venvnoise increment_built "$PC_FLOOR")" \
+  "a fresh .venv entry does not forge an increment"
+
+mkdir -p "$pc_b/examples/new-demo"; : > "$pc_b/examples/new-demo/main.py"
+assert_eq "PC13" "FRESH|0" "$(pc_run venvnoise increment_built "$PC_FLOOR")" \
+  "one real new file in the same tree is FRESH — the prune skips noise, not work"
+
+# The phases that are gated elsewhere say so explicitly rather than by omission.
+assert_eq "PC14" "NONE|0" "$(pc_run nodir phase_no_postcondition "$PC_FLOOR")" \
+  "phase_no_postcondition prints NONE and succeeds, ignoring the floor"
+
 # --- run.sh call sites -----------------------------------------------------
 #
 # Same brittleness caveat as test_backlog.sh's C12/C23, and the same
@@ -764,13 +903,66 @@ assert_eq "R8" "1" \
   "$(grep -c 'git clean -fdx .*-e "\$STRAY_DIR"' "$RUN_SH")" \
   "scrub_artifacts excludes \$STRAY_DIR from git clean -fdx"
 
+# Every phase names a postcondition, and every name it uses exists. A typo would
+# turn the gate into a silent no-op on that phase — run_phase catches that at
+# runtime (R13); this catches it before the night runs.
+pc_sites="$(grep -n '^[[:space:]]*\(if \)\{0,1\}run_phase ' "$RUN_SH" | grep -v 'run_phase ()')"
+pc_bad=""
+pc_n=0
+while IFS= read -r pc_line; do
+  [ -n "$pc_line" ] || continue
+  pc_n=$(( pc_n + 1 ))
+  pc_name="$(echo "$pc_line" | sed 's/.*run_phase [a-z][a-z]*  *"[^"]*"  *//' | awk '{print $1}')"
+  declare -f "$pc_name" >/dev/null 2>&1 \
+    || pc_bad="$pc_bad ${pc_line%%:*}:${pc_name:-<none>}"
+done <<EOF
+$pc_sites
+EOF
+# A floor, not a count: it only guards against the grep above silently matching
+# nothing, which would make the assertion pass by finding no call sites at all.
+if [ "$pc_n" -lt 5 ]; then
+  fail "R12" "found only $pc_n run_phase call sites — the extraction broke, this case is vacuous"
+else
+  assert_eq "R12" "" "$pc_bad" \
+    "all $pc_n run_phase call sites name a postcondition function that exists"
+fi
+
+# run_phase itself, extracted verbatim. Both its guards run BEFORE the floor is
+# taken and before the CLI is invoked, which is what makes this runnable offline
+# with no key: a bad postcondition never reaches `claude`.
+eval "$(sed -n '/^run_phase () {/,/^}/p' "$RUN_SH")"
+if ! declare -f run_phase >/dev/null 2>&1; then
+  fail "R13" "could not extract run_phase from run.sh — this case is vacuous"
+else
+  rp_out="$( LOG="$WORK/run-phase.log" run_phase sonnet "test phase" no_such_postcondition_xyz "prompt" 2>&1 )"
+  rp_rc=$?
+  case "$rp_out" in
+    *"is not a defined function"*) rp_saw="yes" ;;
+    *) rp_saw="no ($rp_out)" ;;
+  esac
+  assert_eq "R13" "1|yes" "$rp_rc|$rp_saw" \
+    "run_phase aborts the phase when its postcondition names no defined function"
+fi
+
+# The floor is per PHASE, not per run. With CYCLES=2 both cycles' artifacts carry
+# the same date, so a run-scoped floor would let cycle 1's note satisfy cycle 2's
+# gate and the 2026-09-01 bug would survive its own fix.
+floor_in_body="$(awk '
+  /^run_phase \(\)/ { inbody=1; next }
+  inbody && /^\}/ { exit }
+  inbody && /floor=/ && /date/ { print "yes"; exit }' "$RUN_SH")"
+floor_at_run_scope="$(grep -c '^floor=' "$RUN_SH")"
+assert_eq "R14" "yes|0" "$floor_in_body|$floor_at_run_scope" \
+  "the freshness floor is taken inside run_phase, so every phase gets its own"
+
 syntax_bad="$(for f in "$RUN_SH" "$REPO/.pipeline/verdict.sh" "$REPO/.pipeline/health.sh" \
   "$REPO/.pipeline/pipeline_health.sh" "$REPO/.pipeline/backlog.sh" \
-  "$REPO/.pipeline/preflight.sh" "$REPO/.pipeline/test_gates.sh"; do
+  "$REPO/.pipeline/preflight.sh" "$REPO/.pipeline/postcondition.sh" \
+  "$REPO/.pipeline/test_gates.sh"; do
     bash -n "$f" 2>&1
   done)"
 assert_eq "R5" "" "$syntax_bad" \
-  "bash -n is clean on run.sh, the five libs, and this test"
+  "bash -n is clean on run.sh, the six libs, and this test"
 
 # --- Summary ---------------------------------------------------------------
 
