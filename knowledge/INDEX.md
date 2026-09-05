@@ -89,8 +89,10 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   executes the function" (verified against SDK source), the opposite
   failure shape (resources raise `MCPError` on the client, tools don't), and
   how Claude Code actually surfaces resources today (`@`-mention +
-  synthetic list/read tools, verified against current docs, not stale
-  GitHub issues)
+  synthetic `ListMcpResourcesTool`/`ReadMcpResourceTool`) — from docs only,
+  with the "lists but may never `resources/read`" claim, lazy template
+  discovery, and `-p`-mode `@`-mention all still **unverified live** pending a
+  builder cycle (`research/2026-09-05-mcp-resources-claude-code.md`)
 
 ## Cross-cutting patterns & gotchas
 - Testing agent loops offline: inject a fake client (see [[tool-use-loop]]);

@@ -81,6 +81,38 @@ differently. Don't generalize Claude Code's specific behavior to "how MCP
 resources work" — check the spec for the protocol contract and the relevant
 host's own docs for how it's actually surfaced.
 
+## Claude Code resource behavior still unverified live (as of 2026-09-05)
+
+The section above is from docs, not a live run against the real host. What a
+2026-09-05 research pass (`research/2026-09-05-mcp-resources-claude-code.md`,
+`claude` CLI 2.1.252) turned up, pending a builder cycle to confirm:
+
+- **Two model-callable synthetic tools**, names confirmed from Claude Code
+  source analyses and issue titles: `ListMcpResourcesTool` (enumerate) and
+  `ReadMcpResourceTool` (read one URI). Their **exact input schema is
+  undocumented** anywhere public — `{uri}` vs `{server, uri}` unknown. Pin it
+  from a live `stream-json` transcript, don't guess. These behave like ordinary
+  tools in headless `-p` mode (unlike `@`-mention).
+- **`@`-mention of a resource in `-p`/headless mode is unverified.** All the
+  changelog `@`-mention fixes are file-scoped; `resources` `@`-mention has
+  existed since CC 1.0.27 but only for interactive use as far as anyone has
+  written down. `claude_code.at_mention` OTEL event added 2.1.122.
+- **Resource templates surface lazily.** CC 2.1.116: `resources/templates/list`
+  is "deferred to first `@`-mention" — a headless run that never `@`-mentions
+  may never trigger template discovery. And
+  [csharp-sdk#1415](https://github.com/modelcontextprotocol/csharp-sdk/issues/1415)
+  (2026-03) found CC showed **no** resource templates at all then, only static
+  `resources/list` entries — so template visibility is version-sensitive.
+- **"Discovery only, never reads" — a credible but stale claim.** A DollhouseMCP
+  research report (2025-10-16) states Claude Code called `resources/list` but
+  **never** `resources/read` — resources appeared in `@`-autocomplete but their
+  content was never injected. That predates the entire 2.1.x line and
+  `ReadMcpResourceTool` maturity; treat as possibly stale until a live 2.1.x run
+  either retires it or confirms it. This is the specific thing the pending
+  builder cycle exists to settle.
+- **`-p` MCP timing:** `MCP_CONNECTION_NONBLOCKING=true` (CC 2.1.89) skips the
+  connection wait in `-p` mode; `--mcp-config` connections are bounded at 5s.
+
 ## The practical rule
 
 - Side effect, or the model must choose *if/when/with-what-arguments* → tool.
