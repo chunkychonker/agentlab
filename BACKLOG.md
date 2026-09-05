@@ -86,7 +86,7 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
   actually surfaces it rather than trusting the spec — the same discipline as
   `knowledge/claude-code-mcp-connection.md`, which found the host's real
   behaviour differed from the docs.
-- [ ] MCP resources through the real Claude Code host, not the in-memory `Client`.
+- [stranded cycle/2026-09-05-unshipped-133345-1] MCP resources through the real Claude Code host, not the in-memory `Client`.
   `examples/mcp-resources-vs-tools/` proves the protocol-level contract offline
   and explicitly defers the live `@`-mention flow to "PR #19's territory";
   `knowledge/mcp-resources.md` describes how the host surfaces resources
