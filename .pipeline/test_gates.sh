@@ -11,10 +11,12 @@
 #                           observers
 #   .pipeline/preflight.sh — what a dirty main means (worktree_disposition),
 #                           plus run.sh's stash_strays, extracted and run
+#   .pipeline/schedule.sh — does the clock say tonight's run should happen at
+#                           all (schedule_disposition, schedule_override_active)
 #   run.sh's check_reachable — is the network there (N1-N5), extracted and run
 #                           against a local server, not the real internet
 #
-# plus the call sites all five have in .pipeline/run.sh. No ANTHROPIC_API_KEY,
+# plus the call sites all six have in .pipeline/run.sh. No ANTHROPIC_API_KEY,
 # no `claude`, nothing outside this box — all it touches is a throwaway temp
 # dir plus read-only greps of run.sh. Two exceptions, both contained: it runs
 # real `git`, but only inside a throwaway repo under that temp dir; and it
@@ -41,7 +43,12 @@
 
 set -uo pipefail
 
-REPO="/Users/steeb/agentlab"
+# The checkout this script LIVES in, not a fixed path. It was pinned to
+# /Users/steeb/agentlab, which meant running the suite from a git worktree
+# greenly tested main's copies of the very files being changed — the one
+# moment the suite most needs to be telling the truth. cd first and then pwd,
+# so REPO is absolute for the greps and the throwaway-repo cases below.
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO" || { echo "cannot cd $REPO"; exit 1; }
 
 RUN_SH="$REPO/.pipeline/run.sh"
@@ -68,16 +75,17 @@ trap 'chmod -R u+rwX "$WORK" 2>/dev/null; rm -rf "$WORK"' EXIT
 
 # Sourcing must be silent and must not touch anything — the libs are declaration
 # files, and run.sh sources them under `set -uo pipefail` before any phase runs.
-src_noise="$( { . "$REPO/.pipeline/verdict.sh"; . "$REPO/.pipeline/health.sh"; . "$REPO/.pipeline/pipeline_health.sh"; . "$REPO/.pipeline/backlog.sh"; . "$REPO/.pipeline/preflight.sh"; } 2>&1 )"
+src_noise="$( { . "$REPO/.pipeline/verdict.sh"; . "$REPO/.pipeline/health.sh"; . "$REPO/.pipeline/pipeline_health.sh"; . "$REPO/.pipeline/backlog.sh"; . "$REPO/.pipeline/preflight.sh"; . "$REPO/.pipeline/schedule.sh"; } 2>&1 )"
 src_rc=$?
 assert_eq "INV1" "0|" "$src_rc|$src_noise" \
-  "sourcing verdict.sh, health.sh, pipeline_health.sh, backlog.sh and preflight.sh exits 0 and prints nothing"
+  "sourcing verdict.sh, health.sh, pipeline_health.sh, backlog.sh, preflight.sh and schedule.sh exits 0 and prints nothing"
 
 . "$REPO/.pipeline/verdict.sh"
 . "$REPO/.pipeline/health.sh"
 . "$REPO/.pipeline/pipeline_health.sh"
 . "$REPO/.pipeline/backlog.sh"
 . "$REPO/.pipeline/preflight.sh"
+. "$REPO/.pipeline/schedule.sh"
 
 # --- verdict.sh ------------------------------------------------------------
 #
@@ -766,11 +774,158 @@ assert_eq "R8" "1" \
 
 syntax_bad="$(for f in "$RUN_SH" "$REPO/.pipeline/verdict.sh" "$REPO/.pipeline/health.sh" \
   "$REPO/.pipeline/pipeline_health.sh" "$REPO/.pipeline/backlog.sh" \
-  "$REPO/.pipeline/preflight.sh" "$REPO/.pipeline/test_gates.sh"; do
+  "$REPO/.pipeline/preflight.sh" "$REPO/.pipeline/schedule.sh" \
+  "$REPO/.pipeline/test_gates.sh"; do
     bash -n "$f" 2>&1
   done)"
 assert_eq "R5" "" "$syntax_bad" \
-  "bash -n is clean on run.sh, the five libs, and this test"
+  "bash -n is clean on run.sh, the six libs, and this test"
+
+# --- schedule.sh -----------------------------------------------------------
+#
+# The gate that refuses to start outside the overnight window. Every case here
+# is a pure call: schedule_disposition is handed the hour as a STRING and
+# touches nothing else, which is the whole reason it can be tested at all
+# rather than only being observed on the one afternoon it fires wrongly.
+
+# sched_case <case> <hour> <want_word> <want_rc> <what>
+sched_case () {
+  local id="$1" hour="$2" want_word="$3" want_rc="$4" what="$5"
+  local got_word got_rc
+  got_word="$(schedule_disposition "$hour" 2>/dev/null)"
+  got_rc=$?
+  assert_eq "$id" "$want_word|$want_rc" "$got_word|$got_rc" "$what"
+}
+
+sched_case "W1"  "02" "RUN"    0 "02 — the configured launchd slot — runs"
+sched_case "W2"  "01" "RUN"    0 "01 runs; the window start is inclusive"
+sched_case "W3"  "05" "RUN"    0 "05 runs; the last hour a run may start in"
+sched_case "W4"  "06" "REFUSE" 1 "06 refuses; the end is exclusive because a run starting at 06:00 is still going at breakfast"
+sched_case "W5"  "00" "REFUSE" 1 "00 refuses; midnight is before the window, not inside it"
+sched_case "W6"  "13" "REFUSE" 1 "13 refuses — the 13:47 drift of 2026-09-01..03"
+sched_case "W7"  "11" "REFUSE" 1 "11 refuses — the 11:47 drift of 2026-08-29..31"
+sched_case "W8"  "21" "REFUSE" 1 "21 refuses; the old evening slot is not in the window any more"
+sched_case "W9"  "23" "REFUSE" 1 "23 refuses"
+sched_case "W10" "2"  "RUN"    0 "an unpadded hour still works"
+
+# The octal trap, and the reason schedule_disposition forces base 10. A
+# leading zero means octal in every bash ARITHMETIC context, and 08 and 09 are
+# not octal: `$(( $h ))`, `(( h >= 1 ))` and `[[ $h -ge 1 ]]` each abort with
+# "value too great for base". date +%H emits exactly "08" and "09", so an
+# implementation that does arithmetic without the 10# prefix passes every case
+# above and then misbehaves every single day between 08:00 and 10:00.
+#
+# The POSIX `[` builtin does NOT do this — it parses base 10 — so these two
+# cases are not sufficient on their own: an implementation written as
+# `[ "$h" -ge 1 ] && [ "$h" -lt 6 ]` is correct for 08 and 09 and passes here.
+# W13 below is the case that catches the arithmetic forms.
+sched_case "W11" "08" "REFUSE" 1 "08 refuses without tripping bash 3.2 octal parsing"
+sched_case "W12" "09" "REFUSE" 1 "09 refuses without tripping bash 3.2 octal parsing"
+
+# The same two hours again, this time asserting the gate is SILENT. An
+# arithmetic implementation announces the failure on stderr while STILL
+# echoing a plausible word on stdout and returning a code — so W11 and W12
+# pass on a function that is spraying errors into the nightly log.
+oct_noise="$( { schedule_disposition "08"; schedule_disposition "09"; } 2>&1 >/dev/null )"
+assert_eq "W13" "" "$oct_noise" \
+  "08 and 09 emit nothing on stderr — no 'value too great for base'"
+
+# A clock that cannot be read is not evidence that it is 2am. Malformed input
+# must refuse; defaulting to RUN would spend the day's tokens on a guess.
+sched_case "W14" ""     "REFUSE" 1 "an empty hour refuses rather than defaulting to RUN"
+sched_case "W15" "2a"   "REFUSE" 1 "a non-numeric hour refuses"
+sched_case "W16" "24"   "REFUSE" 1 "an hour past 23 refuses"
+sched_case "W17" "-1"   "REFUSE" 1 "a negative hour refuses"
+sched_case "W18" "002"  "REFUSE" 1 "a three-digit hour refuses even though it would parse as 2"
+sched_case "W19" " 2"   "REFUSE" 1 "an hour padded with a space refuses"
+
+bad_noise="$( { schedule_disposition ""; schedule_disposition "2a"; schedule_disposition "002"; } 2>&1 >/dev/null )"
+assert_eq "W20" "" "$bad_noise" \
+  "malformed hours emit nothing on stderr either"
+
+# The window has to contain the hour launchd is actually configured to fire
+# at, or the job can never run at all. This is the one case tying schedule.sh
+# to the plist: if either moves, it fails and names both numbers.
+if [ "$WINDOW_START_HOUR" -le 2 ] && [ 2 -lt "$WINDOW_END_HOUR" ]; then
+  pass "W21" "the 02:00 launchd slot sits inside [$WINDOW_START_HOUR,$WINDOW_END_HOUR)"
+else
+  fail "W21" "the 02:00 launchd slot is OUTSIDE [$WINDOW_START_HOUR,$WINDOW_END_HOUR) — the nightly job could never start"
+fi
+
+# --- schedule_override_active ----------------------------------------------
+#
+# The escape hatch for a deliberate off-schedule run. Two separate things are
+# pinned here, and they break in different ways.
+#
+# Survival first: whatever the mechanism, it gets sourced into run.sh's
+# `set -uo pipefail` shell with the override variable UNSET, which is the
+# normal case on every one of the ~360 nights a year nobody overrides
+# anything. The tempting bare `[ "$AGENTLAB_IGNORE_SCHEDULE" = 1 ]` is not
+# false under -u; it is an unbound-variable abort that kills the whole run.
+#
+# Then the value rule: ANY non-empty value counts, so =0 and =false both
+# override. That is the line a future reader is most likely to "correct" into
+# a boolean parse, so W28 asserts it here rather than trusting the comment in
+# schedule.sh to be read.
+ovr_out="$( unset "$SCHEDULE_OVERRIDE_VAR"; set -u; schedule_override_active 2>&1 )"
+ovr_rc=$?
+assert_eq "W22" "1|" "$ovr_rc|$ovr_out" \
+  "with the override unset, the check returns 1 and prints nothing, even under set -u"
+
+ovr_out2="$( export "$SCHEDULE_OVERRIDE_VAR=1"; set -u; schedule_override_active 2>&1 )"
+ovr_rc2=$?
+assert_eq "W23" "0|" "$ovr_rc2|$ovr_out2" \
+  "with the override set, the check returns 0 and still prints nothing"
+
+ovr_out3="$( export "$SCHEDULE_OVERRIDE_VAR=0"; set -u; schedule_override_active 2>&1 )"
+ovr_rc3=$?
+assert_eq "W28" "0|" "$ovr_rc3|$ovr_out3" \
+  "=0 still overrides: any non-empty value counts, the value is not parsed"
+
+ovr_out4="$( export "$SCHEDULE_OVERRIDE_VAR="; set -u; schedule_override_active 2>&1 )"
+ovr_rc4=$?
+assert_eq "W29" "1|" "$ovr_rc4|$ovr_out4" \
+  "an empty value is not an override — unset and empty both leave the guard on"
+
+# --- run.sh call sites for the window gate ---------------------------------
+#
+# Ordering IS the fix here, exactly as in R1. A window check that runs after
+# the network preflight has already spent a round trip; one that runs after a
+# phase has already spent the tokens the gate exists to protect.
+
+sched_ln="$(grep -n 'schedule_disposition "\$LAUNCH_HOUR"' "$RUN_SH" | head -1 | cut -d: -f1)"
+net_ln="$(grep -n 'NETWORK UNREACHABLE' "$RUN_SH" | head -1 | cut -d: -f1)"
+if [ -z "$sched_ln" ] || [ -z "$net_ln" ]; then
+  fail "W24" "run.sh is missing a call site (schedule=${sched_ln:-none}, network=${net_ln:-none})"
+elif [ "$sched_ln" -lt "$net_ln" ]; then
+  pass "W24" "run.sh checks the window (line $sched_ln) before the network preflight (line $net_ln)"
+else
+  fail "W24" "the window gate runs AFTER the network preflight: schedule=$sched_ln, network=$net_ln"
+fi
+
+assert_eq "W25" "1" \
+  "$(grep -c 'for lib in .*preflight schedule; do' "$RUN_SH")" \
+  "run.sh sources schedule.sh in its library loop, so a missing lib aborts loudly"
+
+# The hatch existing is not the same as the hatch being wired. Without this,
+# schedule_override_active could be correct, tested, documented in the refusal
+# message, and never consulted — and the only way to find out would be to
+# type the variable at 3pm and watch the run skip anyway.
+assert_eq "W30" "1" \
+  "$(grep -c '! schedule_override_active' "$RUN_SH")" \
+  "run.sh actually consults the override before refusing, so the hatch is reachable"
+
+# Exit 0, not 1. A daytime wake is a correct, expected no-op; a nonzero exit
+# would make launchd's own accounting record every one of them as a crash.
+w26="$(awk -v s="$sched_ln" 'NR>=s && NR<=s+6 && /^ *exit 0$/ {print "zero"; exit}' "$RUN_SH")"
+assert_eq "W26" "zero" "$w26" \
+  "the window gate exits 0 — a skipped night is a no-op, not a failure"
+
+# The refusal has to say what to do about it, or whoever hits it at 3pm has no
+# way to discover the gate is overridable at all.
+w27="$(awk -v s="$sched_ln" 'NR>=s && NR<=s+6' "$RUN_SH" | grep -c 'SCHEDULE_OVERRIDE_VAR')"
+assert_eq "W27" "1" "$w27" \
+  "the refusal message names the override variable"
 
 # --- Summary ---------------------------------------------------------------
 
