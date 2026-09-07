@@ -60,6 +60,27 @@ clear_tool_inputs         bool | Sequence[str] | None
   the most common practitioner criticism of the feature, and it means the
   token saving is not the whole cost story. See [[prompt-caching]] for the
   other side of this tension.
+  - **Only the `messages`-level cache is lost.** Prefix reuse is ordered
+    `tools` → `system` → `messages`; `clear_tool_uses` edits only `messages`,
+    so the `tools` and `system` breakpoints still hit on the clearing turn.
+    `cache_read_input_tokens` on that turn ≈ tools+system size;
+    `cache_creation_input_tokens` ≈ the surviving message prefix re-written.
+  - **Payback, from the documented 5-min multipliers** (write `1.25×`, read
+    `0.10×` — [[prompt-caching]]): with `removed` = tokens the clear deletes and
+    `rewritten` = `cache_creation_input_tokens` on the clearing turn, the
+    one-time invalidation cost ≈ `rewritten × 1.15 × base` and each later turn
+    saves ≈ `removed × 0.10 × base`, so **`payback_turns ≈ 11.5 × rewritten /
+    removed`**. `clear_at_least` is the knob that keeps `removed ≫ rewritten`
+    and payback near 1–2 turns; too low and it stretches to ~10. Derived from
+    docs, not yet measured — `examples/context-editing-cache-tradeoff/`
+    (proposed 2026-09-07) is the increment that confirms it, and the clearing
+    turn's counters also settle a third-party claim that clearing runs "after
+    cache lookup, without destroying the prefix" (every Anthropic source says
+    it does).
+  - The [tool-use context-engineering cookbook](https://platform.claude.com/cookbook/tool-use-context-engineering-context-engineering-tools)
+    (2026-03-20) has concrete clearing magnitudes (a message list `~128,740 →
+    ~43,060` tokens for `keep=1`; firings freeing `~163,817` tokens each) but
+    **no** payback calculation.
 - **Your client keeps the full history.** The edit is per-request and
   server-side; you do not sync local state to it. Corollary: you cannot inspect
   the effect by printing your own messages list — you have to ask the API.
