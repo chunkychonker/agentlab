@@ -39,18 +39,19 @@ CLAUDE="claude -p --permission-mode bypassPermissions"
 
 echo "=== agentlab pipeline $TS ===" | tee -a "$LOG"
 
-# The backlog file the demo track draws from, and the four libraries holding
+# The backlog file the demo track draws from, and the six libraries holding
 # this script's decision logic: backlog.sh (is the queue stocked, is a claim
 # stranded, has this finding been filed), verdict.sh (does the review authorise
 # shipping), health.sh (what did the health check actually find),
 # pipeline_health.sh (what did the pipeline observer find),
-# preflight.sh (what does a dirty main mean). All five live
+# preflight.sh (what does a dirty main mean), postcondition.sh (did a phase
+# actually produce the artifact the next one needs). All six live
 # outside this script so they can be unit-tested offline
 # (`bash .pipeline/test_backlog.sh`, `bash .pipeline/test_gates.sh`) instead of
 # only being exercised on the rare night each gate fires. Sourcing defines
 # functions and constants only — it runs nothing and prints nothing.
 BACKLOG_FILE="BACKLOG.md"
-for lib in backlog verdict health pipeline_health preflight; do
+for lib in backlog verdict health pipeline_health preflight postcondition; do
   if [ ! -r "$REPO/.pipeline/$lib.sh" ]; then
     echo "MISSING $REPO/.pipeline/$lib.sh — required. Aborting." | tee -a "$LOG"
     exit 1
@@ -220,19 +221,56 @@ echo "cycles tonight: $CYCLES" | tee -a "$LOG"
 # An unrecognised model aborts the phase rather than falling through to a
 # default: a typo here would otherwise quietly restore the full-opus bill this
 # split exists to avoid, and nothing downstream would ever surface it.
+# <postcondition> is the name of a function from postcondition.sh, called with
+# this phase's start time once the CLI exits clean. It is REQUIRED, and
+# `phase_no_postcondition` is how a phase spells "nothing downstream hard-depends
+# on me" — an optional argument would let a phase added later inherit "no gate"
+# by omission instead of by decision, which is the timing/order coupling this
+# repo's protocol ranks worst.
+#
+# Why the CLI's exit status is not enough: on 2026-09-01 the 600s
+# CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS ceiling killed the researcher mid-phase,
+# the CLI still exited 0, and the build phase ran against a research/ whose
+# newest note was the previous night's. Exit code is "the process ended", not
+# "the artifact exists".
 run_phase () {
-  local model="$1" name="$2" prompt="$3"
+  local model="$1" name="$2" postcondition="$3" prompt="$4"
   case "$model" in
     opus|sonnet) ;;
     *) echo "run_phase: bad model '$model' for phase '$name' — aborting phase." | tee -a "$LOG"
        return 1 ;;
   esac
+  # A postcondition that is not a defined shell function is a typo, and a typo
+  # here silently turns the gate into a no-op. Refuse to run the phase at all
+  # rather than run it ungated.
+  if ! declare -f "$postcondition" >/dev/null 2>&1; then
+    echo "run_phase: postcondition '$postcondition' is not a defined function (phase '$name') — aborting phase." | tee -a "$LOG"
+    return 1
+  fi
+
+  # Captured BEFORE the phase runs, and per PHASE rather than per run: with
+  # CYCLES=2 both cycles' artifacts carry the same date, so a run-start floor
+  # would let cycle 1's note satisfy cycle 2's gate and the bug would survive
+  # its own fix.
+  local floor
+  floor="$(date +%s)"
+
   echo "" | tee -a "$LOG"
   echo "--- phase: $name (model: $model) ---" | tee -a "$LOG"
   if ! $CLAUDE --model "$model" "$prompt" >>"$LOG" 2>&1; then
     echo "phase '$name' exited non-zero — see $LOG" | tee -a "$LOG"
     return 1
   fi
+
+  local state rc
+  state="$("$postcondition" "$floor")"
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "--- gate: phase '$name' exited 0 but produced no artifact ($postcondition -> $state) — treating the phase as failed. See $LOG. ---" | tee -a "$LOG"
+    return 1
+  fi
+  [ "$state" != "NONE" ] && echo "--- gate: phase '$name' postcondition $postcondition -> $state ---" | tee -a "$LOG"
+  return 0
 }
 
 # Rescue anything left uncommitted onto a clearly-named, pushed branch, then
@@ -291,13 +329,18 @@ run_cycle () {
   # this cycle's work unreviewed.
   rm -f logs/last-review.md logs/last-pr.txt
 
-  run_phase sonnet "cycle $k/$CYCLES: research" \
+  run_phase sonnet "cycle $k/$CYCLES: research" research_note_fresh \
     "Use the agentlab-researcher subagent to run this cycle's research end to end, following its instructions exactly." || return 1
 
-  run_phase opus "cycle $k/$CYCLES: build" \
+  run_phase opus "cycle $k/$CYCLES: build" increment_built \
     "Use the agentlab-builder subagent to build this cycle's increment from the newest research note, following its instructions exactly. Verify it runs." || return 1
 
-  run_phase opus "cycle $k/$CYCLES: review" \
+  # No artifact postcondition here on purpose: the review gate 15 lines down is
+  # already one, and a stricter one. last-review.md was `rm -f`d above, so a
+  # review phase that died wrote nothing, review_verdict returns MISSING, and the
+  # cycle does not ship. Duplicating that as a freshness check would give the
+  # same fact two enforcement points to drift apart at.
+  run_phase opus "cycle $k/$CYCLES: review" phase_no_postcondition \
     "Use the agentlab-reviewer subagent to independently review this cycle's working-tree diff, run its tests/lint, and write a PASS/FAIL verdict to logs/last-review.md. Do not modify the increment." || return 1
 
   # The review gate, read mechanically — the same principle as the auto-merge
@@ -320,7 +363,9 @@ run_cycle () {
   fi
   echo "--- gate: review verdict PASS (parsed from $REVIEW_VERDICT_FILE) — proceeding to maintain. ---" | tee -a "$LOG"
 
-  run_phase sonnet "cycle $k/$CYCLES: maintain" \
+  # Last phase of the cycle; the auto-merge gate below re-reads git and the PR
+  # rather than trusting this phase's word, so there is nothing here to gate.
+  run_phase sonnet "cycle $k/$CYCLES: maintain" phase_no_postcondition \
     "Use the agentlab-maintainer subagent. Read logs/last-review.md; ONLY if the verdict is PASS, commit this cycle's work as Steve Ling <steveylingy@gmail.com>, push a branch, and open a PR. On FAIL or missing verdict, do nothing and say why."
 
   # Auto-merge gate: mechanical, not an LLM judgment call. The maintainer never
@@ -381,7 +426,10 @@ replenish_action () {
     return 1
   fi
 
-  run_phase sonnet "replenish (unclaimed=$unclaimed < $CYCLES, target=$target)" \
+  # phase_no_postcondition: replenish's real postcondition is the
+  # `git status --porcelain BACKLOG.md` check immediately below, which is
+  # narrower than any artifact-freshness test could be.
+  run_phase sonnet "replenish (unclaimed=$unclaimed < $CYCLES, target=$target)" phase_no_postcondition \
     "The agentlab BACKLOG.md has only $unclaimed unclaimed items left and the pipeline consumes $CYCLES a night. Append enough new items to reach at least $target unclaimed, under the appropriate existing section heading (create one if genuinely needed). Rules: use the exact '- [ ] ' prefix — the researcher matches on it literally, and an item without it is invisible. Each item must be a single agent-engineering increment buildable and testable in one cycle, in the style of the existing entries, and must NOT duplicate anything already marked [done], [researching], or [building]. Ground them in what this lab already has: read README.md, PIPELINE.md, knowledge/INDEX.md and examples/ first, and prefer items that extend or harden existing work over unrelated greenfield topics. Edit ONLY BACKLOG.md. Do not commit, push, or touch git — the pipeline commits for you." \
     || return 1
 
@@ -708,7 +756,9 @@ if [ -n "$LAST_HEALTH_LOG" ]; then
 fi
 if [ "$RUN_HEALTH" -eq 1 ]; then
   rm -f "$HEALTH_SNAPSHOT_FILE"
-  if run_phase sonnet "health" \
+  # phase_no_postcondition: file_health_findings only runs on the success branch
+  # and reads the report itself, so a phase that wrote nothing files nothing.
+  if run_phase sonnet "health" phase_no_postcondition \
     "Use the agentlab-health subagent to run a full lab-scope health check. This cycle's timestamp is $TS — write the dated report to logs/lab-health-$TS.log and the latest-snapshot to logs/last-health.md, following the subagent's instructions exactly. This must not modify anything under examples/, knowledge/, research/, projects/, or BACKLOG.md, and must not affect tonight's PRs or merges above."
   then
     # Close the loop the health agent is forbidden to close itself. Runs only
@@ -752,7 +802,9 @@ if [ -n "$LAST_PIPELINE_LOG" ]; then
 fi
 if [ "$RUN_PIPELINE_OBS" -eq 1 ]; then
   rm -f "$PIPELINE_SNAPSHOT_FILE"
-  if run_phase sonnet "pipeline observer" \
+  # phase_no_postcondition: same shape as the health phase — file_pipeline_findings
+  # runs only on the success branch and reads the report itself.
+  if run_phase sonnet "pipeline observer" phase_no_postcondition \
     "Use the agentlab-pipeline-observer subagent to observe the pipeline itself. This run's timestamp is $TS — write the dated report to logs/lab-pipeline-$TS.log and the latest-snapshot to logs/last-pipeline-health.md, following the subagent's instructions exactly, including the documented section headings (a script parses that snapshot). Window: examine logs/run-*.log dated on or after $PIPE_CUTOFF (the literal string ALL means examine every run log present), but EXCLUDE logs/run-$TS.log — that is this run, still in progress, and it has not written its final line yet. This must not modify anything under examples/, knowledge/, research/, projects/, .pipeline/, .claude/, or BACKLOG.md, must not commit or push, and must not affect tonight's PRs or merges above."
   then
     # Same rule as the health phase: file only after a phase that exited clean,
