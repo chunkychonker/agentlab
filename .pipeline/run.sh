@@ -13,7 +13,10 @@
 # unclaimed item" from a working tree the others cannot see, so N parallel
 # researchers would all pick the SAME item.
 #
-# Run manually first to shake out PATH/auth:  bash .pipeline/run.sh
+# Run manually first to shake out PATH/auth:
+#   AGENTLAB_IGNORE_SCHEDULE=1 bash .pipeline/run.sh
+# The env var is needed outside the 01:00-05:59 run window enforced below;
+# without it a daytime manual run exits 0 having done nothing.
 # Scheduled via launchd job com.steeb.agentlab.daily.
 
 set -uo pipefail
@@ -39,18 +42,19 @@ CLAUDE="claude -p --permission-mode bypassPermissions"
 
 echo "=== agentlab pipeline $TS ===" | tee -a "$LOG"
 
-# The backlog file the demo track draws from, and the four libraries holding
+# The backlog file the demo track draws from, and the six libraries holding
 # this script's decision logic: backlog.sh (is the queue stocked, is a claim
 # stranded, has this finding been filed), verdict.sh (does the review authorise
 # shipping), health.sh (what did the health check actually find),
 # pipeline_health.sh (what did the pipeline observer find),
-# preflight.sh (what does a dirty main mean). All five live
-# outside this script so they can be unit-tested offline
+# preflight.sh (what does a dirty main mean),
+# schedule.sh (does the clock say tonight's run should happen at all).
+# All six live outside this script so they can be unit-tested offline
 # (`bash .pipeline/test_backlog.sh`, `bash .pipeline/test_gates.sh`) instead of
 # only being exercised on the rare night each gate fires. Sourcing defines
 # functions and constants only — it runs nothing and prints nothing.
 BACKLOG_FILE="BACKLOG.md"
-for lib in backlog verdict health pipeline_health preflight; do
+for lib in backlog verdict health pipeline_health preflight schedule; do
   if [ ! -r "$REPO/.pipeline/$lib.sh" ]; then
     echo "MISSING $REPO/.pipeline/$lib.sh — required. Aborting." | tee -a "$LOG"
     exit 1
@@ -58,6 +62,26 @@ for lib in backlog verdict health pipeline_health preflight; do
   . "$REPO/.pipeline/$lib.sh"
 done
 unset lib
+
+# Preflight: refuse to start outside the overnight window. This runs FIRST,
+# before the network and auth checks, because it is the cheapest possible
+# check and because the entire point is to spend nothing when the clock is
+# wrong. See .pipeline/schedule.sh for why the launchd slot alone is not
+# enough: a missed calendar job runs at the next wake, and six runs in
+# 2026-08/09 drifted into the 11:47 and 13:47 hours for reasons still
+# unproven. A multi-cycle run starting in the afternoon eats the rolling
+# 5-hour usage window that interactive work needs.
+#
+# Exit 0, not 1: this is a correct, expected no-op, not a failure. A nonzero
+# exit here would make launchd's own accounting treat every daytime wake as a
+# crashed job.
+LAUNCH_HOUR="$(date +%H)"
+if [ "$(schedule_disposition "$LAUNCH_HOUR")" != "RUN" ] && ! schedule_override_active; then
+  echo "OUTSIDE RUN WINDOW (launched ${LAUNCH_HOUR}:xx, window is \
+${WINDOW_START_HOUR}:00-${WINDOW_END_HOUR}:00). Skipping tonight. \
+Set $SCHEDULE_OVERRIDE_VAR=1 to run anyway." | tee -a "$LOG"
+  exit 0
+fi
 
 # Preflight: both api.anthropic.com (claude -p) and github.com (git/gh) must be
 # reachable. This box's network is VPN-gated; the 403 auth and "can't reach

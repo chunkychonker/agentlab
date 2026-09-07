@@ -220,14 +220,32 @@ for practitioner discussion/reception, not just vendor docs.
 
 ## Running it
 
-- Manually (recommended first, to shake out PATH/auth): `bash .pipeline/run.sh`
+- Manually (recommended first, to shake out PATH/auth):
+  `AGENTLAB_IGNORE_SCHEDULE=1 bash .pipeline/run.sh`. The env var is required
+  outside 01:00-05:59 — see the run window below. Any non-empty value counts,
+  so `=0` and `=false` also mean "run anyway"; unset it to put the guard back.
 - On a schedule: the launchd job `com.steeb.agentlab.daily` runs `run.sh` daily
-  at 02:47. See the repo setup notes for how to load/unload it. It runs
-  overnight deliberately — a job this long sharing a rolling 5-hour usage
-  window with interactive daytime work is what makes both feel starved.
-  launchd runs a missed job on next wake, so a Mac asleep at 02:47 will start
+  at 02:00 local time (America/Chicago). See the repo setup notes for how to
+  load/unload it. It runs overnight deliberately — a job this long sharing a
+  rolling 5-hour usage window with interactive daytime work is what makes both
+  feel starved.
+  launchd runs a missed job on next wake, so a Mac asleep at 02:00 will start
   the run whenever the lid next opens; `pmset repeat wakeorpoweron` keeps that
-  from landing in the middle of a workday.
+  from landing in the middle of a workday. That wake must stay EARLIER than the
+  02:00 slot, but not so much earlier that the `pmset -g` idle `sleep` timer
+  puts the Mac back down before the job fires (idle sleep is 10 min, so 01:55
+  is the intended wake — 01:50 would race its own trigger).
+- Run window: `run.sh` refuses to start outside **01:00-05:59** and exits 0
+  (a skipped night is a correct no-op, not a crashed job — exiting 1 would
+  make launchd's own accounting treat every daytime wake as a failure). The
+  window is defined once in `.pipeline/schedule.sh`; the 02:00 launchd slot
+  must sit inside it. This is the belt to `pmset`'s braces: `pmset` stops the
+  Mac being asleep at 02:00, and the window stops a run that starts late from
+  eating the afternoon regardless of why it was late. Between 2026-08-29 and
+  2026-09-03 six consecutive runs fired in the 11:47 and 13:47 hours with the
+  minute still pinned to the configured `:47` — a pattern a lid-open wake does
+  not explain, and still unproven as of 2026-09-04. The window does not depend
+  on knowing the cause. The tradeoff it accepts: a missed night stays missed.
 - Budget roughly 20–25 min per cycle, plus ~12 min when the health check runs
   and a few minutes more when the pipeline observer runs alongside it.
 
