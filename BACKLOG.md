@@ -147,7 +147,7 @@ Both are small; a builder can reasonably take them in one cycle.
   and nothing in the lab measures that conflict. Unlike #25 this cannot be
   previewed for $0 — `count_tokens` reports no cache fields — so the runner needs
   one cheap real generation; say so plainly in the README.
-- [ ] Measure the context-editing vs prompt-caching trade — nothing in the lab does
+- [building] Measure the context-editing vs prompt-caching trade — nothing in the lab does
   yet. `examples/prompt-caching-tool-loop/` and `knowledge/context-editing.md`
   both flag it: `clear_tool_uses_20250919` invalidates every cache breakpoint
   below the edit, so a long loop running both trades a smaller prompt against a
