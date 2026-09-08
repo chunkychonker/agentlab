@@ -161,7 +161,7 @@ Both are small; a builder can reasonably take them in one cycle.
   removes can be previewed for $0 with `count_tokens` as in #25; the cache-write
   cost that same clear incurs cannot (#35), so the net still needs one cheap real
   generation — say so in the README.
-- [ ] Previewing `clear_thinking_20251015` for $0, the sibling edit
+- [building] Previewing `clear_thinking_20251015` for $0, the sibling edit
   `examples/context-editing-preview/` names as out of scope. Increment: a second
   pure policy type beside `ClearToolUsesPolicy` in `policy.py` that serialises the
   `clear_thinking_20251015` `context_management` edit, plus a shell that counts a

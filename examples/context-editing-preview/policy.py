@@ -1,12 +1,18 @@
-"""Turns a validated tool-result clearing policy into the Messages API's
+"""Turns a validated context-editing policy into the Messages API's
 `context_management` edit dict.
 
 Pure: no I/O, no `anthropic` import, no env reads. The only thing this module
 knows about the network is the *shape* of one JSON object.
 
-Everything is validated in `__post_init__`, so a `ClearToolUsesPolicy` that
-exists is a policy the API will accept as well-formed. Interior code -
-`to_edit()`, `to_config()` - assumes valid input and never re-checks.
+Everything is validated in `__post_init__`, so a policy that exists is one the
+API will accept as well-formed. Interior code - `to_edit()`, `to_config()` -
+assumes valid input and never re-checks.
+
+Two strategies live here, both behind the same beta and both satisfying
+`preview.EditPolicy` structurally:
+
+    ClearToolUsesPolicy   clear_tool_uses_20250919  - drops old tool results
+    ClearThinkingPolicy   clear_thinking_20251015   - drops old thinking blocks
 
 Shapes verified against the generated types of `anthropic==0.121.0`, not the
 docs prose:
@@ -14,10 +20,14 @@ docs prose:
     types/beta/beta_tool_uses_trigger_param.py      (type/value)
     types/beta/beta_tool_uses_keep_param.py         (type/value, tool_uses only)
     types/beta/beta_input_tokens_clear_at_least_param.py
+    types/beta/beta_clear_thinking_20251015_edit_param.py  (type + optional keep)
+    types/beta/beta_thinking_turns_param.py         (type/value, both Required)
+    types/beta/beta_all_thinking_turns_param.py     ({"type": "all"} object form)
     types/anthropic_beta_param.py:29                (the beta literal below)
 
-See the research note this came from:
+See the research notes this came from:
     research/2026-08-11-context-editing-preview.md
+    research/2026-09-08-context-editing-clear-thinking-preview.md
 """
 
 from __future__ import annotations
@@ -29,8 +39,9 @@ from typing import Literal
 # AnthropicBetaParam union, so a typo is a type error rather than a no-op.
 BETA = "context-management-2025-06-27"
 
-# The one strategy this example covers. `clear_thinking_20251015` and
-# `compact_20260112` are deliberately out of scope - see the README.
+# The tool-result strategy. Kept under the bare name `STRATEGY` that `main.py`
+# and `test_preview.py` already import. `compact_20260112` remains out of scope -
+# it needs a different beta (`compact-2026-01-12`); see the README.
 STRATEGY = "clear_tool_uses_20250919"
 
 TriggerKind = Literal["input_tokens", "tool_uses"]
@@ -144,6 +155,114 @@ class ClearToolUsesPolicy:
 
     def to_config(self) -> dict[str, object]:
         """The `context_management` value for a `count_tokens` or `create` call.
+
+        Cannot fail.
+        """
+        return {"edits": [self.to_edit()]}
+
+
+# The sibling strategy: clears reasoning, not tool results. Same beta, no
+# trigger of its own - see `ClearThinkingPolicy`.
+STRATEGY_CLEAR_THINKING = "clear_thinking_20251015"
+
+# `keep` for the thinking strategy is measured in assistant *turns* that carried
+# thinking, never in tokens or tool uses. The object form's discriminator.
+KEEP_THINKING_KIND = "thinking_turns"
+
+# The documented string shorthand for "keep every thinking block". The SDK also
+# accepts an object form, `{"type": "all"}` (BetaAllThinkingTurnsParam); the two
+# mean the same thing, and one spelling for one meaning is enough here.
+KEEP_ALL = "all"
+
+
+@dataclasses.dataclass(frozen=True)
+class ClearThinkingPolicy:
+    """A `clear_thinking_20251015` edit that is well-formed by construction.
+
+    Fields:
+      keep  how much prior reasoning survives the edit. Three forms, one field:
+              ``N`` (int > 0)  keep the N most recent assistant thinking-turns,
+                               serialised as {"type": "thinking_turns", "value": N}
+              ``"all"``        keep every thinking block
+              ``None``         omit the field and take the model's default,
+                               which is model-specific: Opus 4.5+ / Sonnet 4.6+
+                               keep all prior turns, earlier Opus/Sonnet and
+                               every Haiku keep only the last one
+
+    Unlike `ClearToolUsesPolicy` there is **no trigger, no `clear_at_least`, no
+    `exclude_tools`, no `clear_tool_inputs`**: the SDK's edit param has exactly
+    two fields, `type` and an optional `keep`. The edit always fires, so
+    `applied: False` from a preview means there was nothing left to clear - not
+    that a threshold went unmet.
+
+    Failure modes - all raised at construction, never at call time:
+      ``ValueError`` if ``keep`` is an int ``<= 0`` (zero thinking turns kept is
+      spelled by the API as clearing everything, which is what an omitted or
+      exhausted `keep` already does, and the docs state ``value`` must be > 0),
+      or a ``str`` other than ``"all"``.
+      ``TypeError`` if ``keep`` is not ``int | str | None``. ``bool`` is
+      rejected explicitly because it is an ``int`` subclass: ``keep=True`` would
+      otherwise serialise as ``{"type": "thinking_turns", "value": true}``, a
+      request no caller meant to send.
+    """
+
+    keep: int | Literal["all"] | None = None
+
+    def __post_init__(self) -> None:
+        if self.keep is None:
+            return
+
+        # Checked before `int` because `isinstance(True, int)` is True.
+        if isinstance(self.keep, bool):
+            raise TypeError(
+                "keep must be a turn count, 'all', or None; got the bool "
+                f"{self.keep!r}, which is not a number of thinking turns"
+            )
+
+        if isinstance(self.keep, int):
+            if self.keep <= 0:
+                raise ValueError(
+                    f"keep must be >= 1 when it is a count, got {self.keep}"
+                )
+            return
+
+        if isinstance(self.keep, str):
+            if self.keep != KEEP_ALL:
+                raise ValueError(
+                    f"the only string keep the API accepts is {KEEP_ALL!r}, "
+                    f"got {self.keep!r}"
+                )
+            return
+
+        raise TypeError(
+            "keep must be an int, 'all', or None, got "
+            f"{type(self.keep).__name__} ({self.keep!r})"
+        )
+
+    def to_edit(self) -> dict[str, object]:
+        """The single edit object, exactly as the API expects it.
+
+        `keep` is **omitted** when unset rather than emitted as `null`: an
+        omitted `keep` means "use the model default", while `{"keep": null}` is
+        a different request the SDK's `total=False` TypedDict cannot express.
+
+        Cannot fail: `keep` was validated at construction.
+        """
+        edit: dict[str, object] = {"type": STRATEGY_CLEAR_THINKING}
+        if self.keep is None:
+            return edit
+        if self.keep == KEEP_ALL:
+            edit["keep"] = KEEP_ALL
+            return edit
+        edit["keep"] = {"type": KEEP_THINKING_KIND, "value": self.keep}
+        return edit
+
+    def to_config(self) -> dict[str, object]:
+        """The `context_management` value for a `count_tokens` or `create` call.
+
+        One edit only. Combining this with `clear_tool_uses_20250919` is out of
+        scope here, and the docs require `clear_thinking_20251015` to be listed
+        first when it is combined.
 
         Cannot fail.
         """

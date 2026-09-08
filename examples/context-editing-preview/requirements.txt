@@ -1,7 +1,16 @@
-# Only needed for the live run (python main.py with ANTHROPIC_API_KEY set).
-# The offline self-test (python test_preview.py) needs nothing beyond the stdlib.
+# Only needed for the live runs (python main.py / python preview_thinking.py,
+# with ANTHROPIC_API_KEY set). The offline self-tests (python test_preview.py,
+# python test_preview_thinking.py) need nothing beyond the stdlib.
 #
 # Pinned: 0.121.0 is the version whose generated types this example was written
 # against, including beta_clear_tool_uses_20250919_edit_param and the
 # count_tokens `context_management` parameter.
+#
+# The 2026-09-08 clear_thinking_20251015 addition deliberately did NOT bump this
+# pin. 0.121.0 already ships beta_clear_thinking_20251015_edit_param,
+# beta_thinking_turns_param, beta_all_thinking_turns_param and
+# beta_thinking_config_adaptive_param, its beta.messages.count_tokens signature
+# already accepts `thinking=`, and claude-sonnet-5 is already in types/model.py -
+# so nothing about that feature needs a newer SDK. The line has since moved on
+# (1.x exists); bumping it is its own change, with its own testing.
 anthropic==0.121.0

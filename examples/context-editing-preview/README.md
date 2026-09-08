@@ -1,10 +1,12 @@
-# Context editing preview: what would `clear_tool_uses_20250919` do to my transcript?
+# Context editing preview: what would a context edit do to my transcript?
 
-Server-side context editing prunes old `tool_result` bodies out of a request
-before the model sees it. The catch is that **nothing local changes** — your
-client keeps the full, unmodified history, and the edit happens per-request on
-Anthropic's side. So you cannot find out what it did by printing your own
-messages list, and the obvious way to find out is to pay for a generation.
+Server-side context editing prunes old material out of a request before the
+model sees it — `tool_result` bodies under `clear_tool_uses_20250919`, prior
+assistant `thinking` blocks under `clear_thinking_20251015`. The catch is that
+**nothing local changes** — your client keeps the full, unmodified history, and
+the edit happens per-request on Anthropic's side. So you cannot find out what it
+did by printing your own messages list, and the obvious way to find out is to
+pay for a generation.
 
 This example finds out for **$0**. It counts the same request twice through the
 [token-counting endpoint](https://platform.claude.com/docs/en/build-with-claude/token-counting),
@@ -17,8 +19,11 @@ which is free and rate-limited separately from message creation:
 
 The delta is the saving. No `messages.create`, no tokens generated, no bill.
 
-From the research note:
-[`research/2026-08-11-context-editing-preview.md`](../../research/2026-08-11-context-editing-preview.md).
+From the research notes:
+[`research/2026-08-11-context-editing-preview.md`](../../research/2026-08-11-context-editing-preview.md)
+(`clear_tool_uses_20250919`) and
+[`research/2026-09-08-context-editing-clear-thinking-preview.md`](../../research/2026-09-08-context-editing-clear-thinking-preview.md)
+(`clear_thinking_20251015`).
 Background: [`knowledge/context-editing.md`](../../knowledge/context-editing.md),
 [`knowledge/anthropic-models.md`](../../knowledge/anthropic-models.md).
 
@@ -26,21 +31,25 @@ Background: [`knowledge/context-editing.md`](../../knowledge/context-editing.md)
 
 | File | What it is |
 |------|-----------|
-| `policy.py` | A `clear_tool_uses_20250919` edit that is well-formed by construction. Validates in `__post_init__`, serialises in `to_edit()`. No I/O, no `anthropic` import. |
-| `transcript.py` | The synthetic fixture: `rounds` complete tool-use round trips with fixed-size results. Pure and deterministic. |
-| `preview.py` | The pure core. Declares the `CountTokens` and `EditPolicy` interfaces it needs, turns two `TokenCount`s into one `PreviewReport`. |
-| `main.py` | The imperative shell. The only file that reads the env var, imports the SDK (lazily), or prints. |
-| `test_preview.py` | Offline self-test: 25 assertions, no key, no network, no SDK installed. |
-| `requirements.txt` | `anthropic==0.121.0` — for the **live run only**. |
+| `policy.py` | Both edits, each well-formed by construction: `ClearToolUsesPolicy` and `ClearThinkingPolicy`. Validate in `__post_init__`, serialise in `to_edit()`. No I/O, no `anthropic` import. |
+| `preview.py` | The pure core, shared by both strategies. Declares the `CountTokens` and `EditPolicy` interfaces it needs, turns two `TokenCount`s into one `PreviewReport`. |
+| `transcript.py` | Fixture for the tool strategy: `rounds` complete tool-use round trips with fixed-size results. Pure and deterministic. |
+| `main.py` | Imperative shell for `clear_tool_uses_20250919`. Reads the env var, imports the SDK (lazily), prints. |
+| `test_preview.py` | Offline self-test for it: 25 assertions, no key, no network, no SDK installed. |
+| `thinking_transcript.py` | Fixture for the thinking strategy: `turns` assistant turns, each `[thinking, text]`, no tools. Pure and deterministic. |
+| `preview_thinking.py` | Imperative shell for `clear_thinking_20251015`. Sibling of `main.py`; different model, different fixture, same core. |
+| `test_preview_thinking.py` | Offline self-test for it: 25 assertions, same no-key, no-network, no-SDK bar. |
+| `requirements.txt` | `anthropic==0.121.0` — for the **live runs only**. |
 
 ## Run the self-test (no API key, no network, no dependencies)
 
 ```bash
 cd examples/context-editing-preview
-python test_preview.py
+python test_preview.py           # clear_tool_uses_20250919
+python test_preview_thinking.py  # clear_thinking_20251015
 ```
 
-Expected output:
+`test_preview.py` — Expected output:
 
 ```
 ok  an unset optional is omitted, not emitted as null
@@ -82,7 +91,10 @@ rather than a claim: `"anthropic" not in sys.modules` after every test has run
 (the core, the adapter and the renderer were all exercised without the SDK ever
 being imported), and a sub-second wall-clock bound.
 
-## Run it live (needs a key; still costs nothing)
+The `clear_thinking` suite is documented in
+[its own section](#the-second-strategy-clear_thinking_20251015) below.
+
+## Run `clear_tool_uses_20250919` live (needs a key; still costs nothing)
 
 ```bash
 pip install -r requirements.txt
@@ -113,7 +125,7 @@ whole path up to the wire: the request the SDK serialises, the beta header it
 sends, and the parsing of a real `BetaMessageTokensCount` response back into a
 report. What is unverified is only what Anthropic's servers do with it.
 
-## The policy, and what the API actually accepts
+## The tool-use policy, and what the API actually accepts
 
 ```python
 from policy import ClearToolUsesPolicy
@@ -137,6 +149,147 @@ which is the API's default at 100k:
 ClearToolUsesPolicy(keep=3, trigger_kind="input_tokens", trigger_value=100_000)
 ```
 
+## The second strategy: `clear_thinking_20251015`
+
+Same beta, same free double-count, a different thing cleared: prior assistant
+**thinking** blocks instead of tool results. Added 2026-09-08 from
+[`research/2026-09-08-context-editing-clear-thinking-preview.md`](../../research/2026-09-08-context-editing-clear-thinking-preview.md).
+
+```bash
+cd examples/context-editing-preview
+python test_preview_thinking.py   # offline: no key, no network, no SDK
+python preview_thinking.py        # live: needs a key, still costs nothing
+```
+
+### The edit is much smaller than `clear_tool_uses_20250919`
+
+```python
+from policy import ClearThinkingPolicy
+
+ClearThinkingPolicy(keep=2).to_config()
+# {"edits": [{"type": "clear_thinking_20251015",
+#             "keep": {"type": "thinking_turns", "value": 2}}]}
+```
+
+Two fields, one of them optional. **There is no `trigger`** — and no
+`clear_at_least`, `exclude_tools`, or `clear_tool_inputs` either. The strategy
+fires unconditionally on every request, which changes what `applied: False`
+means: for `clear_tool_uses` it can mean a threshold went unmet, here it can
+only mean there was nothing left to clear.
+
+`keep` has three forms, and one optional field holds all of them:
+
+| Constructed as | Serialises to | Means |
+|---|---|---|
+| `ClearThinkingPolicy()` | `{"type": "clear_thinking_20251015"}` | omit `keep`; take the model default |
+| `ClearThinkingPolicy(keep=2)` | `…, "keep": {"type": "thinking_turns", "value": 2}` | keep the 2 most recent thinking turns |
+| `ClearThinkingPolicy(keep="all")` | `…, "keep": "all"` | keep every thinking block |
+
+The default is **model-specific**, which is why omitting `keep` is a real third
+choice and not a synonym for either of the others: Opus 4.5+ / Sonnet 4.6+ keep
+all prior thinking turns, earlier Opus/Sonnet and every Haiku keep only the last
+one.
+
+`keep` is counted in **thinking turns** — not tokens, not tool uses. `keep=0` is
+rejected at construction (the docs require `value > 0`), and so is `keep=True`,
+which Python would otherwise serialise happily as `"value": true` because `bool`
+is an `int` subclass. The SDK also accepts an object form `{"type": "all"}`
+alongside the bare string; they mean the same thing, and one spelling for one
+meaning is enough here.
+
+### It must run on a model that keeps prior-turn thinking
+
+This is the constraint that decides whether the preview measures anything at
+all. Thinking blocks from *previous* assistant turns count toward input tokens
+only on models that keep all prior turns. On the rest, **the API strips them
+before counting** — so there is nothing left for the edit to clear, and the
+number you get back is zero for a reason that has nothing to do with your
+policy.
+
+| Model | Prior-turn thinking | What this preview would report |
+|---|---|---|
+| `claude-sonnet-5` (also Opus 4.5+, Sonnet 4.6+) | kept, and counted | a real saving |
+| `claude-haiku-4-5` — the model `main.py` uses | stripped before counting | ~0, misleadingly |
+
+So `preview_thinking.py` pins `MODEL = "claude-sonnet-5"` instead of reusing
+`main.py`'s Haiku. Counting is free on every model, so this is a correctness
+choice, not a cost one — the same disqualification `compact_20260112` runs into.
+
+Two smaller differences `make_thinking_counter` absorbs: every count carries
+`thinking={"type": "adaptive"}` (5-series models reject a manual
+`budget_tokens`), and the fixture is tool-free, so the adapter **omits** `tools`
+rather than sending `[]`.
+
+### The thinking blocks in the fixture are synthetic
+
+Real `signature` values come back only from `messages.create`, which this
+example never calls — that is the whole point of a $0 preview. So every thinking
+block in `thinking_transcript.py` carries a placeholder that says so in its own
+text.
+
+The bet is that `count_tokens` checks thinking blocks for *structure*
+(`type` / `thinking` / `signature` present) and not for a valid signature. The
+evidence: the token-counting docs' own worked example counts a visibly truncated
+signature and returns a number, and every documented
+`invalid_request_error` about a modified signature traces back to
+`messages.create`. That is a best read, **not** a live confirmation.
+
+If the bet is wrong, the live count 400s and the error propagates with a
+traceback — it never arrives as a report of zero saving. The offline self-test,
+which is the whole acceptance surface, is unaffected either way. Do not send
+this fixture to `messages.create`: that endpoint does verify signatures.
+
+### Self-test output
+
+`check_transcript.py` refuses a README with two blocks marked `Expected output`
+(guessing which one a caller meant is how a checker starts lying), so this
+directory spends its one marker on `test_preview.py` above. This block is
+therefore hand-copied and *not* machine-checked — `python
+test_preview_thinking.py` is the source of truth:
+
+```
+ok  an omitted keep leaves the edit as type alone, not keep: null
+ok  a turn count serialises to {type: thinking_turns, value: N}
+ok  keep='all' serialises to the bare string the docs use
+ok  to_config wraps the edit in the API's edits list
+ok  the thinking strategy ships behind the one existing beta
+ok  keep=0 is rejected at construction
+ok  keep=-1 is rejected at construction
+ok  a keep string other than 'all' is rejected at construction
+ok  a fractional keep is rejected at construction
+ok  keep=True is rejected rather than counted as one turn
+ok  every assistant turn is one thinking block then one text block
+ok  the same arguments always build the same thinking transcript
+ok  a transcript with no turns or empty thinking is rejected
+ok  the fixture holds no tool_use or tool_result blocks to clear
+ok  an applied edit reports 22000 tokens saved and 36.7%
+ok  an unapplied edit reports 0 saved rather than raising or guessing
+ok  the same core counts the thinking fixture plain, then edited
+ok  the adapter sends the beta, adaptive thinking, and the edit dict
+ok  an empty tool list is omitted from the request, not sent as []
+ok  a non-empty tool list is still sent
+ok  an absent context_management object becomes original=None
+ok  an API error propagates instead of becoming a zero-saving report
+ok  the demo model is one that keeps prior-turn thinking
+ok  the report prints the pasteable config and the delta
+ok  an unapplied edit is explained as an empty clear, not a trigger
+
+All 25 self-tests passed with no key and no network.
+```
+
+### Live thinking transcript: NOT YET CAPTURED
+
+No `ANTHROPIC_API_KEY` was available in the environment where this was built, so
+the live numbers are **not** reproduced here and nothing has been invented to
+fill the gap. There is no fabricated token count anywhere in this directory.
+Running `python preview_thinking.py` with a key on `claude-sonnet-5` is what
+settles both open questions at once, for $0: whether `count_tokens` accepts the
+synthetic signatures, and how much `keep=2` actually saves on eight thinking
+turns.
+
+What *was* verified offline is the whole path up to the wire, plus the wire
+shapes themselves against the pinned SDK — see "How this was verified" below.
+
 ## Caveats that decide whether this is worth turning on
 
 - **`clear_at_least` is all-or-nothing.** If the API cannot clear at least that
@@ -147,6 +300,9 @@ ClearToolUsesPolicy(keep=3, trigger_kind="input_tokens", trigger_value=100_000)
   `clear_at_least` exists: you want to clear enough to be worth paying the cache
   write again. This preview measures the *saving*, not the cache cost, so a
   positive number here is a necessary but not sufficient reason to enable it.
+  `clear_thinking_20251015` has no `clear_at_least`, so that trade is entirely
+  yours to manage: keeping thinking blocks preserves the cache, clearing them
+  invalidates it from the point where the clearing occurs.
 - **Pairing is preserved by default.** Only `tool_result` bodies are cleared; the
   preceding `tool_use` block stays, so the model keeps the record that it made
   the call and with what input. `clear_tool_inputs: true` drops the inputs too —
@@ -199,6 +355,25 @@ field that does not exist on this endpoint.
    `TypeError: unexpected keyword argument 'betas'` — `betas` exists only on the
    beta namespace, `client.beta.messages`. The fake client in `test_preview.py`
    now deliberately exposes *only* `.beta`, so that bug cannot come back.
+3. `python test_preview_thinking.py` — 25 more assertions, exit 0, SDK never
+   imported. Its `FakeClient` exposes only `.beta` for the same reason.
+4. For `clear_thinking_20251015`, one further offline check: the pinned
+   `anthropic==0.121.0` wheel was downloaded and unpacked (no install, no
+   network call to Anthropic) and its generated types read directly. That
+   settled three build-time questions without a request:
+   - `types/beta/beta_clear_thinking_20251015_edit_param.py` already exists in
+     `0.121.0` and is exactly `{type: Required, keep?}`, with
+     `Keep = BetaThinkingTurnsParam | BetaAllThinkingTurnsParam | Literal["all"]`
+     and both of `BetaThinkingTurnsParam`'s fields `Required`. `claude-sonnet-5`
+     is in `types/model.py` and `context-management-2025-06-27` is in
+     `types/anthropic_beta_param.py`. **So no SDK bump is bundled with this
+     feature** — the pin stays where `clear_tool_uses` left it.
+   - `beta.messages.count_tokens` takes `thinking: BetaThinkingConfigParam`
+     directly (`resources/beta/messages/messages.py:1846`), so the adapter
+     passes it as a keyword argument rather than smuggling it through
+     `extra_body`.
+   - `BetaThinkingConfigAdaptiveParam` is `{"type": "adaptive", display?}`, so
+     the adaptive form the 5-series requires is expressible in this pin.
 
 ## Deviations from the research note's Layer-3 sketch
 
@@ -213,7 +388,9 @@ Three, all toward the repo's correctness posture:
   rather than `policy.ClearToolUsesPolicy` concretely. Same call signature the
   note specified, but the core depends on the capability (`to_config()`) instead
   of importing the one strategy module — a future `clear_thinking_20251015`
-  policy would drop in unchanged.
+  policy would drop in unchanged. It since did: `ClearThinkingPolicy` reuses
+  `preview()`, `PreviewReport`, `TokenCount`, `EditPolicy` and `CountTokens`
+  with no edit to `preview.py` at all.
 - **`preview()` really does make both counts** (the note's Layer 1 says so, and
   its A4/A5 could have been satisfied by one). The second count's
   `original_input_tokens` is absent whenever no edit was applied, so without the
@@ -237,12 +414,23 @@ Three, all toward the repo's correctness posture:
   naming the model propagates as an exception with a traceback — it is never
   swallowed into a zero-saving report.
 - **What is the placeholder text left behind?** Still open and unobservable from
-  this endpoint, which returns counts only.
+  this endpoint, which returns counts only. The docs describe one for cleared
+  tool results and say nothing about cleared thinking.
+- **Does `count_tokens` accept a synthetic thinking-block signature?** Still
+  open; it needs one $0 live call. See "The thinking blocks in the fixture are
+  synthetic" above for the evidence either way and for why it does not gate
+  anything: a rejection surfaces as a traceback, and the offline suite is
+  unaffected.
+- **Does `count_tokens` accept `"tools": []`?** Still open, and deliberately not
+  found out: `make_thinking_counter` omits the key when the list is empty, the
+  same rule `to_edit()` follows for an unset `keep`.
 
 ## Explicitly out of scope
 
-Running a real agent loop; the `compact_20260112` strategy and its
+Running a real agent or thinking loop; the `compact_20260112` strategy and its
 `pause_after_compaction` flow (a different beta, `compact-2026-01-12`, and its
-own cycle); `clear_thinking_20251015`; `clear_tool_inputs`; client-side pruning
-of your own message list; any billed `messages.create` call; and measuring the
-cache-write cost that clearing incurs.
+own cycle); `clear_tool_inputs`; combining `clear_thinking_20251015` and
+`clear_tool_uses_20250919` in one request (the docs require the thinking edit to
+be listed first in `edits` when you do); obtaining real signed thinking blocks;
+client-side pruning of your own message list; any billed `messages.create` call;
+and measuring the cache-write cost that clearing incurs.

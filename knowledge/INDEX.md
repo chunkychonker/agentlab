@@ -35,7 +35,11 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   two `trigger` forms and `clear_tool_inputs` being more than a bool), the
   all-or-nothing `clear_at_least` and cache-invalidation tradeoffs, and the
   free `count_tokens` preview path — plus the asymmetry that trips people up
-  (`count_tokens` returns `original_input_tokens` only, never `applied_edits`)
+  (`count_tokens` returns `original_input_tokens` only, never `applied_edits`);
+  and the simpler `clear_thinking_20251015` sibling (`keep` only, no trigger,
+  fires unconditionally, thinking-edit-first ordering) with its measurement
+  gotcha — last-turn-only models strip prior thinking before counting, so
+  preview it on a keep-all model like `claude-sonnet-5` or the saving reads ~0
 - [[compaction]] — the *summarize* sibling: the `compact_20260112` edit's four
   fields and its 50k-token trigger floor, `pause_after_compaction` +
   `stop_reason: "compaction"`, the three ways to detect it (never

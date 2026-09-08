@@ -64,6 +64,49 @@ clear_tool_inputs         bool | Sequence[str] | None
   server-side; you do not sync local state to it. Corollary: you cannot inspect
   the effect by printing your own messages list — you have to ask the API.
 
+## `clear_thinking_20251015` fields (the simpler sibling)
+
+Verified 2026-09-08 against the
+[context-editing docs](https://platform.claude.com/docs/en/build-with-claude/context-editing)
+and the anthropic-sdk-python `main`-branch type files.
+
+```
+type   Required  Literal["clear_thinking_20251015"]
+keep             {"type": "thinking_turns", "value": int>0} | "all" | <omitted>
+```
+
+- **No `trigger`.** The edit fires **unconditionally** — the docs' config table
+  lists only `keep`. None of `clear_at_least` / `exclude_tools` /
+  `clear_tool_inputs` exist here.
+- **Same beta** as `clear_tool_uses_20250919`: `context-management-2025-06-27`.
+  (Contrast [[compaction]], which needs its own.)
+- `keep` object form is `BetaThinkingTurnsParam` = `{type:"thinking_turns",
+  value:int}`, both fields Required, `value` must be `> 0`. `"all"` is the
+  documented string form for "keep every thinking block" (there is also an
+  object `BetaAllThinkingTurnsParam`, rarely needed). Omit `keep` to take the
+  model default.
+- **Default is model-specific**: Opus 4.5+ / Sonnet 4.6+ / Fable / Mythos keep
+  *all* prior thinking; earlier Opus/Sonnet and *all* Haiku keep only the last
+  turn.
+- **Ordering rule:** when combined with `clear_tool_uses_20250919` in one
+  `edits` array, `clear_thinking_20251015` **must be listed first**.
+- Billed `create` response: `BetaClearThinking20251015EditResponse` =
+  `{type, cleared_input_tokens:int, cleared_thinking_turns:int}` (all Required).
+- **Model-retention gotcha for measurement.** `count_tokens` only counts
+  *prior-turn* thinking on keep-all models; on last-turn-only models the API
+  strips prior thinking *before counting*, so `clear_thinking_20251015` has
+  nothing to clear and the previewed saving is ~0. Preview against a keep-all
+  model — cheapest is `claude-sonnet-5` (Haiku is disqualified, same as
+  [[compaction]]). Current-turn thinking always counts.
+- **Does `count_tokens` verify thinking-block signatures?** The token-counting
+  docs' worked example passes a visibly *truncated* placeholder signature and
+  shows a successful count; every signature-400 report traces to
+  `messages.create`, not `count_tokens`. Best read: `count_tokens` checks
+  structure, not the crypto — so a **synthetic** thinking transcript can be
+  previewed for $0. Not yet verified live (see the 2026-09-08 research note).
+- On 5-series models the request's `thinking` must be `{"type": "adaptive"}`
+  (manual `budget_tokens` is a 400 on 4.7+) — see [[thinking-blocks]].
+
 ## The free measurement path, and its asymmetry
 
 `count_tokens` accepts `context_management`, and
@@ -84,6 +127,11 @@ On the free path you get the saving by subtracting `input_tokens` from
 it is the easy mistake. The field is `Optional[...] = None` on both, so "no edit
 applied" (below trigger, or `clear_at_least` unmet) arrives as `None` — handle
 it as zero savings, never as a negative number or a crash.
+
+This path is strategy-agnostic: `count_tokens` also applies
+`clear_thinking_20251015` and reports the same `original_input_tokens`-only
+shape. It does **not** trigger `compact_20260112` — that one cannot be previewed
+for $0 (see [[compaction]]).
 
 Also: `count_tokens` deliberately does not use caching logic, so a preview
 measures raw prefix size and won't flatter you with cache hits.
