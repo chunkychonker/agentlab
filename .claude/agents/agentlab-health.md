@@ -40,6 +40,28 @@ is `project:<slug>`, also `projects/<slug>/`):
 - Every example directory must appear in the report exactly once. None
   silently omitted, none silently merged into a summary count.
 
+Then run the transcript sweep **once** for the whole repo, in addition to (not
+instead of) the per-example runs above:
+
+```bash
+cd ~/agentlab/examples/readme-transcript-check && python3 sweep.py
+```
+
+It builds its own scratch venvs outside the repo, runs each example's documented
+self-test, and byte-compares the output against the README's `Expected output`
+block. It needs network for `pip` and costs nothing in API terms — every command
+it runs is an offline self-test. Fold its output into the report like this:
+
+- Copy each `- FAIL  examples/<name>/ — ...` line it prints **verbatim** into
+  `## Example results`. The sweep already writes them in the shape
+  `.pipeline/health.sh` parses; re-wording them loses the detail.
+- `OPT-OUT` and `NO TRANSCRIPT` lines are **not** findings — a README that
+  documents no transcript, or documents one it declared unreproducible, is not a
+  broken example. Mention them as SKIPPED-style context if useful, never as FAIL.
+- If the sweep itself exits 70 (`SWEEP FAILED`, a virtualenv could not be built),
+  that is a fact about this box, not about any README. Report it as such and do
+  not file per-example findings from a run that did not finish.
+
 ### 2. Every knowledge wikilink resolves
 Grep `knowledge/*.md` for `[[name]]`-style links. For each, confirm
 `knowledge/name.md` (or the exact target the link syntax implies) exists.

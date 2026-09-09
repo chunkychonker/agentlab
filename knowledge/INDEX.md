@@ -141,5 +141,9 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   why diff-scoped nightly review structurally cannot catch an invariant
   spanning two files that are never edited together, the MATCH / DRIFT /
   **UNRUNNABLE** verdict taxonomy a transcript checker needs (a missing
-  dependency is not drift), and why exact-match-with-no-`--update`-flag is the
-  point rather than a limitation (Go/doctest precedent)
+  dependency is not drift), why exact-match-with-no-`--update`-flag is the
+  point rather than a limitation (Go/doctest precedent), and the repo-wide
+  sweep design (2026-09-09): the "last `*.py` token in the preceding fenced
+  block" command rule, the `<!-- transcript-check: skip -->` opt-out directive
+  for billed live transcripts, and how a DRIFT reaches the backlog through
+  `health.sh`'s existing `- FAIL` parsing with no bash change

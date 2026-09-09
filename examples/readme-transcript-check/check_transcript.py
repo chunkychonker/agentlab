@@ -20,6 +20,18 @@ The third state is the whole point. A missing dependency makes the command exit
 non-zero with empty stdout; calling that "drift" is a false accusation about a
 README that may be perfectly correct.
 
+A README whose only documented transcript cannot be reproduced offline - a
+billed live-API run, say - opts out with a directive on the line above the
+marker, and extraction raises `TranscriptOptOut` instead of handing back a
+block that was never verifiable:
+
+    <!-- transcript-check: skip - billed live-API run, not reproducible offline -->
+    Expected output (verified during this build):
+
+This is Go's rule again: an example with no `// Output:` comment is compiled but
+not run. "Nothing to verify here, and here is why" is a legitimate third answer,
+distinct from both "matches" and "no transcript at all".
+
     Pure core (no I/O):   extract_transcript, compare, exit_code, format_verdict
     Imperative shell:     check, main
 
@@ -44,6 +56,21 @@ from pathlib import Path
 
 # The heading that introduces a documented transcript in this repo's READMEs.
 DEFAULT_MARKER = "Expected output"
+
+# An HTML comment on the line above the marker declares the block unverifiable.
+# HTML comment, so it renders as nothing on GitHub - the README is unchanged for
+# a human reader and machine-readable for this checker.
+OPT_OUT_DIRECTIVE_PREFIX = "<!-- transcript-check: skip"
+
+# Closing an HTML comment. A directive that does not close on its own line is a
+# malformed directive, not a licence to guess where the reason ends.
+_HTML_COMMENT_CLOSE = "-->"
+
+# Punctuation a human would naturally put between "skip" and the reason:
+# a colon, a hyphen, an em dash (—, spelled as an escape to keep this file
+# ASCII), whitespace. Stripped so the stored reason is the sentence itself,
+# whichever separator the author chose.
+_REASON_LEAD_CHARS = ":-\u2014 \t"
 
 # The README filename the CLI looks for inside the example directory.
 README_FILENAME = "README.md"
@@ -90,7 +117,45 @@ class AmbiguousTranscript(Exception):
     Raised rather than silently taking the first: `mcp-connect-claude-code` has
     two, one of which is a billed live run that cannot be reproduced offline.
     Guessing which one the caller meant is how a checker starts lying.
+
+    ``count`` is how many were found, so a caller reporting on many READMEs at
+    once can say how bad it is without re-deriving the rule and disagreeing.
+    It is never below 2: one block is not ambiguous, so the constructor rejects
+    it rather than letting an impossible count be reported.
     """
+
+    def __init__(self, message: str, *, count: int) -> None:
+        if count < 2:
+            raise ValueError(f"ambiguity needs at least 2 blocks, got {count}")
+        super().__init__(message)
+        self.count = count
+
+
+class TranscriptOptOut(Exception):
+    """The README's one marked block declares itself unverifiable, and says why.
+
+    Raised when the line above the marker carries the
+    ``<!-- transcript-check: skip ... -->`` directive. Distinct from
+    ``TranscriptNotFound``: the block exists and is documentation the author
+    stands behind, it just cannot be reproduced by running a command here (a
+    billed live-API run, output that depends on ambient auth, and so on).
+    Treating it as a check that passed would be a lie; treating it as a failure
+    would be a false accusation. It is its own answer.
+
+    ``reason`` is the author's explanation, and is never empty: a directive
+    that skips a check without saying why is exactly the thing that later
+    becomes unexplained. The constructor raises ``ValueError`` on a blank one.
+    """
+
+    def __init__(self, reason: str) -> None:
+        if not reason.strip():
+            raise ValueError(
+                f"a {OPT_OUT_DIRECTIVE_PREFIX!r} directive must carry a reason, "
+                f"e.g. '{OPT_OUT_DIRECTIVE_PREFIX} - billed live-API run "
+                f"{_HTML_COMMENT_CLOSE}'"
+            )
+        super().__init__(f"transcript check skipped: {reason}")
+        self.reason = reason
 
 
 class UsageError(Exception):
@@ -146,6 +211,53 @@ def _is_closing_fence(line: str) -> bool:
     return line.rstrip() == "```"
 
 
+def _nearest_non_blank_above(lines: Sequence[str], index: int) -> int:
+    """The index of the nearest non-blank line strictly above ``index``, or -1.
+
+    Pure, total. The one place this repo's "a line applies to the thing under
+    it" convention is implemented, so the marker rule and the opt-out rule
+    cannot drift apart.
+    """
+    above = index - 1
+    while above >= 0 and not lines[above].strip():
+        above -= 1
+    return above
+
+
+def _opt_out_reason(lines: Sequence[str], fence_index: int) -> str | None:
+    """The reason from a skip directive above the marker line, or ``None``.
+
+    Layout, tightest first: the fence, its marker line, and the directive above
+    that. Putting the directive above the marker rather than inside it keeps
+    this check orthogonal to marker matching - a README with no directive takes
+    exactly the path it took before this existed.
+
+    Pure. Failure mode: ``ValueError`` if a directive line does not close its
+    HTML comment on the same line, since the end of the reason would otherwise
+    be a guess.
+    """
+    marker_index = _nearest_non_blank_above(lines, fence_index)
+    if marker_index < 0:
+        return None
+
+    directive_index = _nearest_non_blank_above(lines, marker_index)
+    if directive_index < 0:
+        return None
+
+    directive = lines[directive_index].strip()
+    if not directive.startswith(OPT_OUT_DIRECTIVE_PREFIX):
+        return None
+    if not directive.endswith(_HTML_COMMENT_CLOSE):
+        raise ValueError(
+            f"the {OPT_OUT_DIRECTIVE_PREFIX!r} directive on line "
+            f"{directive_index + 1} does not close with "
+            f"{_HTML_COMMENT_CLOSE!r} on the same line"
+        )
+
+    body = directive[len(OPT_OUT_DIRECTIVE_PREFIX) : -len(_HTML_COMMENT_CLOSE)]
+    return body.strip().lstrip(_REASON_LEAD_CHARS).strip()
+
+
 def _marked_block_bounds(lines: Sequence[str], marker: str) -> list[tuple[int, int]]:
     """Index pairs (first content line, closing-fence line) for every block whose
     nearest preceding non-blank line contains ``marker``.
@@ -161,9 +273,7 @@ def _marked_block_bounds(lines: Sequence[str], marker: str) -> list[tuple[int, i
         if not _is_fence(line):
             continue
 
-        preceding = index - 1
-        while preceding >= 0 and not lines[preceding].strip():
-            preceding -= 1
+        preceding = _nearest_non_blank_above(lines, index)
         if preceding < 0 or marker not in lines[preceding]:
             continue
 
@@ -190,8 +300,12 @@ def extract_transcript(readme_text: str, *, marker: str = DEFAULT_MARKER) -> str
 
     Pure: a function of the text alone. Failure modes: ``TranscriptNotFound`` if
     no marked block exists or a marked fence is unclosed; ``AmbiguousTranscript``
-    if more than one marked block exists. Never returns "" for a missing block -
-    "" is returned only for a block that genuinely documents empty output.
+    if more than one marked block exists; ``TranscriptOptOut`` if the one marked
+    block carries the skip directive above its marker line - checked last, so a
+    README that is ambiguous *and* opted out is still reported as ambiguous
+    rather than quietly excused; ``ValueError`` for a malformed directive (no
+    closing ``-->``, or no reason). Never returns "" for a missing block - ""
+    is returned only for a block that genuinely documents empty output.
     """
     lines = readme_text.splitlines()
     bounds = _marked_block_bounds(lines, marker)
@@ -205,10 +319,17 @@ def extract_transcript(readme_text: str, *, marker: str = DEFAULT_MARKER) -> str
         raise AmbiguousTranscript(
             f"found {len(bounds)} blocks introduced by {marker!r} "
             f"(content starting at lines {starts}); refusing to guess which one "
-            f"is the reproducible transcript"
+            f"is the reproducible transcript",
+            count=len(bounds),
         )
 
     start, end = bounds[0]
+
+    # `start` is the first content line, so `start - 1` is the opening fence.
+    reason = _opt_out_reason(lines, start - 1)
+    if reason is not None:
+        raise TranscriptOptOut(reason)
+
     return "".join(line + "\n" for line in lines[start:end])
 
 
@@ -315,10 +436,11 @@ def check(
     genuine regression re-document itself as correct.
 
     Failure modes: ``ValueError`` if ``command`` is empty; ``TranscriptNotFound``
-    / ``AmbiguousTranscript`` from extraction; ``OSError`` (e.g. the README or
-    the command binary does not exist) and ``subprocess.TimeoutExpired``
-    propagate untouched - a check that could not run is not a finding about the
-    README, so it must not be dressed up as one.
+    / ``AmbiguousTranscript`` / ``TranscriptOptOut`` from extraction, all raised
+    before the command runs; ``OSError`` (e.g. the README or the command binary
+    does not exist) and ``subprocess.TimeoutExpired`` propagate untouched - a
+    check that could not run is not a finding about the README, so it must not
+    be dressed up as one.
     """
     if not command:
         raise ValueError("command must have at least one element")
@@ -373,7 +495,8 @@ def main(argv: Sequence[str]) -> int:
     """Check one README and return the exit code from the verdict table.
 
     Exit codes: 0 match, 1 drift, 2 unrunnable, 64 bad usage, 65 the README has
-    no single verifiable transcript, 70 the check itself could not run.
+    no single verifiable transcript (none, two, or one that opts out), 70 the
+    check itself could not run.
     """
     try:
         example_dir, command = parse_args(argv)
@@ -393,6 +516,12 @@ def main(argv: Sequence[str]) -> int:
 
     try:
         verdict = check(readme_path, command, example_dir)
+    except TranscriptOptOut as exc:
+        # Not a verdict and not a fault: the README said, in advance, that this
+        # block is not reproducible here. Exit 65 with the author's reason
+        # rather than 0, which would claim a check that never happened.
+        print(f"OPT-OUT  {subject}\n  {exc.reason}", file=sys.stderr)
+        return EXIT_INPUT_ERROR
     except (TranscriptNotFound, AmbiguousTranscript) as exc:
         print(f"UNVERIFIABLE  {subject}\n  {exc}", file=sys.stderr)
         return EXIT_INPUT_ERROR

@@ -176,7 +176,7 @@ Both are small; a builder can reasonably take them in one cycle.
   synthetic ones.
 
 ## Pipeline & repo hygiene
-- [ ] Teach the health check to run
+- [building] Teach the health check to run
   `examples/readme-transcript-check/check_transcript.py` over every example
   README instead of spot-checking transcripts by hand — the follow-up the
   2026-08-11 note deferred because a repo-wide sweep needs per-example venvs,
