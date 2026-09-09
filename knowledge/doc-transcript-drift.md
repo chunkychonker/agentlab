@@ -77,6 +77,46 @@ For a handful of uniform blocks in one repo, none of these is worth a dependency
 the whole comparison is extract-block + run + `==`. The interesting part is the
 verdict taxonomy above, which the off-the-shelf tools do not model.
 
+## Repo-wide sweep: extending the one-README checker (2026-09-09)
+
+`examples/readme-transcript-check/check_transcript.py` checks one README against
+one command. Turning it into a sweep over all of `examples/` needs three things,
+none of which is a change to the `Match`/`Drift`/`Unrunnable` core:
+
+- **Which command to run, without an LLM or per-example config.** The command
+  blocks in this repo's READMEs are non-uniform shell snippets (`python` vs
+  `python3`, inline `pip install`, inline `venv`). One rule extracts the target
+  from all of them: *the last whitespace-delimited `*.py` token in the fenced
+  block immediately preceding the marked "Expected output" block.* The sweep
+  supplies the **interpreter** itself (a scratch-venv `python` when the example
+  has `requirements.txt`, else `python3`) rather than honouring the README's
+  `pip`/`venv` lines.
+- **An opt-out for non-reproducible transcripts.** Some blocks are billed live
+  runs (`mcp-connect-claude-code`'s only documented transcript is one). Model
+  this explicitly, Go-style ("no `// Output:` comment ⇒ compiled but not run"):
+  an HTML-comment directive `<!-- transcript-check: skip — <reason> -->` on the
+  line above the marker, surfaced as a distinct `TranscriptOptOut(reason)` /
+  `OptOut` outcome. Additive — every README without it behaves as before.
+- **Nothing new to carry findings.** `.pipeline/health.sh` already lifts
+  `- FAIL  examples/<name>/ — ...` lines under `## Example results` into the
+  backlog. A drifted transcript fits the health agent's existing FAIL
+  definition; the only wiring is a one-bullet instruction in
+  `.claude/agents/agentlab-health.md` to run the sweep and emit DRIFT/UNRUNNABLE
+  in that shape. No change to `health.sh` / `backlog.sh` / `run.sh`.
+
+Measured ground truth 2026-09-09 (19 example READMEs): **14 checkable** (exactly
+one marked block), **4 with no marked block** (not a finding), **0 ambiguous**,
+**1 opt-out** (`mcp-connect-claude-code`, billed live). Only `minimal-agent-loop`
+and `typed-tool-registry` were ever verified deterministic — the sweep *is* the
+verification for the other twelve. Known wart to expect: `tool-error-policy`'s
+transcript ends `...passed in 0ms.`, a machine-dependent duration; if the sweep
+flags it, fix the transcript, not the comparator.
+
+The sweep's own self-test keeps the venv/subprocess shell out of the pure tests
+and adds one real run over the two stdlib-only examples (`minimal-agent-loop`,
+`readme-transcript-check` itself) — the same 9-fixture + 1-real shape as
+`check_transcript.py`. See `research/2026-09-09-transcript-check-sweep.md`.
+
 ## Related
 
 - [[tool-use-loop]] and [[typed-tool-registry]] — examples whose READMEs carry the

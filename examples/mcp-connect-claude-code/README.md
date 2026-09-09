@@ -51,6 +51,7 @@ Prerequisites: the `claude` CLI on `PATH`, and either `ANTHROPIC_API_KEY` set
 (runs in `--bare` mode) or an already-logged-in Claude Code session (see
 "Cost and prerequisites" below for why this matters).
 
+<!-- transcript-check: skip — billed live-API run, captured once during this build; see run_e2e.sh -->
 Expected output (verified during this build):
 
 ```
