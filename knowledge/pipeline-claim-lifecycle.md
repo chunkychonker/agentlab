@@ -3,7 +3,7 @@
 `BACKLOG.md` is the pipeline's work queue and its only mutual-exclusion
 mechanism. A researcher "claims" an item by editing `[ ]` → `[researching]`.
 This note records what actually happens to that claim as `.pipeline/run.sh`
-moves through a night, and the two points where the claim is silently lost.
+moves through a night, and the three points where the claim is silently lost.
 
 ## The intended state machine
 
@@ -90,6 +90,75 @@ no evidence that it works.
 **Generalization:** if a fallback path repairs the condition that a monitor
 checks, the monitor never fires and you learn nothing. Check for the *cause*, or
 run the monitor before the fallback can act.
+
+## Failure 3 — a shipped claim is never marked `[done #N]`
+
+The state machine above draws `[building] --…human/auto merges--> [done #N]`,
+but until 2026-09-10 **no pipeline step performed that rewrite**. The builder
+is the only phase that edits the claim (`[researching]` → `[building]`,
+`agentlab-builder.md`).
+The maintainer opens the PR and writes only `logs/last-pr.txt`. Auto-merge runs
+`gh pr merge --merge --delete-branch` and logs — it never touches `BACKLOG.md`.
+`reconcile_stranded_claims` scans only `cycle/*-unshipped-*` snapshot branches
+(failed cycles) and only rewrites `[ ]` → `[stranded …]`. So a **successful**
+cycle merged its own `- [building] <text>` line to `main` verbatim and it stayed
+`[building]` until a human edited it or the pipeline-observer re-filed it as a
+health finding.
+
+Observed: `[done #17]` carries *"backlog entry was stale"* (fixed 2026-08-09 by
+hand); PR #33 (2026-08-16), PR #37 and PR #38 (both 2026-09-02) and PR #41
+(2026-09-09) all merged and left their items `[building]`. Five occurrences,
+every one corrected by a hand-written `chore(backlog): mark ... done (#N)`
+commit on main afterwards — the repo has been running this reconciler manually
+all along.
+
+**Generalization (same as Failure 1):** a claim advanced by a *successful*
+cycle is exactly as unenforced as one released by a *failed* one — the state
+machine has arrows nothing walks.
+
+**Resolved 2026-09-10.** `run_cycle` now calls `reconcile_shipped_claim
+<pr_num>` on the line after `PR #N auto-merged`, before the caller's
+`snapshot_dirty_main`, so the mark lands on main ahead of the next cycle's
+researcher. Same split as the Failure 1 fix: the decision is
+`backlog_mark_done <path> <key> <pr_num>` in `backlog.sh` — literal key match,
+idempotent, distinct return codes (0 rewritten / 1 bad path or non-numeric PR
+number / 2 item not found / 3 already handled), no temp file left on any path
+— tested offline as C24–C32, while the git/gh plumbing stays in `run.sh` and
+always returns 0. See `research/2026-09-10-backlog-mark-done-reconcile.md`.
+
+**Recovering the shipped item's text: diff the merge commit, not the merge
+base.** The instinct is to reuse the Failure 1 recipe verbatim —
+`git diff $(git merge-base main $oid) $oid -- BACKLOG.md` with
+`$oid = gh pr view <n> --json headRefOid`. It silently yields an **empty diff**,
+and the research note proposed it before anyone ran it. The reason is that the
+two cases are not symmetric: a stranded branch is *not* an ancestor of main, so
+its merge base is a real fork point — but a merged PR's head commit **is** an
+ancestor of main, so `git merge-base main $oid` returns `$oid` itself and the
+diff is empty. Verified against PRs #37, #38 and #41 on 2026-09-10, all three of
+which return their own head SHA as the merge base.
+
+What works is asking for the change *the merge introduced to main*: the merge
+commit against its **first parent**, which is main as it stood immediately
+before the merge.
+
+```
+mc=$(gh pr view <n> --json mergeCommit -q .mergeCommit.oid)
+git diff "$mc^1" "$mc" -- BACKLOG.md      # contains '+- [building] <key>'
+```
+
+That also removes two fragilities the research note flagged as open questions:
+it does not depend on the head commit surviving `--delete-branch`, and it does
+not depend on the merge being a `--merge` at all — a squash merge has one
+parent and the same first-parent diff still describes what the PR added.
+
+**What it still does not cover.** A PR that auto-merge declined (conflict, or
+`mergeable=UNKNOWN`) and a human merged later never reaches this call site, so
+its item stays `[building]` until the observer re-files it. A periodic
+`gh pr list --state merged` sweep is the deferred follow-up. And exactly one PR
+could never be fixed by its own code: the one that introduced it, because
+`run_cycle` was already parsed into the running shell before the new call site
+existed on disk — that last one took the same hand-written mark-done commit as
+its four predecessors.
 
 ## The counting contract
 

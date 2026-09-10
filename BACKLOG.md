@@ -21,7 +21,7 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
   shell, tested offline by replaying a recorded event sequence — same
   inject-a-fake-client trick the loop example already uses, no key needed.
   Confirm the current event names against the `claude-api` skill first.
-- [building] Parallel specialist execution in the orchestrator. `examples/orchestrator-subagents/`
+- [done #37] Parallel specialist execution in the orchestrator. `examples/orchestrator-subagents/`
   runs its `run_specialist` calls strictly one after another and its README names
   concurrent fan-out the "natural next increment". Increment: dispatch the
   independent subtasks of a `Plan` at once (`concurrent.futures.ThreadPoolExecutor`,
@@ -33,7 +33,7 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
   which finished first. No key for the test. Worth a README note on the
   `[[prompt-caching]]` cache-killer that parallel calls sharing a prefix each pay
   the full cache write.
-- [building] `thinking` blocks in the streaming accumulator. `examples/streaming-tool-loop/`
+- [done #38] `thinking` blocks in the streaming accumulator. `examples/streaming-tool-loop/`
   lists them as explicitly out of scope: `accumulate()` raises on a
   `content_block_start` for a `thinking` block instead of assembling it. But a
   tool loop with extended thinking on must echo those blocks back verbatim,
@@ -176,7 +176,7 @@ Both are small; a builder can reasonably take them in one cycle.
   synthetic ones.
 
 ## Pipeline & repo hygiene
-- [building] Teach the health check to run
+- [done #41] Teach the health check to run
   `examples/readme-transcript-check/check_transcript.py` over every example
   README instead of spot-checking transcripts by hand — the follow-up the
   2026-08-11 note deferred because a repo-wide sweep needs per-example venvs,
@@ -214,7 +214,7 @@ Full detail is in the dated `logs/lab-health-*.log` for that date.
 - [ ] fix (health 2026-09-02): run-2026-09-01_134705 — shipped 0/2. Cycle 1 clean VERDICT: FAIL (no increment: researcher killed by the 600s ceiling, builder correctly refused to build). Cycle 2 verdict MISSING (same 600s researcher kill; review phase wro...
 - [ ] fix (health 2026-09-02): "Background tasks still running after 600s; terminating. Set CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 to wait indefinitely." — 2 nights: 2026-08-29 (cycle 2 research) and 2026-09-01 (cycle 1 research, cycle 2 research, and the pipeline-observer phase — 3 occurrences that night). Direct cause of run-2026-09-01 shipping 0/2 a...
 - [ ] fix (health 2026-09-02): (none)
-- [ ] fix (health 2026-09-02): BACKLOG.md:24 "Parallel specialist execution in the orchestrator" marked [building], shipped in PR #37 (merged 2026-09-02, branch cycle/2026-09-02-parallel-specialist-execution) — never advanced to [done #37]. Both maintain/auto-merge and the post-loop reconcile for that cycle have already run, so no remaining pipeline step will correct it.
-- [ ] fix (health 2026-09-02): BACKLOG.md:36 "thinking blocks in the streaming accumulator" marked [building], shipped in PR #38 (merged 2026-09-02, branch cycle/2026-09-02-streaming-thinking-accumulator) — never advanced to [done #38]. Same as PR #37: both of tonight's cycles shipped without a mark-done, the 2026-08-16 PR #33 failure mode recurring on both cycles.
+- [building] fix (health 2026-09-02): BACKLOG.md:24 "Parallel specialist execution in the orchestrator" marked [building], shipped in PR #37 (merged 2026-09-02, branch cycle/2026-09-02-parallel-specialist-execution) — never advanced to [done #37]. Both maintain/auto-merge and the post-loop reconcile for that cycle have already run, so no remaining pipeline step will correct it. (researcher 2026-09-10: one increment resolves this and the PR #38 line below — see research/2026-09-10-backlog-mark-done-reconcile.md)
+- [ ] fix (health 2026-09-02): BACKLOG.md:36 "thinking blocks in the streaming accumulator" marked [building], shipped in PR #38 (merged 2026-09-02, branch cycle/2026-09-02-streaming-thinking-accumulator) — never advanced to [done #38]. Same as PR #37: both of tonight's cycles shipped without a mark-done, the 2026-08-16 PR #33 failure mode recurring on both cycles. (builder 2026-09-10: subject resolved by the increment claimed above — BACKLOG.md:36 now reads [done #38] and `reconcile_shipped_claim` makes the transition automatic. Left unclaimed rather than pre-marked with a PR number that does not exist yet; close it on sight.)
 - [ ] fix (health 2026-09-02): no run log for 2026-08-17 through 2026-08-28 — 12 consecutive scheduled nights with no logs/run-*.log present. logs/pause-resume.log records a manual pause/resume dated 2026-08-18/19; whether the nightly job ran on any of these dates cannot be det...
 - [ ] fix (health 2026-09-02): .pipeline/strays/2026-08-31-manual/ — 1 file (HANDOFF-2026-08-31.md, ~15 KB), ~2 days old (dir mtime 2026-08-31 03:43). Hand-named, not preflight's bare-timestamp format, so parked here manually; nothing ever revisits .pipeline/strays/.

@@ -130,13 +130,19 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
 
 ## Repo hygiene & self-verification
 - [[pipeline-claim-lifecycle]] — how a `BACKLOG.md` claim moves through a night
-  and the two places it is silently lost: a failed cycle's `snapshot_dirty_main`
-  + `reset_to_clean_main` releases the claim with no PR for `gh pr list` to
-  find, and the replenishment gate is satisfied by the researcher's own
-  empty-backlog fallback (so it has never once fired). Plus the literal
-  `^- \[ \]` counting contract, now consolidated to a single executable copy
-  at `.pipeline/backlog.sh:39`, and why the surrounding `|| true` is
-  load-bearing
+  and the *three* places it is silently lost: a failed cycle's
+  `snapshot_dirty_main` + `reset_to_clean_main` releases the claim with no PR
+  for `gh pr list` to find (fixed by `reconcile_stranded_claims`); the
+  replenishment gate is satisfied by the researcher's own empty-backlog
+  fallback (so it has never once fired); and a *successful* cycle never
+  rewrote its own `[building]` line to `[done #N]`, so a shipped item read as
+  in-progress until a human caught it — five times, most recently PR #41
+  (fixed 2026-09-10 by `reconcile_shipped_claim` + `backlog_mark_done`, the
+  mirror of the stranded-claim fix, including why `git merge-base` cannot
+  recover a *merged* PR's claim the way it recovers a stranded branch's).
+  Plus the literal `^- \[ \]` counting contract, now consolidated to a single
+  executable copy at `.pipeline/backlog.sh:39`, and why the surrounding
+  `|| true` is load-bearing
 - [[doc-transcript-drift]] — READMEs that paste program output rot silently;
   why diff-scoped nightly review structurally cannot catch an invariant
   spanning two files that are never edited together, the MATCH / DRIFT /

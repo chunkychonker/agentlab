@@ -49,7 +49,13 @@ is how the state actually flows:
 5. **Auto-merge** (`run.sh`, deterministic bash — not a subagent) — asks GitHub
    whether the PR is a clean, conflict-free merge (`gh pr view --json mergeable`)
    and merges only if so. A real conflict, or GitHub still computing the answer
-   after a few retries, leaves the PR open instead.
+   after a few retries, leaves the PR open instead. On a merge it then closes
+   the claim's last arrow: `reconcile_shipped_claim` reads the item out of the
+   merge commit's diff and rewrites `- [building] …` to `- [done #N] …` on main
+   (`backlog_mark_done`), so a shipped increment stops reading as in-progress
+   before the next cycle's researcher opens `BACKLOG.md`. Until 2026-09-10
+   nothing did this and it was corrected by hand — see
+   `knowledge/pipeline-claim-lifecycle.md`.
 6. **Health check** (`agentlab-health`) — a separate concern from the cycle
    above: it re-verifies the *whole accumulated portfolio*, not tonight's diff.
    Every example's self-test still passes in a fresh env, every `knowledge/`
