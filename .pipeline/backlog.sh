@@ -215,6 +215,102 @@ backlog_apply_stranded () {
   return 0
 }
 
+# --- Shipped claims --------------------------------------------------------
+#
+# The mirror image of the stranded-claim problem above. When a cycle SUCCEEDS,
+# its '- [building] <text>' line merges to main verbatim and nothing ever
+# rewrites it: the builder is the only phase that edits a claim, the maintainer
+# only opens the PR, and auto-merge only calls `gh pr merge`. So a shipped item
+# reads as in-progress forever — observed on PRs #33, #37, #38 and #41, every
+# one corrected by hand afterwards. See knowledge/pipeline-claim-lifecycle.md
+# (failure 3).
+#
+# Same split as the stranded fix: the decision lives here and is unit-tested
+# offline; run.sh's reconcile_shipped_claim does the git/gh plumbing.
+
+# The marker a shipped item carries, minus the PR number. Named once: run.sh
+# logs it, the self-test builds its expectations from it, and neither restates
+# the literal.
+BACKLOG_DONE_MARKER_PREFIX="done #"
+
+# Rewrite the item whose text is <key> in <path> from '- [building] <key>' to
+# '- [<done marker><pr_num>] <key>'.
+#
+# A reconciler, not a one-shot: it decides from the file's current contents, so
+# calling it twice changes nothing the second time. It rewrites <path> in place
+# only when there is exactly one line to change, so a no-op leaves the file's
+# mtime alone and `git status` stays clean. <pr_num> is digits only — the '#'
+# belongs to the marker, not to the argument.
+#
+# Matching is literal, for the reason backlog_claim_key documents: item text
+# carries backticks, parentheses and brackets, so the '[ = ]' comparison and the
+# quoted case pattern below are load-bearing. An unquoted pattern would read the
+# key's own brackets as a character class and silently fail to match.
+#
+# Failure modes (distinct codes — run.sh logs them differently, and "already
+# done" must never be reported as "could not find"):
+#   0  rewritten: the item read '- [building] <key>' and now reads done
+#   1  <path> is not a readable, writable regular file, or <pr_num> is not
+#      digits, or the rewrite failed. No temp file is left behind on any path.
+#   2  no line in <path> reads '- [building] <key>' and none carries that item
+#      text at all — the item was reworded or removed since the PR was cut; a
+#      human has to look
+#   3  nothing to do: a line carrying that item text already exists under some
+#      other marker ('[done #M]' from an earlier pass, '[stranded <branch>]',
+#      '[researching]', or a bare '[ ]')
+backlog_mark_done () {
+  local path="$1" key="$2" pr_num="$3"
+  if [ ! -f "$path" ] || [ ! -r "$path" ] || [ ! -w "$path" ]; then
+    echo "backlog_mark_done: '$path' is not a readable, writable file" >&2
+    return 1
+  fi
+  # Validated here, once, at this function's boundary: everything below builds a
+  # marker string out of it, and a non-numeric value would write a '[done #abc]'
+  # that no reader — human, health check or grep — can resolve to a PR.
+  case "$pr_num" in
+    ''|*[!0-9]*)
+      echo "backlog_mark_done: '$pr_num' is not a PR number (digits only, no '#')" >&2
+      return 1
+      ;;
+  esac
+
+  local tmp line changed=0 seen=0
+  tmp="$path.markdone.$$"
+  : > "$tmp" || return 1
+
+  # `|| [ -n "$line" ]` so a final line with no trailing newline is not dropped.
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ "$line" = "- [building] $key" ]; then
+      seen=1; changed=1
+      printf '%s\n' "- [$BACKLOG_DONE_MARKER_PREFIX$pr_num] $key" >> "$tmp"
+      continue
+    fi
+    # Any other marker carrying the same item text: already marked done by an
+    # earlier pass, stranded, claimed, or released back to the queue. All of
+    # them mean "leave it alone", and all are matched by suffix so no marker's
+    # spelling is hard-coded here beyond the '- [' the format guarantees.
+    case "$line" in
+      "- ["*"] $key")
+        seen=1
+        printf '%s\n' "$line" >> "$tmp"
+        continue
+        ;;
+    esac
+    printf '%s\n' "$line" >> "$tmp"
+  done < "$path"
+
+  if [ "$seen" -eq 0 ]; then
+    rm -f "$tmp"
+    return 2
+  fi
+  if [ "$changed" -eq 0 ]; then
+    rm -f "$tmp"
+    return 3
+  fi
+  mv "$tmp" "$path" || { rm -f "$tmp"; return 1; }
+  return 0
+}
+
 # --- Health findings -------------------------------------------------------
 #
 # The health check reports portfolio rot and is forbidden from fixing it

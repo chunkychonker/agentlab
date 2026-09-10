@@ -1,5 +1,5 @@
 #!/bin/bash
-# Offline self-test for .pipeline/backlog.sh and the two call sites it has in
+# Offline self-test for .pipeline/backlog.sh and the call sites it has in
 # .pipeline/run.sh. No network, no ANTHROPIC_API_KEY, no git, no `claude` — all
 # it touches is a throwaway temp dir plus read-only greps of run.sh.
 #
@@ -9,8 +9,11 @@
 #   bash .pipeline/test_backlog.sh
 #
 # One line per case; exits 0 iff every case passes — same shape as
-# eval/run_reviewer_eval.sh. Case ids (C1..C14, INV1) are the acceptance
-# criteria in research/2026-08-12-backlog-replenish-ordering.md.
+# eval/run_reviewer_eval.sh. Case ids are acceptance criteria, in the order the
+# suite grew: C1..C14 and INV1 from
+# research/2026-08-12-backlog-replenish-ordering.md, C15..C23 from the
+# 2026-08-13 stranded-claim fix (PR #28), C24..C32 from
+# research/2026-09-10-backlog-mark-done-reconcile.md.
 #
 # bash 3.2 only, like everything else in .pipeline/ — see
 # knowledge/bash-3.2-testable-scripts.md.
@@ -403,6 +406,187 @@ elif [ "$recon_pre" -lt "$stock_pre" ] && [ "$recon_loop" -gt "$stock_pre" ]; th
 else
   fail "C23" "reconcile is mis-ordered: pre=$recon_pre, stock=$stock_pre, in-loop=$recon_loop"
 fi
+
+# --- Shipped claims (C24-C32) ----------------------------------------------
+#
+# Acceptance criteria for the 2026-09-10 mark-done fix: the mirror of the
+# stranded-claim cases above, for a cycle that SUCCEEDS. Nothing in the pipeline
+# used to rewrite '- [building] <text>' to '- [done #N] <text>' after a PR
+# merged, so shipped items read as in-progress for weeks (PRs #33, #37, #38,
+# #41). See research/2026-09-10-backlog-mark-done-reconcile.md.
+
+SHIPPED_PR="123"
+SHIPPED_KEY='Parallel specialist execution in the orchestrator.'
+# The real BACKLOG.md shape, kept for C29: backticks, parentheses, brackets and
+# a colon. A key matched by anything other than a literal comparison — a glob,
+# a regex, a sed expression — misfires on this one, because '[building]' inside
+# a pattern is a character class and '(' and '`' are metacharacters elsewhere.
+SHIPPED_KEY_UGLY='`thinking` blocks (streaming): assemble `input_json_delta` [not prose]'
+
+write_shipped_fixture () {   # <path> <marker> <key> — one marked item plus decoys
+  {
+    echo "# BACKLOG"
+    echo ""
+    echo "## Coding agents"
+    echo "- [done #32] Streaming the hand-written tool loop"
+    echo "- $2 $3"
+    echo "  a continuation line belonging to the item above, carrying no marker"
+    echo "- [ ] an unrelated unclaimed item"
+    echo "- [researching] a different cycle's claim"
+  } > "$1"
+}
+
+# --- C24: a shipped claim is advanced, and only that line changes ----------
+
+SHIPPED="$WORK/shipped.md"
+write_shipped_fixture "$SHIPPED" "[building]" "$SHIPPED_KEY"
+cp "$SHIPPED" "$WORK/shipped.before"
+backlog_mark_done "$SHIPPED" "$SHIPPED_KEY" "$SHIPPED_PR"
+c24_rc=$?
+assert_eq "C24a" "0" "$c24_rc" "marking a shipped claim done returns 0"
+assert_eq "C24b" "- [$BACKLOG_DONE_MARKER_PREFIX$SHIPPED_PR] $SHIPPED_KEY" \
+  "$(grep -F -- "$SHIPPED_KEY" "$SHIPPED")" \
+  "the [building] line now carries the done marker and the PR number"
+c24_edits="$(diff "$WORK/shipped.before" "$SHIPPED" | grep -c '^[<>]' || true)"
+assert_eq "C24c" "2" "$c24_edits" \
+  "exactly one line was rewritten; every other line is byte-identical"
+
+# --- C25: idempotent — a second pass changes nothing -----------------------
+# Fed its own output back, which is what a re-run of the same PR does.
+
+cp "$SHIPPED" "$WORK/shipped.done"
+backlog_mark_done "$SHIPPED" "$SHIPPED_KEY" "$SHIPPED_PR"
+c25_rc=$?
+if [ "$c25_rc" == "3" ] && diff -q "$WORK/shipped.done" "$SHIPPED" >/dev/null; then
+  pass "C25" "a second mark-done pass returns 3 and leaves the file byte-identical"
+else
+  fail "C25" "second pass rc=$c25_rc (want 3) or the file changed"
+fi
+
+# --- C26: an item that is not there is reported, not invented --------------
+
+SHIPPED_MISSING="$WORK/shipped-missing.md"
+write_shipped_fixture "$SHIPPED_MISSING" "[building]" "$SHIPPED_KEY"
+cp "$SHIPPED_MISSING" "$WORK/shipped-missing.before"
+backlog_mark_done "$SHIPPED_MISSING" "an item nobody ever wrote" "$SHIPPED_PR"
+c26_rc=$?
+if [ "$c26_rc" == "2" ] && diff -q "$WORK/shipped-missing.before" "$SHIPPED_MISSING" >/dev/null; then
+  pass "C26" "an unmatched key returns 2 and leaves the file untouched"
+else
+  fail "C26" "unmatched key rc=$c26_rc (want 2) or the file changed"
+fi
+
+# --- C27: an item already marked done is not re-marked or renumbered -------
+# The reconciler must never turn '[done #99]' into '[done #123]': the first
+# number is the PR that actually shipped the work.
+
+ALREADY="$WORK/already-done.md"
+write_shipped_fixture "$ALREADY" "[${BACKLOG_DONE_MARKER_PREFIX}99]" "$SHIPPED_KEY"
+cp "$ALREADY" "$WORK/already-done.before"
+backlog_mark_done "$ALREADY" "$SHIPPED_KEY" "$SHIPPED_PR"
+c27_rc=$?
+if [ "$c27_rc" == "3" ] && diff -q "$WORK/already-done.before" "$ALREADY" >/dev/null; then
+  pass "C27" "an item already marked [${BACKLOG_DONE_MARKER_PREFIX}99] returns 3, keeps its own PR number"
+else
+  fail "C27" "already-done rc=$c27_rc (want 3) or the file changed"
+fi
+
+# --- C28: a non-numeric PR number is refused at the boundary ---------------
+# '[done #abc]' resolves to no PR for any reader — human, grep or health check —
+# so it is rejected before a single byte is written.
+
+BADNUM="$WORK/bad-prnum.md"
+write_shipped_fixture "$BADNUM" "[building]" "$SHIPPED_KEY"
+cp "$BADNUM" "$WORK/bad-prnum.before"
+backlog_mark_done "$BADNUM" "$SHIPPED_KEY" "abc" 2>/dev/null
+c28_rc=$?
+if [ "$c28_rc" == "1" ] && diff -q "$WORK/bad-prnum.before" "$BADNUM" >/dev/null; then
+  pass "C28" "a non-numeric PR number returns 1 and leaves the file untouched"
+else
+  fail "C28" "bad PR number rc=$c28_rc (want 1) or the file changed"
+fi
+
+# --- C29: real item text is matched literally ------------------------------
+
+UGLY="$WORK/ugly-key.md"
+write_shipped_fixture "$UGLY" "[building]" "$SHIPPED_KEY_UGLY"
+backlog_mark_done "$UGLY" "$SHIPPED_KEY_UGLY" "$SHIPPED_PR"
+c29_rc=$?
+assert_eq "C29" "0|- [$BACKLOG_DONE_MARKER_PREFIX$SHIPPED_PR] $SHIPPED_KEY_UGLY" \
+  "$c29_rc|$(grep -F -- "$SHIPPED_KEY_UGLY" "$UGLY")" \
+  "an item text carrying backticks, parens and brackets is matched literally"
+
+# --- C30: an unwritable backlog fails loudly, leaving no temp file ---------
+# Root bypasses permission bits, so this only means anything as a normal user
+# (same caveat as C11b).
+
+if [ "$(id -u)" -ne 0 ]; then
+  LOCKED="$WORK/locked.md"
+  write_shipped_fixture "$LOCKED" "[building]" "$SHIPPED_KEY"
+  chmod 000 "$LOCKED"
+  backlog_mark_done "$LOCKED" "$SHIPPED_KEY" "$SHIPPED_PR" 2>/dev/null
+  c30_rc=$?
+  chmod 644 "$LOCKED"
+  c30_leftovers="$(ls "$WORK" | grep -c 'markdone\.' || true)"
+  assert_eq "C30" "1|0" "$c30_rc|$c30_leftovers" \
+    "a chmod-000 backlog returns 1 and leaves no .markdone temp file behind"
+else
+  echo "SKIP  C30: running as root, permission bits are unenforceable"
+fi
+
+# --- C31: mark-done is wired into run.sh, in the successful-merge tail -----
+# Same brittleness caveat as C12 and C23, and the same justification: placement
+# IS the fix. Called before the caller's snapshot_dirty_main, the mark lands on
+# main ahead of the next cycle's researcher; called after, it would race the
+# snapshot/reset that returns the tree to a clean main.
+#
+# INTEGRATION, documented but NOT run — this suite has no network, no gh and no
+# git. The end-to-end path is: fixture BACKLOG.md carrying '- [building] X'; a
+# fake `gh` early on PATH answering `pr view <n> --json mergeCommit` with a real
+# local merge commit's SHA; run reconcile_shipped_claim <n>. Expected: the line
+# reads '- [done #<n>] X' and one commit lands on main. Run it a second time:
+# backlog_mark_done returns 3, the log says "already marked done", nothing is
+# committed and nothing is pushed. The pieces that decide anything in that path
+# are C24-C30 above; what is untested here is only the git/gh plumbing.
+#
+# That plumbing was walked by hand once, 2026-09-10, against the real merged
+# PR #41: `gh pr view 41 --json mergeCommit` -> `git diff <mc>^1 <mc> --
+# BACKLOG.md` -> backlog_claimed_line -> backlog_claim_key recovered the key
+# 'Teach the health check to run', and backlog_mark_done marked it on a scratch
+# copy (rc 0, then rc 3 on a re-run). That is also where the merge-base recipe
+# the research note proposed was found to return an empty diff — see
+# knowledge/pipeline-claim-lifecycle.md.
+
+shipped_def="$(grep -n '^reconcile_shipped_claim () {' "$RUN_SH" | head -1 | cut -d: -f1)"
+shipped_merged="$(grep -n 'auto-merged (clean, no conflicts)' "$RUN_SH" | head -1 | cut -d: -f1)"
+shipped_call="$(grep -n '^  reconcile_shipped_claim "\$pr_num"' "$RUN_SH" | head -1 | cut -d: -f1)"
+shipped_snap="$(grep -n '^  snapshot_dirty_main "cycle \$k of \$TS"' "$RUN_SH" | head -1 | cut -d: -f1)"
+
+if [ -z "$shipped_def" ] || [ -z "$shipped_merged" ] || [ -z "$shipped_call" ] || [ -z "$shipped_snap" ]; then
+  fail "C31" "run.sh is missing the definition, the merge log line, the call, or the snapshot call (def=${shipped_def:-none}, merged=${shipped_merged:-none}, call=${shipped_call:-none}, snap=${shipped_snap:-none})"
+elif [ "$shipped_call" -gt "$shipped_merged" ] && [ "$shipped_call" -lt "$shipped_snap" ]; then
+  pass "C31" "run.sh marks the claim done after the merge (line $shipped_call > $shipped_merged) and before snapshot_dirty_main (line $shipped_snap)"
+else
+  fail "C31" "the mark-done call is mis-ordered: merged=$shipped_merged, call=$shipped_call, snapshot=$shipped_snap"
+fi
+
+# --- C32: the parse gate, and the done marker's on-disk spelling -----------
+# The bash -n half repeats C13 by design — the acceptance criteria name it, and
+# it is the gate that catches a syntax error in the two files this increment
+# edited. The second half is the ONE place in this suite that restates the
+# '[done #N]' literal: every case above builds its expectation from
+# $BACKLOG_DONE_MARKER_PREFIX, so this assertion is what pins the marker's
+# actual spelling — the format PIPELINE.md, the health check and every human
+# reader depend on. Without it the whole section would agree with itself while
+# writing '[shipped 123]'.
+
+c32_syntax=""
+for f in "$RUN_SH" "$LIB" "$SELF"; do
+  /bin/bash -n "$f" 2>/dev/null || c32_syntax="$c32_syntax $(basename "$f")"
+done
+assert_eq "C32a" "" "$c32_syntax" "bash -n is clean on run.sh, backlog.sh and this test"
+assert_eq "C32b" "done #" "$BACKLOG_DONE_MARKER_PREFIX" \
+  "the done marker is spelled '- [done #N] ', the format the rest of the repo reads"
 
 # --- Summary ---------------------------------------------------------------
 

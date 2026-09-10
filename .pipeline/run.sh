@@ -279,6 +279,87 @@ snapshot_dirty_main () {
   fi
 }
 
+# Advance this cycle's claim from '[building]' to '[done #<pr_num>]' on main now
+# that its PR has merged. git/gh plumbing only — the decision is
+# backlog_mark_done in backlog.sh, where it is unit-tested offline (C24-C30).
+#
+# Always returns 0. A gh/git/network failure, a merge whose diff carries no
+# claim, or any backlog_mark_done code other than 0 is logged loudly and the
+# night continues — the same posture as reconcile_stranded_claims. The cost of
+# giving up here is one item reading '[building]' for another day, which the
+# pipeline observer already reports; losing the remaining cycles would be worse.
+# Any edit left uncommitted is rescued by the caller's snapshot_dirty_main.
+#
+# It starts by returning to a clean, up-to-date main: it runs while HEAD is
+# still wherever the maintain phase and `gh pr merge --delete-branch` left it,
+# and the merge commit it has to read was made server-side and is not in this
+# clone yet.
+#
+# HOW THE CLAIM IS RECOVERED. The PR's own change to BACKLOG.md is the diff of
+# its merge commit against that commit's FIRST parent — main as it stood just
+# before the merge. `git merge-base main <headRefOid>`, the shape
+# reconcile_stranded_claims uses and the shape this increment's research note
+# proposed, does NOT work once the PR is merged: the head commit is then an
+# ANCESTOR of main, so merge-base returns that same commit and the diff is
+# empty (verified against the merged PRs #37, #38 and #41 on 2026-09-10).
+# Diffing against the first parent also survives a squash merge, where no head
+# commit is reachable from main at all.
+reconcile_shipped_claim () {
+  local pr_num="$1"
+  local merge_commit diff claimed key rc
+
+  echo "" | tee -a "$LOG"
+  echo "--- phase: reconcile shipped claim (PR #$pr_num) ---" | tee -a "$LOG"
+
+  if ! reset_to_clean_main; then
+    echo "  PR #$pr_num: cannot reach a clean, up-to-date main — item left [building]." | tee -a "$LOG"
+    return 0
+  fi
+
+  merge_commit="$(gh pr view "$pr_num" --json mergeCommit -q .mergeCommit.oid 2>>"$LOG")"
+  if [ -z "$merge_commit" ]; then
+    echo "  PR #$pr_num: gh reports no merge commit — item left [building] for a human." | tee -a "$LOG"
+    return 0
+  fi
+  if ! git cat-file -e "$merge_commit^{commit}" 2>>"$LOG"; then
+    echo "  PR #$pr_num: merge commit $merge_commit is not in this clone — item left [building] for a human." | tee -a "$LOG"
+    return 0
+  fi
+  if ! diff="$(git diff "$merge_commit^1" "$merge_commit" -- "$BACKLOG_FILE" 2>>"$LOG")"; then
+    echo "  PR #$pr_num: cannot diff $BACKLOG_FILE across the merge — item left [building]." | tee -a "$LOG"
+    return 0
+  fi
+  if ! claimed="$(backlog_claimed_line "$diff")"; then
+    echo "  PR #$pr_num: its merge carries no backlog claim — nothing to mark done." | tee -a "$LOG"
+    return 0
+  fi
+  if ! key="$(backlog_claim_key "$claimed")"; then
+    echo "  PR #$pr_num: claim line carries no recognised marker — item left [building]." | tee -a "$LOG"
+    return 0
+  fi
+
+  backlog_mark_done "$BACKLOG_FILE" "$key" "$pr_num"
+  rc=$?
+  case "$rc" in
+    0) echo "  PR #$pr_num: item marked [$BACKLOG_DONE_MARKER_PREFIX$pr_num]." | tee -a "$LOG" ;;
+    2) echo "  PR #$pr_num: its item is no longer in $BACKLOG_FILE (reworded or removed) — a human needs to look." | tee -a "$LOG"
+       return 0 ;;
+    3) echo "  PR #$pr_num: item already marked done, stranded or re-claimed — left alone." | tee -a "$LOG"
+       return 0 ;;
+    *) echo "  PR #$pr_num: cannot rewrite $BACKLOG_FILE — item left [building]." | tee -a "$LOG"
+       return 0 ;;
+  esac
+
+  if git add "$BACKLOG_FILE" >>"$LOG" 2>&1 \
+    && git commit -m "chore(backlog): mark shipped claim done (#$pr_num)" >>"$LOG" 2>&1 \
+    && git push origin main >>"$LOG" 2>&1; then
+    echo "  mark-done committed and pushed to main." | tee -a "$LOG"
+  else
+    echo "  mark-done commit/push failed — see $LOG; the postflight snapshot will rescue the edit." | tee -a "$LOG"
+  fi
+  return 0
+}
+
 # One full increment: research -> build -> review -> maintain -> auto-merge.
 # Returns non-zero if the increment did not ship; the caller continues to the
 # next cycle regardless, so one bad increment costs one slot, not the night.
@@ -349,6 +430,10 @@ run_cycle () {
     return 1
   fi
   echo "PR #$pr_num auto-merged (clean, no conflicts)." | tee -a "$LOG"
+  # The shipped half of the claim lifecycle: nothing else in the pipeline ever
+  # rewrites '[building]' to '[done #N]'. Here, not after the loop, so the mark
+  # lands on main before the next cycle's researcher reads BACKLOG.md.
+  reconcile_shipped_claim "$pr_num"
   return 0
 }
 
