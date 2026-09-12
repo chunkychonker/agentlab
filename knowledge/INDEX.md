@@ -70,9 +70,17 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
 ## MCP
 - [[mcp-python-sdk]] — v2 `MCPServer`/`Client` API (v1's `FastMCP` import is
   gone), stdio-as-default-transport, the stdout-is-the-wire gotcha, in-memory
-  `Client` testing, the tool-error-vs-protocol-error failure model, and
+  `Client` testing, the tool-error-vs-protocol-error failure model,
   `async def` tools + injecting `httpx.MockTransport` to test I/O-doing
-  tools offline
+  tools offline, and a 2026-09-12 version-drift note (2.0.0 → 2.2.0,
+  `httpx2` now the SDK's internal HTTP client)
+- [[mcp-streamable-http]] — the second transport, wire-level: proving session
+  ID issuance / response framing / DNS-rebinding host validation by mounting
+  `MCPServer.streamable_http_app()`'s ASGI app on `httpx2.ASGITransport` —
+  no socket, no live network; the `session_manager.run()`-must-be-entered-
+  manually gotcha and the host-header-needs-a-port DNS-rebinding footgun;
+  plus the 2026-07-28 "modern" protocol era's per-request version negotiation
+  and stream-close-is-cancellation semantics
 - [[hn-algolia-api]] — live-verified endpoint/param/response reference for
   the Hacker News Algolia Search API, and its real gotcha: error bodies are
   sometimes HTML not JSON
@@ -116,7 +124,11 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   to the server object, no subprocess/host needed (see [[mcp-python-sdk]]);
   for tools that do real outbound HTTP, that's only enough to test
   registration/schema — test the I/O-doing function itself by injecting an
-  `httpx.MockTransport`-backed client (see [[mcp-python-sdk]], [[hn-algolia-api]])
+  `httpx.MockTransport`-backed client (see [[mcp-python-sdk]], [[hn-algolia-api]]);
+  for the Streamable HTTP transport specifically, the in-memory `Client`
+  skips the wire entirely — mount the server's own ASGI app on
+  `httpx2.ASGITransport` instead to prove session IDs/framing/security
+  without a socket (see [[mcp-streamable-http]])
 - Testing an MCP server against the *real* Claude Code host (not the SDK
   client): the in-memory `Client` above can't prove this — it needs a real,
   billed `claude` CLI invocation with `--mcp-config`/`--strict-mcp-config`/

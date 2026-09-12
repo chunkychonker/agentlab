@@ -100,6 +100,16 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
   what actually happened, the docs-vs-reality discipline
   `knowledge/claude-code-mcp-connection.md` already applied. Costs one small
   billed run; state that in the README like `examples/mcp-connect-claude-code/` does.
+- [researching] MCP's other transport: Streamable HTTP, not stdio. Every MCP example
+  in the lab so far (`mcp-hello-world`, and the two stranded `mcp-prompts` /
+  `mcp-resources-claude-code` items above) either uses stdio or bypasses the wire
+  entirely via the SDK's in-memory `Client`; `mcp-hello-world/README.md` names
+  "HTTP transports (streamable-http, sse)" explicitly out of scope. Increment: a
+  server exposed over Streamable HTTP instead, proven at the actual wire level —
+  session-ID issuance, JSON vs SSE response framing, the DNS-rebinding
+  Host-header check — via `httpx2.ASGITransport` wired directly to
+  `MCPServer.streamable_http_app()`, no real socket, no live network, no key.
+  See `research/2026-09-12-mcp-streamable-http.md`.
 
 ## Coding agents (deferred, was next before Skills/MCP got prioritized 2026-07-29)
 - [done #23] Tool-use error handling and retries done well

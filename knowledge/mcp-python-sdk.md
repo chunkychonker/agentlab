@@ -155,6 +155,31 @@ Sources: [python-sdk README](https://github.com/modelcontextprotocol/python-sdk/
 
 Research note: [2026-08-05-mcp-stdio-hello-world](../research/2026-08-05-mcp-stdio-hello-world.md).
 
+## Version drift since the above was written (checked 2026-09-12)
+
+`pip install mcp` with no pin now installs **2.2.0**, not the 2.0.0 this note
+was written against. Confirmed by installing into a scratch venv and reading
+`pip show mcp`'s `Requires:` line directly: `anyio, httpx2, jsonschema,
+mcp-types, opentelemetry-api, pydantic, pyjwt, python-multipart,
+sse-starlette, starlette, typing-extensions, typing-inspection, uvicorn`.
+Two things worth flagging before they surprise someone:
+
+- **`httpx2`, not `httpx`, is the SDK's own internal HTTP client** (a real,
+  separate PyPI package — ["the next generation HTTP client"](https://pypi.org/project/httpx2/)).
+  This only matters for the transport internals; a tool's own I/O code is
+  still free to use plain `httpx` as documented above.
+- **`mcp-types`** is now a standalone package (wire types split out of `mcp`
+  itself) — importable as `mcp_types`, e.g. `mcp_types.version` for protocol
+  version constants.
+
+Everything else on this page (import paths, `is_error` shape, stdio stdout
+gotcha, capabilities-always-declared) was not re-verified against 2.2.0 in
+this pass — re-check before trusting on a version bump this size, per the
+page's own standing advice.
+
+For everything Streamable-HTTP-specific (the second transport this page
+never covered), see [[mcp-streamable-http]].
+
 Related: [[agent-skills]] (progressive disclosure is a similar "declare
 metadata, load body/resources on demand" shape to MCP's tools/resources/prompts
 split), [[tool-use-loop]] (the hand-written Anthropic tool-use loop this
@@ -165,4 +190,6 @@ above tests the server object via the SDK's in-memory `Client` — for
 connecting the same server to the real Claude Code host and proving it gets
 called end-to-end, see that note instead), [[mcp-resources]] (this note
 covers tools only — resources are a separate primitive with the opposite
-failure shape: they raise on the client instead of returning `is_error=True`).
+failure shape: they raise on the client instead of returning `is_error=True`),
+[[mcp-streamable-http]] (the second transport: proving the wire itself,
+in-process, via ASGI — not just the tool contract via the in-memory `Client`).
