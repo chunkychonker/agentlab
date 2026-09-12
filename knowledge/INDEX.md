@@ -153,3 +153,12 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   block" command rule, the `<!-- transcript-check: skip -->` opt-out directive
   for billed live transcripts, and how a DRIFT reaches the backlog through
   `health.sh`'s existing `- FAIL` parsing with no bash change
+- [[health-finding-parsers]] — `health_findings`/`pipeline_findings`'s wire
+  contract with the agents that write their input: a parser comment claiming
+  "`(none)` needs no special case, it doesn't begin with `- `" was false
+  against the pipeline-observer's own worked template (which bullets it),
+  found live via a contentless `(none)` item filed to `BACKLOG.md` on
+  2026-09-02; the exact-match-not-prefix fix; which sections are structurally
+  immune by construction (`- FAIL `/`- ABORTED `/`- PARTIAL ` prefixes) versus
+  exposed (the generic `- `-only sections); and why the test suite's own
+  healthy-case fixtures made the identical narrow assumption the bug depended on

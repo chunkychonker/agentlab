@@ -125,3 +125,5 @@ and adds one real run over the two stdlib-only examples (`minimal-agent-loop`,
   distinguishable failure classes into one bucket, because the response differs
 - [[pipeline-claim-lifecycle]] — another invariant spanning files that are never
   edited together, and so invisible to diff-scoped nightly review
+- [[health-finding-parsers]] — the same invariant-spans-two-files shape between
+  an agent's report-format instructions and the bash parser that reads it

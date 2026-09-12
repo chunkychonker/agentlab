@@ -56,8 +56,18 @@ PIPELINE_SNAPSHOT_FILE="logs/last-pipeline-health.md"
 # Any other heading ends the current section and is ignored, exactly as in
 # health_findings: this parser's contract is the documented output shape, and
 # an undocumented section is by definition not something the agent promised to
-# keep stable. A '(none)' placeholder needs no special case; it does not begin
-# with '- '. Nor do the prose notes runs sometimes leave between sections.
+# keep stable. The prose notes runs sometimes leave between sections are
+# dropped for a different reason: they do not begin with '- '.
+#
+# The '(none)' an empty section carries is NOT safe by that second argument,
+# and is dropped by an explicit guard below instead. This comment used to
+# claim the placeholder "needs no special case; it does not begin with '- '".
+# That was false: agentlab-pipeline-observer.md's own worked example writes
+# '## Phase failures' / '- (none)', which strips to a four-character body and
+# files as a contentless backlog item — exactly what happened on 2026-09-02.
+# The guard is an EXACT match, so a real finding that merely opens with the
+# word still files. See
+# research/2026-09-12-health-finding-none-placeholder.md.
 #
 # Emitted lines are the finding with its list marker (and, in Run outcomes, the
 # status label and the report's alignment padding) removed, otherwise verbatim.
@@ -110,7 +120,14 @@ pipeline_findings () {
         case "$line" in
           '- '*)
             body="${line#- }"
-            [ -n "$body" ] && printf '%s\n' "$body"
+            # Empty body, or the empty-section placeholder in its bulleted
+            # form. Quoted patterns, so both are literal exact matches: a
+            # finding like '(none) of the retries succeeded — ...' is real
+            # text that happens to start with the word, and must still file.
+            case "$body" in
+              ''|'(none)') ;;
+              *) printf '%s\n' "$body" ;;
+            esac
             ;;
         esac
         ;;
