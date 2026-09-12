@@ -189,3 +189,5 @@ recovery branch.)
   on the box that runs it
 - [[doc-transcript-drift]] — same shape of bug: an invariant spanning files that
   are never edited together, so diff-scoped review cannot see it
+- [[health-finding-parsers]] — the same shape again, one layer over: an agent's
+  own report-format instructions drifting from the parser that reads it

@@ -227,6 +227,35 @@ assert_eq "H12" "examples/foo/" \
   "$(health_item_subject 'examples/foo/ — first reason — second clause')" \
   "only the FIRST em dash splits, so a multi-clause reason keeps one subject"
 
+# --- the '(none)' placeholder in its dash-bulleted form ---------------------
+#
+# H8/PH8 above cover the BARE '(none)', which never matched '- '* and so was
+# safe by construction. The dashed form is the one the agents' own templates
+# taught: agentlab-pipeline-observer.md's worked example wrote '- (none)' under
+# '## Phase failures', which strips to a four-character body, and on 2026-09-02
+# it was filed as a contentless backlog item. Both parsers now drop it on an
+# exact match. See research/2026-09-12-health-finding-none-placeholder.md.
+#
+# One heading plus one line is a complete fixture: both parsers ignore
+# everything before the first heading they recognise.
+section_findings () {   # <parser-fn> <heading> <line> -> findings on stdout
+  local fixture="$WORK/one-section.md"
+  printf '%s\n%s\n' "$2" "$3" > "$fixture"
+  "$1" "$fixture"
+}
+
+none_h="$(section_findings health_findings '## Broken wikilinks' '- (none)')"
+assert_eq "H13" "0|" "$?|$none_h" \
+  "a dash-bulleted '(none)' under Broken wikilinks yields zero findings, exit 0"
+
+none_h="$(section_findings health_findings '## Backlog/PR mismatches' '- (none)')"
+assert_eq "H14" "0|" "$?|$none_h" \
+  "a dash-bulleted '(none)' under Backlog/PR mismatches yields zero findings, exit 0"
+
+assert_eq "H15" "(none) of the retries succeeded — investigate" \
+  "$(section_findings health_findings '## Broken wikilinks' '- (none) of the retries succeeded — investigate')" \
+  "the guard is exact, not a prefix: a finding that merely STARTS with '(none)' still files"
+
 # --- pipeline_health.sh ----------------------------------------------------
 
 # A fixture in the shape agentlab-pipeline-observer.md specifies, including
@@ -325,6 +354,34 @@ assert_eq "PH9" "1" "$?" "an unreadable pipeline snapshot returns 1"
 assert_eq "PH10" "run-2026-08-19_024702" \
   "$(health_item_subject 'run-2026-08-19_024702 — NETWORK UNREACHABLE (api.anthropic.com / github.com)')" \
   "a pipeline finding's subject splits on the first em dash, same rule as the portfolio observer"
+
+# Every one of the five 'plain' sections, each on its own — they share a code
+# path today, and pinning them individually is what stops a future split of
+# that path from quietly reopening the hole in four of them. Phase failures is
+# first because it is the section that actually misfired on 2026-09-02.
+none_p="$(section_findings pipeline_findings '## Phase failures' '- (none)')"
+assert_eq "PH11" "0|" "$?|$none_p" \
+  "a dash-bulleted '(none)' under Phase failures yields zero findings (the 2026-09-02 incident)"
+
+none_p="$(section_findings pipeline_findings '## Recurring abort causes' '- (none)')"
+assert_eq "PH12" "0|" "$?|$none_p" \
+  "a dash-bulleted '(none)' under Recurring abort causes yields zero findings"
+
+none_p="$(section_findings pipeline_findings '## Claim-state drift' '- (none)')"
+assert_eq "PH13" "0|" "$?|$none_p" \
+  "a dash-bulleted '(none)' under Claim-state drift yields zero findings"
+
+none_p="$(section_findings pipeline_findings '## Schedule gaps' '- (none)')"
+assert_eq "PH14" "0|" "$?|$none_p" \
+  "a dash-bulleted '(none)' under Schedule gaps yields zero findings"
+
+none_p="$(section_findings pipeline_findings '## Quarantined strays' '- (none)')"
+assert_eq "PH15" "0|" "$?|$none_p" \
+  "a dash-bulleted '(none)' under Quarantined strays yields zero findings"
+
+assert_eq "PH16" "(none) of the retries succeeded — investigate" \
+  "$(section_findings pipeline_findings '## Phase failures' '- (none) of the retries succeeded — investigate')" \
+  "the guard is exact, not a prefix: a finding that merely STARTS with '(none)' still files"
 
 # --- backlog.sh: filing ----------------------------------------------------
 

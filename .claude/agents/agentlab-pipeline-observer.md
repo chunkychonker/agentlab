@@ -123,7 +123,7 @@ Aborted: <N>  Partial: <N>  Phase failures: <N>
 - NETWORK UNREACHABLE — 4× on 2026-08-02, 2026-08-03, 2026-08-04, 2026-08-15
 
 ## Phase failures
-- (none)
+(none)
 
 ## Claim-state drift
 - "Verify the `${CLAUDE_SKILL_DIR}` + `allowed-tools` claim" — marked [building], shipped in PR #33 (merged 2026-08-16), never advanced to [done #33]
