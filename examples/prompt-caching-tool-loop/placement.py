@@ -9,7 +9,8 @@ Layer 1 (intent). A hand-written tool loop appends an assistant message (with
 calls the API again. The prefix that stays identical across those calls is the
 part worth caching, so the marker has to move forward with the frozen tail.
 Out of scope: the tools and system breakpoints (static, set once at the entry
-point), automatic caching, and the 1-hour TTL.
+point), automatic caching, and *mixing* TTLs within one request (every marker
+this module places in one call carries the same TTL).
 
 Layer 2 (spec), enforced below and asserted in `test_placement.py`:
 
@@ -23,10 +24,14 @@ Layer 2 (spec), enforced below and asserted in `test_placement.py`:
     exceeds `LOOKBACK_BLOCKS`. Below that the rolling marker still chains
     turn-to-turn on its own and a second breakpoint buys nothing.
   - The result is a deep copy; the input is never mutated.
+  - `ttl` selects the wire form of every marker this call places:
+    `CACHE_TTL_5M` (the default) is `{"type": "ephemeral"}` with no `ttl` key
+    at all, byte-identical to what this module emitted before the parameter
+    existed; `CACHE_TTL_1H` is `{"type": "ephemeral", "ttl": "1h"}`, which the
+    server bills at 2x the base input rate on write instead of 1.25x.
   - This module owns `cache_control` within `messages`: every marker already on
     the input is stripped from the copy before placement. A marker a caller put
-    there themselves - including the out-of-scope `ttl: "1h"` form - does not
-    survive.
+    there themselves - including one at a different TTL - does not survive.
   - Idempotent: re-running yields exactly the markers this policy placed and no
     others, over the same list or over one that has grown between calls. The
     second case is the one that matters, and it is why the strip exists: the
@@ -41,12 +46,38 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import enum
 from collections.abc import Mapping, Sequence
 
-# The only `cache_control` value this example uses. `{"type": "ephemeral",
-# "ttl": "1h"}` is the other documented form (2x write instead of 1.25x); it is
-# out of scope, so it is not spellable here.
+class CacheTTL(enum.StrEnum):
+    """The two cache lifetimes the API documents, and the only two spellable here.
+
+    A closed enum rather than a validated `str`: the illegal TTL (`"1 hour"`,
+    `"3600"`, `"1H"`) is unrepresentable in the type, so no interior code has to
+    remember to re-check one. `enum.StrEnum` because the value goes on the wire
+    as JSON - `CacheTTL.ONE_HOUR == "1h"` is `True`, and `.value` hands out a
+    plain `str` so nothing enum-flavoured is ever serialised.
+    """
+
+    FIVE_MINUTES = "5m"
+    ONE_HOUR = "1h"
+
+
+# Named constants for the two members, so call sites read as policy rather than
+# as enum plumbing (`ttl=CACHE_TTL_1H`, not `ttl=CacheTTL.ONE_HOUR`).
+CACHE_TTL_5M = CacheTTL.FIVE_MINUTES
+CACHE_TTL_1H = CacheTTL.ONE_HOUR
+
+# The 5-minute `cache_control` value, and the default this module has always
+# emitted. The docs show the 5-minute case only as an *omitted* `ttl`, never as
+# an explicit `"ttl": "5m"`, so this stays the exact dict it has always been -
+# adding the default TTL back as a key would be an unverified wire form and
+# would change the hashed prefix of every already-working caller.
 EPHEMERAL: dict[str, str] = {"type": "ephemeral"}
+
+# The key that carries a non-default TTL. Named once, next to the enum whose
+# values go in it.
+TTL_KEY = "ttl"
 
 # Documented cap: at most four `cache_control` breakpoints per request, across
 # `tools`, `system` and `messages` together.
@@ -82,10 +113,32 @@ class Placement:
     marker_count: int
 
 
+def ephemeral_marker(ttl: CacheTTL | str = CACHE_TTL_5M) -> dict[str, str]:
+    """A fresh `cache_control` value for `ttl`.
+
+    The one place the `cache_control` wire shape is built, so the static tools
+    and system breakpoints at the entry point and the rolling message
+    breakpoints here cannot drift apart. Always a new dict: no caller can end
+    up aliasing `EPHEMERAL` and mutating every marker at once.
+
+    `CACHE_TTL_5M` returns `{"type": "ephemeral"}` with no `ttl` key - the exact
+    dict this module emitted before TTLs existed. `CACHE_TTL_1H` returns
+    `{"type": "ephemeral", "ttl": "1h"}`, with a plain `str` value.
+
+    Failure mode: `ValueError` if `ttl` is not one of the two `CacheTTL` values
+    (or a `str` equal to one of them).
+    """
+    resolved = resolve_ttl(ttl)
+    if resolved is CacheTTL.FIVE_MINUTES:
+        return dict(EPHEMERAL)
+    return {**EPHEMERAL, TTL_KEY: resolved.value}
+
+
 def place_breakpoints(
     messages: Sequence[Mapping[str, object]],
     *,
     budget: int = MAX_BREAKPOINTS,
+    ttl: CacheTTL | str = CACHE_TTL_5M,
 ) -> Placement:
     """Return `messages` deep-copied with up to `budget` breakpoints inserted.
 
@@ -96,8 +149,13 @@ def place_breakpoints(
     message list is this function's to place, so pre-existing ones are cleared
     from the copy first (see `_clear_markers`).
 
+    `ttl` applies to every marker this call places - both the rolling one and
+    the anchor. Mixing TTLs within one request is out of scope (see the module
+    docstring), so it is one parameter for the whole call, not one per marker.
+
     Failure modes, all raised before anything is copied:
-      - `ValueError` if `budget` is negative.
+      - `ValueError` if `budget` is negative, or if `ttl` is not one of the two
+        `CacheTTL` values.
       - `TypeError` if `budget` is not an `int`, if a message is not a mapping,
         if a message lacks `role` or `content`, if `content` is neither `str`
         nor `list`, or if a content-list element is not a mapping.
@@ -106,6 +164,7 @@ def place_breakpoints(
         no `"type"` key.
     """
     _validate_budget(budget)
+    resolved_ttl = resolve_ttl(ttl)
     copied = [_validated_copy(message, index) for index, message in enumerate(messages)]
 
     # Idempotence over a list that GROWS between calls: the tail moves each turn,
@@ -127,7 +186,7 @@ def place_breakpoints(
 
     for index in targets:
         blocks = _normalize_content(copied[index][_CONTENT_KEY])
-        _mark_last_block(blocks)
+        _mark_last_block(blocks, resolved_ttl)
         copied[index][_CONTENT_KEY] = blocks
 
     return Placement(messages=copied, marker_count=len(targets))
@@ -143,6 +202,26 @@ def _validate_budget(budget: int) -> None:
         raise TypeError(f"budget must be an int, got {type(budget).__name__}")
     if budget < 0:
         raise ValueError(f"budget must be >= 0, got {budget}")
+
+
+def resolve_ttl(ttl: object) -> CacheTTL:
+    """Resolve `ttl` to a `CacheTTL`, or raise.
+
+    Public because the shell has the same boundary to guard: it takes a TTL off
+    a command line and must reject a bad one *before* spending money, not when
+    the marker is finally built. Accepts a `CacheTTL` or a `str` equal to one of
+    its values, so a caller that read `"1h"` off `sys.argv` does not have to
+    import the enum. Runs before any copying, exactly like `_validate_budget`.
+
+    Failure mode: `ValueError` naming the two accepted values - including for a
+    non-`str` such as `None` or `3600`, which `CacheTTL(...)` rejects the same
+    way, so there is one failure mode here rather than two.
+    """
+    try:
+        return CacheTTL(ttl)
+    except ValueError:
+        accepted = ", ".join(repr(member.value) for member in CacheTTL)
+        raise ValueError(f"ttl must be one of {accepted}, got {ttl!r}") from None
 
 
 def _validated_copy(message: object, index: int) -> dict:
@@ -225,13 +304,14 @@ def _normalize_content(content: object) -> list[dict]:
     return [dict(block) for block in content]  # type: ignore[union-attr]
 
 
-def _mark_last_block(blocks: list[dict]) -> None:
-    """Attach a fresh `EPHEMERAL` dict to the last block, in place.
+def _mark_last_block(blocks: list[dict], ttl: CacheTTL) -> None:
+    """Attach a fresh marker for `ttl` to the last block, in place.
 
-    A copy, not `EPHEMERAL` itself, so no returned message can alias the module
-    constant. Assumes a non-empty list (guaranteed by `_validated_copy`).
+    A new dict every time, so no returned message can alias the module constant.
+    Assumes a non-empty list and a validated `ttl` (both guaranteed by the
+    boundary checks in `place_breakpoints`).
     """
-    blocks[-1][CACHE_CONTROL_KEY] = dict(EPHEMERAL)
+    blocks[-1][CACHE_CONTROL_KEY] = ephemeral_marker(ttl)
 
 
 def _count_blocks(messages: Sequence[Mapping[str, object]]) -> int:
