@@ -72,6 +72,23 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
   CLI, assert on the `stream-json` transcript whether the bundled script ran
   unprompted — then correct the knowledge note with whatever actually happened.
   Costs one small billed run; state that in the README like that example does.
+- [researching] Manifest formats beyond `requirements.txt`/`package.json` for the
+  dependency-pin scanner. `examples/skill-script-execution/README.md` names this
+  explicitly out of scope ("Manifest formats beyond requirements.txt/package.json
+  (e.g. Cargo.toml, go.mod) — a natural follow-up, not this cycle's scope").
+  Increment: teach `scan_dependencies.py` a `scan_cargo_toml` case (stdlib
+  `tomllib`, Python ≥3.11, no new dependency) covering `[dependencies]`,
+  `[dev-dependencies]`, `[build-dependencies]`; only an explicit `=`-prefixed
+  exact requirement counts as pinned — a bare or `^`-prefixed version defaults
+  to Cargo's caret range, the same "not actually pinned" trap `package.json`'s
+  bare-semver case already covers for npm. `{ path = ... }`/`{ git = ... }`/
+  `{ workspace = true }` table entries have no meaningful semver pin to
+  evaluate and are skipped silently, same precedent as `requirements.txt`'s
+  comment/`-r` lines. go.mod stays out of scope: Go's module file has no
+  floating-range syntax, so the pinned-vs-unpinned question doesn't apply
+  there. Offline self-test only, extending `test_scan_dependencies.py`'s
+  existing pattern — no API key, no network. See
+  `research/2026-09-16-cargo-toml-dependency-scan.md`.
 
 ## MCP
 - [done #8] Hello-world MCP server (stdio) exposing one tool

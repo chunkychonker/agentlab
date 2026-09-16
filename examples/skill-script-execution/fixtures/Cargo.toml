@@ -1,0 +1,23 @@
+# Fixture for the scanning-dependencies example.
+[package]
+name = "fixture-crate"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Bare version: Cargo reads this as ^1.0, so it is NOT a pin.
+serde = "1.0"
+# Table form with an explicit caret range.
+regex = { version = "^1.10", features = ["unicode"] }
+# The one pinned form: an exact requirement.
+once_cell = "=1.19.0"
+# No `version` key at all -> no semver requirement to evaluate, skipped.
+tokio = { path = "../tokio-local" }
+libc = { git = "https://github.com/rust-lang/libc" }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+tempfile = "~3.8"
+
+[build-dependencies]
+cc = "=1.0.83"
