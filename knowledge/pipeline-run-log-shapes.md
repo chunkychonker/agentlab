@@ -93,6 +93,33 @@ would be coupling-by-meaning (CLAUDE.md §2) between two files that are never
 edited together, and is also precisely the assumption that failed the
 pipeline-observer here.
 
+## Using the classification: preflight's BLOCKED abort assumes what this note disproves
+
+`.pipeline/preflight.sh`'s `worktree_disposition` and `PIPELINE.md`'s
+documented rationale for it both rest on a premise: "the per-cycle and
+postflight snapshots already rescue a failed cycle, so a tracked edit
+surviving to the next night means something outside the pipeline changed the
+repo." Both `snapshot_dirty_main` call sites in `run.sh` are ordinary
+sequential lines, not a signal trap — so that premise is exactly the thing
+"why a trap can't guarantee it says so" (above) already disproves. It held
+for run-2026-08-29 → run-2026-08-30 (`research/2026-09-17-preflight-blocked-rescue-disposition.md`):
+the 08-29 run died silently mid-phase before either snapshot call could run,
+leaving a tracked dirty `main`, and the 08-30 preflight correctly-per-spec but
+wrongly-in-substance hard-aborted 3 seconds in, costing a full night — the
+fourth such recurrence `run.sh`'s own postflight comment names (also
+2026-08-02/03/07).
+
+`classify_run_log`'s rc is the one piece of evidence that would let preflight
+tell the two cases apart: rc 2 (ABORTED) means neither snapshot call is
+guaranteed to have run, so a dirty tracked `main` is *expected*, not
+anomalous; rc 0/1 (OK/PARTIAL) means a snapshot call definitely ran, so a
+dirty `main` surviving past it really is unexplained. `.pipeline/rescue.sh`
+(built in the same research cycle, deliberately **not yet wired into
+`run.sh`**) is that decision as a pure function,
+`preflight_blocked_disposition <rc>`, ready for a future cycle to call from
+preflight's `BLOCKED)` branch once it's safe to touch that file — see
+[[pipeline-hot-file-collision]] for why not yet.
+
 ## Related
 
 - [[health-finding-parsers]] — the sibling case: a parser/producer contract
@@ -102,3 +129,6 @@ pipeline-observer here.
   cycle can silently lose (a `BACKLOG.md` claim, not a log's closing line)
 - [[bash-3.2-testable-scripts]] — the environment constraint (bash 3.2 only)
   this experiment and any classifier built from it must respect
+- [[pipeline-hot-file-collision]] — why this classifier, and the preflight
+  decision logic built on top of it, both shipped as new standalone files
+  instead of being wired into `run.sh`/`test_gates.sh` directly
