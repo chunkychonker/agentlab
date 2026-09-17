@@ -82,3 +82,7 @@ assumption the bug depended on).
 - [[bash-3.2-testable-scripts]] — the test harness (`test_gates.sh`) both
   parsers are verified under, and its own two gotchas (the `grep -c` exit-1
   trap and definition-before-call ordering) worth reading alongside this one
+- [[pipeline-run-log-shapes]] — a second, structurally identical case of the
+  pipeline-observer's own prose disagreeing with a real log on disk: its
+  contract says "abort lines end with `Aborting.`", which a real silent-death
+  incident disproves

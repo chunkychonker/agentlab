@@ -78,6 +78,10 @@ The house pattern is already set by `eval/run_reviewer_eval.sh`: plain bash,
 
 - [[pipeline-claim-lifecycle]] — the orchestration logic this is used to test
 - [[tool-failure-taxonomy]] — the same inject-the-side-effect idea in Python
+- [[pipeline-run-log-shapes]] — an experiment run on this exact bash version
+  (3.2.57) showing a `trap` on `run.sh` cannot reliably produce a closing log
+  line, since bash defers a pending trap until the foreground child it's
+  blocked on returns
 - [[health-finding-parsers]] — two of the functions this harness (`test_gates.sh`)
   covers, and a bug that survived because the test's own fixtures made the same
   narrow assumption the parser did
