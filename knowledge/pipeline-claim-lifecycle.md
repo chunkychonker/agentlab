@@ -191,3 +191,6 @@ recovery branch.)
   are never edited together, so diff-scoped review cannot see it
 - [[health-finding-parsers]] — the same shape again, one layer over: an agent's
   own report-format instructions drifting from the parser that reads it
+- [[pipeline-run-log-shapes]] — the other kind of state a killed cycle can
+  lose: not a `BACKLOG.md` claim, but the run log's own closing line, and why
+  a signal trap in `run.sh` cannot reliably supply one

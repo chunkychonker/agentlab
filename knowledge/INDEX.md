@@ -162,3 +162,11 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   immune by construction (`- FAIL `/`- ABORTED `/`- PARTIAL ` prefixes) versus
   exposed (the generic `- `-only sections); and why the test suite's own
   healthy-case fixtures made the identical narrow assumption the bug depended on
+- [[pipeline-run-log-shapes]] — the OK / PARTIAL / ABORTED(-with-message) /
+  ABORTED(-silent) taxonomy of how a `logs/run-*.log` actually ends, a real
+  silent-death incident (`run-2026-08-29_114701.log`) that disproves the
+  pipeline-observer's own "abort lines end with `Aborting.`" assumption, and
+  the empirical result (bash 3.2, this machine) that a `trap` cannot fix the
+  silent shape because bash defers a pending trap until the foreground child
+  it's blocked on returns — and can never fire against a same-process-group
+  `SIGKILL` at all
