@@ -13,6 +13,9 @@
 #                           plus run.sh's stash_strays, extracted and run
 #   run.sh's check_reachable — is the network there (N1-N5), extracted and run
 #                           against a local server, not the real internet
+#   .pipeline/network_retry.sh — is another probe owed, after how long
+#                           (N6-N22), plus run.sh's network_preflight loop
+#                           (N23-N30), extracted and run against fakes
 #
 # plus the call sites all five have in .pipeline/run.sh. No ANTHROPIC_API_KEY,
 # no `claude`, nothing outside this box — all it touches is a throwaway temp
@@ -68,16 +71,17 @@ trap 'chmod -R u+rwX "$WORK" 2>/dev/null; rm -rf "$WORK"' EXIT
 
 # Sourcing must be silent and must not touch anything — the libs are declaration
 # files, and run.sh sources them under `set -uo pipefail` before any phase runs.
-src_noise="$( { . "$REPO/.pipeline/verdict.sh"; . "$REPO/.pipeline/health.sh"; . "$REPO/.pipeline/pipeline_health.sh"; . "$REPO/.pipeline/backlog.sh"; . "$REPO/.pipeline/preflight.sh"; } 2>&1 )"
+src_noise="$( { . "$REPO/.pipeline/verdict.sh"; . "$REPO/.pipeline/health.sh"; . "$REPO/.pipeline/pipeline_health.sh"; . "$REPO/.pipeline/backlog.sh"; . "$REPO/.pipeline/preflight.sh"; . "$REPO/.pipeline/network_retry.sh"; } 2>&1 )"
 src_rc=$?
 assert_eq "INV1" "0|" "$src_rc|$src_noise" \
-  "sourcing verdict.sh, health.sh, pipeline_health.sh, backlog.sh and preflight.sh exits 0 and prints nothing"
+  "sourcing verdict.sh, health.sh, pipeline_health.sh, backlog.sh, preflight.sh and network_retry.sh exits 0 and prints nothing"
 
 . "$REPO/.pipeline/verdict.sh"
 . "$REPO/.pipeline/health.sh"
 . "$REPO/.pipeline/pipeline_health.sh"
 . "$REPO/.pipeline/backlog.sh"
 . "$REPO/.pipeline/preflight.sh"
+. "$REPO/.pipeline/network_retry.sh"
 
 # --- verdict.sh ------------------------------------------------------------
 #
@@ -737,6 +741,172 @@ else
   fail "N5" "response timeout ${RESPONSE_TIMEOUT_S:-unset}s is not above connect timeout ${CONNECT_TIMEOUT_S:-unset}s — the payload gate is back"
 fi
 
+# --- network_retry.sh: the retry policy around that probe (N6-N22) ---------
+#
+# The probe above answers "is the network there RIGHT NOW". These cases cover
+# what run.sh does with a "no": until 2026-09-18 it aborted the night on the
+# spot, which cost two full 0/2 nights (run-2026-08-31_114702.log and
+# run-2026-09-11_020004.log, each one line long) to a VPN-gated link that may
+# well have been back seconds later.
+#
+# Both functions are pure integer arithmetic, so they are called directly. The
+# malformed cases matter as much as the happy ones: a bad budget is a
+# programming error, and returning a plausible-looking GIVE_UP for one would
+# lose a night while looking exactly like a genuine outage.
+
+# nrd_case <id> <attempt> <max-attempts> <want-word|want-rc> <what>
+# stderr is dropped so the captured word is stdout alone — a malformed call
+# must put NOTHING on stdout.
+nrd_case () {
+  local id="$1" attempt="$2" max="$3" want="$4" what="$5"
+  local got_word got_rc
+  got_word="$(network_retry_decision "$attempt" "$max" 2>/dev/null)"
+  got_rc=$?
+  assert_eq "$id" "$want" "$got_word|$got_rc" "$what"
+}
+
+nrd_case "N6"  1 3 "RETRY|0"   "the first failure of three is worth retrying"
+nrd_case "N7"  2 3 "RETRY|0"   "the second failure of three is still worth retrying"
+nrd_case "N8"  3 3 "GIVE_UP|1" "the last attempt in the budget gives up — the night aborts as it always did"
+nrd_case "N9"  4 3 "GIVE_UP|1" "past the budget still gives up, never wraps back to RETRY"
+nrd_case "N10" 0 3 "|2"        "attempt 0 is a programming error: rc 2, nothing on stdout"
+nrd_case "N11" 1 three "|2"    "a non-numeric budget is a programming error: rc 2, nothing on stdout"
+
+assert_eq "N12" "loud" \
+  "$( [ -n "$(network_retry_decision 0 3 2>&1 >/dev/null)" ] && echo loud || echo silent )" \
+  "a malformed retry decision says so on stderr rather than defaulting quietly"
+
+# nbd_case <id> <attempt> <base> <cap> <want-delay|want-rc> <what>
+nbd_case () {
+  local id="$1" attempt="$2" base="$3" cap="$4" want="$5" what="$6"
+  local got_delay got_rc
+  got_delay="$(network_backoff_delay_s "$attempt" "$base" "$cap" 2>/dev/null)"
+  got_rc=$?
+  assert_eq "$id" "$want" "$got_delay|$got_rc" "$what"
+}
+
+nbd_case "N13" 1 15 60 "15|0" "the first wait is the base delay"
+nbd_case "N14" 2 15 60 "30|0" "the second wait doubles"
+nbd_case "N15" 3 15 60 "60|0" "the third wait doubles again, landing exactly on the cap"
+nbd_case "N16" 9 15 60 "60|0" "a far-out attempt is capped, not 3840s — the cap actually caps"
+# 2**63 overflows bash arithmetic to a negative number, which would hand `sleep`
+# a nonsense argument. Saturating instead of exponentiating is what prevents it.
+nbd_case "N17" 64 15 60 "60|0" "an absurd attempt number saturates rather than overflowing negative"
+nbd_case "N18" 0 15 60 "|2"   "attempt 0 is a programming error: rc 2, nothing on stdout"
+nbd_case "N19" 1 0 60 "|2"    "a zero base delay is a programming error, not a zero-second wait"
+nbd_case "N20" 1 15 10 "|2"   "a cap below the base is a programming error, not a silently clamped delay"
+nbd_case "N21" 1 15s 60 "|2"  "a non-numeric base is a programming error: rc 2, nothing on stdout"
+
+assert_eq "N22" "loud" \
+  "$( [ -n "$(network_backoff_delay_s 1 15 10 2>&1 >/dev/null)" ] && echo loud || echo silent )" \
+  "a malformed backoff schedule says so on stderr rather than defaulting quietly"
+
+# --- run.sh's network_preflight: the loop built from them (N23-N30) --------
+#
+# Extracted verbatim from run.sh like check_reachable above, then run with a
+# fake probe and a fake `sleep`, so the control flow is provable with no
+# network and no real waiting. The fakes keep their state in files and the
+# probe decides its answer by re-reading the record it has itself been writing
+# — the loop has to genuinely re-probe to get a different answer, so the
+# attempt counts below are its behaviour rather than a counter the test set.
+
+eval "$(sed -n '/^network_preflight () {/,/^}/p' "$RUN_SH")"
+if ! declare -f network_preflight >/dev/null 2>&1; then
+  fail "N23" "could not extract network_preflight from run.sh — the tests below are vacuous"
+else
+  pass "N23" "network_preflight extracted verbatim from run.sh"
+
+  # np_run <id> <rounds-that-fail>  ->  "<rc>|<attempts>|<sleeps>|<delays>|<last-log-line>"
+  # Everything runs in a subshell: the suite above waits on a real `sleep` for
+  # its slow server, so the fake must not outlive this call.
+  np_run () {
+    local id="$1" fail_rounds="$2"
+    local dir="$WORK/np-$id"
+    mkdir -p "$dir"
+    local probes="$dir/probes" sleeps="$dir/sleeps" log="$dir/run.log"
+    : > "$probes"; : > "$sleeps"; : > "$log"
+
+    local rc=0
+    (
+      check_reachable () {
+        echo "$1" >> "$probes"
+        local rounds
+        rounds="$(grep -c 'api\.anthropic\.com' "$probes" || true)"
+        [ "$rounds" -le "$fail_rounds" ] && return 7
+        return 0
+      }
+      sleep () { echo "$1" >> "$sleeps"; }
+      LOG="$log"
+      network_preflight >/dev/null 2>&1
+    )
+    rc=$?
+
+    # One attempt = one probe of the first host, so counting those counts
+    # attempts without caring that a passing attempt probes a second host too.
+    local attempts sleep_count delays last
+    attempts="$(grep -c 'api\.anthropic\.com' "$probes" || true)"
+    sleep_count="$(grep -c . "$sleeps" || true)"
+    delays="$(tr '\n' ' ' < "$sleeps" | sed 's/ *$//')"
+    last="$(grep -v '^[[:space:]]*$' "$log" | tail -1)"
+    echo "$rc|$attempts|$sleep_count|$delays|$last"
+  }
+
+  # The common case, ~50 of the last 52 nights: the network is simply there.
+  # It must cost nothing at all — no wait, no log line, same path as before.
+  np_ok="$(np_run ok 0)"
+  assert_eq "N24" "0|1|0" "$(echo "$np_ok" | cut -d'|' -f1-3)" \
+    "a healthy network passes on attempt 1 and never sleeps"
+  assert_eq "N25" "" "$(echo "$np_ok" | cut -d'|' -f5)" \
+    "a healthy network adds no line to the run log"
+
+  # The blip this whole increment exists for.
+  np_blip="$(np_run blip 1)"
+  assert_eq "N26" "0|2|1|$NETWORK_BASE_DELAY_S" "$(echo "$np_blip" | cut -d'|' -f1-4)" \
+    "one failed round then success: 2 attempts, exactly one wait, of the base delay"
+
+  # The genuinely-dead link: same abort as before, just later.
+  np_sched=""
+  np_i=1
+  while [ "$np_i" -lt "$NETWORK_MAX_ATTEMPTS" ]; do
+    np_sched="$np_sched $(network_backoff_delay_s "$np_i" "$NETWORK_BASE_DELAY_S" "$NETWORK_CAP_DELAY_S")"
+    np_i=$(( np_i + 1 ))
+  done
+  np_sched="${np_sched# }"
+
+  np_dead="$(np_run dead 99)"
+  assert_eq "N27" "1|$NETWORK_MAX_ATTEMPTS|$(( NETWORK_MAX_ATTEMPTS - 1 ))|$np_sched" \
+    "$(echo "$np_dead" | cut -d'|' -f1-4)" \
+    "a dead link is probed exactly $NETWORK_MAX_ATTEMPTS times and waits exactly $(( NETWORK_MAX_ATTEMPTS - 1 )) times — never more, never fewer"
+
+  # run_log.sh and the pipeline observer read a run's fate off the last content
+  # line, and an abort is "ends in Aborting." Enriching the message is fine;
+  # losing that ending is not.
+  # Suffix-stripped rather than `case`-matched: bash 3.2 cannot parse a `case`
+  # pattern's `)` inside a `$( )` command substitution.
+  np_last="$(echo "$np_dead" | cut -d'|' -f5)"
+  if [ "${np_last%Aborting.}" != "$np_last" ]; then
+    np_ends="ends in Aborting."
+  else
+    np_ends="last line: ${np_last:-<empty>}"
+  fi
+  assert_eq "N28" "ends in Aborting." "$np_ends" \
+    "giving up still closes the log with a line ending in Aborting."
+
+  # A retry that is not worth having is one that delays the night more than it
+  # rescues. 120s is this test's own tolerance, not a law — raising the
+  # constants past it should come with a look at this case.
+  np_total=0
+  for np_d in $np_sched; do np_total=$(( np_total + np_d )); done
+  assert_eq "N29" "bounded" \
+    "$( [ "$np_total" -le 120 ] && echo bounded || echo "${np_total}s" )" \
+    "the whole backoff budget is ${np_total}s of waiting before the night aborts"
+fi
+
+# The loop above is dead code if run.sh never sources the library it is built
+# from, and nothing else in the suite would notice.
+assert_eq "N30" "1" "$(grep -c '^for lib in .*network_retry' "$RUN_SH" || true)" \
+  "run.sh sources network_retry.sh alongside the other libs"
+
 # --- run.sh call sites -----------------------------------------------------
 #
 # Same brittleness caveat as test_backlog.sh's C12/C23, and the same
@@ -823,11 +993,12 @@ assert_eq "R8" "1" \
 
 syntax_bad="$(for f in "$RUN_SH" "$REPO/.pipeline/verdict.sh" "$REPO/.pipeline/health.sh" \
   "$REPO/.pipeline/pipeline_health.sh" "$REPO/.pipeline/backlog.sh" \
-  "$REPO/.pipeline/preflight.sh" "$REPO/.pipeline/test_gates.sh"; do
+  "$REPO/.pipeline/preflight.sh" "$REPO/.pipeline/network_retry.sh" \
+  "$REPO/.pipeline/test_gates.sh"; do
     bash -n "$f" 2>&1
   done)"
 assert_eq "R5" "" "$syntax_bad" \
-  "bash -n is clean on run.sh, the five libs, and this test"
+  "bash -n is clean on run.sh, the six libs, and this test"
 
 # --- Summary ---------------------------------------------------------------
 

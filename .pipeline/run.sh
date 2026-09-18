@@ -39,18 +39,19 @@ CLAUDE="claude -p --permission-mode bypassPermissions"
 
 echo "=== agentlab pipeline $TS ===" | tee -a "$LOG"
 
-# The backlog file the demo track draws from, and the four libraries holding
+# The backlog file the demo track draws from, and the six libraries holding
 # this script's decision logic: backlog.sh (is the queue stocked, is a claim
 # stranded, has this finding been filed), verdict.sh (does the review authorise
 # shipping), health.sh (what did the health check actually find),
 # pipeline_health.sh (what did the pipeline observer find),
-# preflight.sh (what does a dirty main mean). All five live
-# outside this script so they can be unit-tested offline
+# preflight.sh (what does a dirty main mean),
+# network_retry.sh (is another network probe owed, and after how long). All six
+# live outside this script so they can be unit-tested offline
 # (`bash .pipeline/test_backlog.sh`, `bash .pipeline/test_gates.sh`) instead of
 # only being exercised on the rare night each gate fires. Sourcing defines
 # functions and constants only — it runs nothing and prints nothing.
 BACKLOG_FILE="BACKLOG.md"
-for lib in backlog verdict health pipeline_health preflight; do
+for lib in backlog verdict health pipeline_health preflight network_retry; do
   if [ ! -r "$REPO/.pipeline/$lib.sh" ]; then
     echo "MISSING $REPO/.pipeline/$lib.sh — required. Aborting." | tee -a "$LOG"
     exit 1
@@ -89,8 +90,60 @@ RESPONSE_TIMEOUT_S=20
 check_reachable () {
   curl -sS -I --connect-timeout "$CONNECT_TIMEOUT_S" --max-time "$RESPONSE_TIMEOUT_S" -o /dev/null "$1"
 }
-if ! check_reachable "https://api.anthropic.com" || ! check_reachable "https://github.com"; then
-  echo "NETWORK UNREACHABLE (api.anthropic.com / github.com) — check VPN. Aborting." | tee -a "$LOG"
+
+# The probe above is one shot; this is the loop around it. A single failed
+# probe used to end the night on the spot (run-2026-08-31_114702.log and
+# run-2026-09-11_020004.log are each one line long — the abort message, and
+# nothing else, for a whole 0/2 night). This box's link is VPN-gated, so the
+# expected failure is a reconnect blip rather than a dead link, and a bounded
+# retry is worth the wait.
+#
+# The decision half is pure and lives in .pipeline/network_retry.sh, tested
+# offline; this half is the impure one — it probes, it waits, it logs. On a
+# healthy night it is exactly the old code path: one round of probes, no
+# sleep, no extra log line.
+#
+# The retry lines are logged on purpose: they are the only evidence a later
+# cycle would have for whether NETWORK_MAX_ATTEMPTS=3 is enough.
+#
+# Returns 0 once both hosts answer. Returns 1 when the attempt budget is spent
+# (logging an abort line, as before), or 2 when the constants in
+# network_retry.sh are themselves malformed — a programming error, kept
+# distinct from a real outage so the log says which one happened. Both
+# non-zero returns log a line ending in `Aborting.`, which is the shape
+# .pipeline/run_log.sh and the pipeline observer read a run's fate from.
+network_preflight () {
+  local attempt=1 decision delay rc
+  while : ; do
+    if check_reachable "https://api.anthropic.com" && check_reachable "https://github.com"; then
+      return 0
+    fi
+
+    decision="$(network_retry_decision "$attempt" "$NETWORK_MAX_ATTEMPTS")"
+    rc=$?
+    if [ "$rc" -eq 2 ]; then
+      echo "NETWORK PREFLIGHT MISCONFIGURED: NETWORK_MAX_ATTEMPTS='$NETWORK_MAX_ATTEMPTS' is not a usable budget (see .pipeline/network_retry.sh). Aborting." | tee -a "$LOG"
+      return 2
+    fi
+    if [ "$decision" = "GIVE_UP" ]; then
+      echo "NETWORK UNREACHABLE (api.anthropic.com / github.com) after $attempt attempts — check VPN. Aborting." | tee -a "$LOG"
+      return 1
+    fi
+
+    delay="$(network_backoff_delay_s "$attempt" "$NETWORK_BASE_DELAY_S" "$NETWORK_CAP_DELAY_S")"
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+      echo "NETWORK PREFLIGHT MISCONFIGURED: backoff base='$NETWORK_BASE_DELAY_S' cap='$NETWORK_CAP_DELAY_S' is not a usable schedule (see .pipeline/network_retry.sh). Aborting." | tee -a "$LOG"
+      return 2
+    fi
+
+    echo "network unreachable on attempt $attempt/$NETWORK_MAX_ATTEMPTS — retrying in ${delay}s" | tee -a "$LOG"
+    sleep "$delay"
+    attempt=$(( attempt + 1 ))
+  done
+}
+if ! network_preflight; then
+  # network_preflight has already logged why, ending in `Aborting.`.
   exit 1
 fi
 

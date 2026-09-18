@@ -170,3 +170,13 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   silent shape because bash defers a pending trap until the foreground child
   it's blocked on returns — and can never fire against a same-process-group
   `SIGKILL` at all
+- [[network-preflight-retry]] — why `curl --retry`/`--retry-all-errors` don't
+  fit the nightly network preflight's actual failure shape (DNS/connection
+  failure, not an HTTP error code) and curl's own docs recommend scripting it
+  instead; the bash port of `tool-error-policy`'s `backoff_delay` formula
+  minus jitter (no peer callers to desynchronize from); reusing the
+  inject-`check_reachable`-and-`sleep`-as-fakes idiom to test the retry loop
+  offline; why enriching the abort message is safe given how the classifier
+  actually reads a log (last line + `Aborting.` suffix, never the message
+  text); and a second confirmed instance of "a log line can be about a
+  different night" grepping `logs/run-*.log` directly
