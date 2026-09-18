@@ -1,0 +1,14 @@
+# Needed for BOTH server.py (mcp.run()) and the offline self-test
+# (test_server.py, via the in-memory `Client`).
+#
+# NOTE the floor is 2.1.0, NARROWER than the `>=2.0.0,<3` in
+# examples/mcp-hello-world/ and examples/mcp-resources-vs-tools/. v2.1.0
+# (2026-08-24) is the release that made `Message`/`UserMessage`/
+# `AssistantMessage` importable from `mcp.server.mcpserver`, which
+# server.py's `debug_error` uses. On 2.0.x that import raises ImportError;
+# the deeper `mcp.server.mcpserver.prompts.base` path would still work
+# there, but this example uses the current, documented one.
+#
+# Upper-bounded to <3 for the same reason as the other two examples --
+# re-check before ever letting this drift to v3.
+mcp>=2.1.0,<3
