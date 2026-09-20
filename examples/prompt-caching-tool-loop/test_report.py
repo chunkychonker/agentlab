@@ -22,6 +22,18 @@ Each test maps to an acceptance criterion from the research note
                               every tool_use answered
   R7. the cache-miss guard -> raises CacheMiss rather than reporting ~0 saved
   R8. no key               -> one line, exit 0, no client ever constructed
+
+and from research/2026-09-16-prompt-caching-1h-ttl.md:
+
+  R9.  the 1-hour price    -> a 2x write is a 100% premium, four times the
+                              5-minute one, and does not pay for itself on a
+                              single read; the default is untouched
+  R10. the TTL breakdown   -> a split that does not sum to
+                              `cache_creation_input_tokens` is unconstructable;
+                              the adapter reads the nested `usage.cache_creation`
+  R11. the TTL guard       -> a 1-hour run whose write landed at 5 minutes
+                              raises TTLMismatch and exits 3; a bad `--ttl`
+                              exits 64 before anything is spent
 """
 
 from __future__ import annotations
@@ -63,6 +75,24 @@ def _usage(creation: int, read: int, fresh: int) -> SimpleNamespace:
         cache_creation_input_tokens=creation,
         cache_read_input_tokens=read,
         input_tokens=fresh,
+    )
+
+
+def _ttl_usage(creation: int, read: int, fresh: int, *, five_m: int, one_h: int):
+    """A `usage` that also carries the nested `cache_creation` breakdown.
+
+    Shaped like `anthropic` 1.2.0's `Usage.cache_creation`, verified against the
+    installed SDK: an optional object with `ephemeral_5m_input_tokens` and
+    `ephemeral_1h_input_tokens`.
+    """
+    return SimpleNamespace(
+        cache_creation_input_tokens=creation,
+        cache_read_input_tokens=read,
+        input_tokens=fresh,
+        cache_creation=SimpleNamespace(
+            ephemeral_5m_input_tokens=five_m,
+            ephemeral_1h_input_tokens=one_h,
+        ),
     )
 
 
@@ -117,6 +147,28 @@ def _two_turn_client(*, first_blocks=None, creation=3000, read=3000, delta=120):
         [
             _response(first_blocks or _tool_call(), _usage(creation, 0, 4)),
             _response(_text_reply(), _usage(delta, read, 2)),
+        ]
+    )
+
+
+def _one_hour_client(*, creation=3000, read=3000, delta=120, wrote_5m=0):
+    """A two-turn client whose server wrote `creation - wrote_5m` at 1 hour.
+
+    `wrote_5m > 0` is the case the guard exists for: the request asked for the
+    1-hour TTL and the server billed some or all of it at 5 minutes anyway.
+    """
+    return FakeClient(
+        [
+            _response(
+                _tool_call(),
+                _ttl_usage(
+                    creation, 0, 4, five_m=wrote_5m, one_h=creation - wrote_5m
+                ),
+            ),
+            _response(
+                _text_reply(),
+                _ttl_usage(delta, read, 2, five_m=0, one_h=delta),
+            ),
         ]
     )
 
@@ -426,6 +478,375 @@ def test_without_a_key_main_prints_one_line_and_exits_zero():
 
 
 # --------------------------------------------------------------------------- #
+# R9: the 1-hour price (research/2026-09-16-prompt-caching-1h-ttl.md)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_one_hour_write_premium_is_a_full_extra_base_rate():
+    """R9: 2x on the write is a 100% premium, not 25% - four times the money."""
+    written = 2000
+    base = 2.0
+    hour = report.Saving(
+        written=written,
+        read=2000,
+        base_usd_per_mtok=base,
+        write_multiplier=report.CACHE_WRITE_1H_MULTIPLIER,
+    )
+    five = report.Saving(written=written, read=2000, base_usd_per_mtok=base)
+
+    # The dollar figure, computed from the constants rather than asserted loosely.
+    assert hour.write_premium_multiplier == 1.0, hour.write_premium_multiplier
+    assert hour.write_premium_usd == round(written * base / 1e6 * 1.0, 6)
+    assert hour.write_premium_usd == 0.004, hour.write_premium_usd
+    assert hour.write_premium_usd == round(4 * five.write_premium_usd, 6)
+    # The read side is identical: only the write multiplier differs.
+    assert hour.read_cost_usd == five.read_cost_usd
+    assert hour.saved_on_read_usd == five.saved_on_read_usd
+    print("ok  a 1-hour write costs a 100% premium: 4x the 5-minute one, $0.004000")
+
+
+def test_the_default_write_multiplier_is_still_the_five_minute_one():
+    """R9: the regression guard - a caller that never heard of TTLs is unchanged."""
+    implicit = report.Saving(written=2000, read=2000, base_usd_per_mtok=2.0)
+    explicit = report.Saving(
+        written=2000,
+        read=2000,
+        base_usd_per_mtok=2.0,
+        write_multiplier=report.CACHE_WRITE_5M_MULTIPLIER,
+    )
+
+    assert implicit == explicit
+    assert implicit.write_multiplier == report.CACHE_WRITE_5M_MULTIPLIER == 1.25
+    assert implicit.write_premium_multiplier == 0.25
+    assert implicit.write_premium_usd == 0.001
+    print("ok  a Saving built without a multiplier still prices the write at 1.25x")
+
+
+def test_the_one_hour_ttl_does_not_pay_for_itself_on_a_single_read():
+    """R9: the break-even number the README states, derived from the constants.
+
+    Reads needed to repay the premium = (write - 1) / (1 - read). At 1.25x that
+    is 0.25/0.9 = 0.278 of a read, so the first read is already profit. At 2x it
+    is 1.0/0.9 = 1.111 reads, so a prefix read back exactly once is a *loss* and
+    the second read is what makes the 1-hour TTL worth buying.
+    """
+    per_read = 1 - report.CACHE_READ_MULTIPLIER
+    five_break_even = (report.CACHE_WRITE_5M_MULTIPLIER - 1) / per_read
+    hour_break_even = (report.CACHE_WRITE_1H_MULTIPLIER - 1) / per_read
+
+    assert round(five_break_even, 4) == 0.2778, five_break_even
+    assert round(hour_break_even, 4) == 1.1111, hour_break_even
+
+    written = 3667  # the token count of the README's measured 5-minute run
+    one_read = report.Saving(
+        written=written,
+        read=written,
+        base_usd_per_mtok=2.0,
+        write_multiplier=report.CACHE_WRITE_1H_MULTIPLIER,
+    )
+    two_reads = report.Saving(
+        written=written,
+        read=2 * written,  # the same prefix read back on two later turns
+        base_usd_per_mtok=2.0,
+        write_multiplier=report.CACHE_WRITE_1H_MULTIPLIER,
+    )
+
+    assert one_read.net_saving_usd == -0.000733, one_read.net_saving_usd
+    assert two_reads.net_saving_usd == 0.005867, two_reads.net_saving_usd
+    # The same prefix at 5 minutes is in profit after the first read already.
+    assert report.Saving(
+        written=written, read=written, base_usd_per_mtok=2.0
+    ).net_saving_usd == 0.004767
+    print("ok  break-even is 0.278 reads at 5 minutes and 1.111 at 1 hour")
+
+
+def test_a_write_multiplier_below_one_is_rejected():
+    """R9: a cache write is never cheaper than uncached input; below 1x is a bug."""
+    _rejects(
+        ValueError,
+        lambda: report.Saving(
+            written=10, read=10, base_usd_per_mtok=2.0, write_multiplier=0.9
+        ),
+        "a write multiplier below 1.0",
+    )
+    assert (
+        report.Saving(
+            written=10, read=10, base_usd_per_mtok=2.0, write_multiplier=1.0
+        ).write_premium_usd
+        == 0.0
+    )
+    print("ok  a write multiplier below 1.0 raises instead of inventing a discount")
+
+
+def test_render_shows_whichever_premium_multiplier_was_paid():
+    """R9: the printed report must not claim 0.25x on a run billed at 1.0x."""
+    hour = report.render(
+        report.Saving(
+            written=2000,
+            read=2000,
+            base_usd_per_mtok=2.0,
+            write_multiplier=report.CACHE_WRITE_1H_MULTIPLIER,
+        )
+    )
+    five = report.render(report.Saving(written=2000, read=2000, base_usd_per_mtok=2.0))
+
+    assert "(1.0x base, paid once)" in hour, hour
+    assert "$0.004000" in hour  # the 1-hour premium
+    # A single read does not repay a 2x write, and the report says so. (The sign
+    # lands after the dollar sign - that is `render`'s existing format, unchanged.)
+    assert "$-0.000400" in hour, hour
+    assert "(0.25x base, paid once)" in five, five
+    assert "$0.001000" in five
+    print("ok  render prints the premium multiplier the run actually paid")
+
+
+def test_summarize_passes_the_write_multiplier_through():
+    """R9: the entry point picks the TTL's price; summarize must not re-decide it."""
+    turn1 = report.TurnUsage(
+        cache_creation_input_tokens=2000, cache_read_input_tokens=0, input_tokens=15
+    )
+    turn2 = report.TurnUsage(
+        cache_creation_input_tokens=90, cache_read_input_tokens=2000, input_tokens=8
+    )
+
+    hour = report.summarize(
+        turn1,
+        turn2,
+        base_usd_per_mtok=2.0,
+        write_multiplier=report.CACHE_WRITE_1H_MULTIPLIER,
+    )
+    default = report.summarize(turn1, turn2, base_usd_per_mtok=2.0)
+
+    assert hour.write_multiplier == 2.0
+    assert default.write_multiplier == report.CACHE_WRITE_5M_MULTIPLIER
+    assert hour.written == default.written == 2000
+    print("ok  summarize prices the write at whatever multiplier it is handed")
+
+
+# --------------------------------------------------------------------------- #
+# R10: the nested TTL breakdown
+# --------------------------------------------------------------------------- #
+
+
+def test_a_ttl_breakdown_that_does_not_sum_is_unconstructable():
+    """R10: the docs' identity, enforced - the flat counter *is* the sum."""
+    _rejects(
+        ValueError,
+        lambda: report.TurnUsage(
+            cache_creation_input_tokens=300,
+            cache_read_input_tokens=0,
+            input_tokens=5,
+            ephemeral_5m_input_tokens=100,
+            ephemeral_1h_input_tokens=100,
+        ),
+        "a breakdown summing to 200 against a flat count of 300",
+    )
+    _rejects(
+        ValueError,
+        lambda: report.TurnUsage(
+            cache_creation_input_tokens=300,
+            cache_read_input_tokens=0,
+            input_tokens=5,
+            ephemeral_5m_input_tokens=-1,
+            ephemeral_1h_input_tokens=301,
+        ),
+        "a negative bucket",
+    )
+    _rejects(
+        TypeError,
+        lambda: report.TurnUsage(
+            cache_creation_input_tokens=300,
+            cache_read_input_tokens=0,
+            input_tokens=5,
+            ephemeral_5m_input_tokens="0",
+            ephemeral_1h_input_tokens=300,
+        ),
+        "a string bucket",
+    )
+
+    # Sums correctly: fine. Partial or absent: no claim made, so no check.
+    exact = report.TurnUsage(
+        cache_creation_input_tokens=300,
+        cache_read_input_tokens=0,
+        input_tokens=5,
+        ephemeral_5m_input_tokens=0,
+        ephemeral_1h_input_tokens=300,
+    )
+    assert exact.ephemeral_1h_input_tokens == 300
+    partial = report.TurnUsage(
+        cache_creation_input_tokens=300,
+        cache_read_input_tokens=0,
+        input_tokens=5,
+        ephemeral_1h_input_tokens=1,
+    )
+    assert partial.ephemeral_5m_input_tokens is None
+    neither = report.TurnUsage(
+        cache_creation_input_tokens=300, cache_read_input_tokens=0, input_tokens=5
+    )
+    assert neither.ephemeral_1h_input_tokens is None
+    assert neither.total_input_tokens == 305
+    print("ok  a TTL breakdown that contradicts the flat counter cannot be built")
+
+
+def test_the_adapter_reads_the_nested_cache_creation_object():
+    """R10: `usage.cache_creation` is optional in the SDK, so absence is not a rename."""
+    usage = main._usage_of(
+        _response(_text_reply(), _ttl_usage(3000, 0, 12, five_m=0, one_h=3000))
+    )
+    assert usage.cache_creation_input_tokens == 3000
+    assert usage.ephemeral_5m_input_tokens == 0
+    assert usage.ephemeral_1h_input_tokens == 3000
+
+    # A response with no breakdown at all - every pre-TTL double in this file.
+    without = main._usage_of(_response(_text_reply(), _usage(3000, 0, 12)))
+    assert without.ephemeral_5m_input_tokens is None
+    assert without.ephemeral_1h_input_tokens is None
+
+    # A breakdown that contradicts the flat counter fails at the boundary.
+    _rejects(
+        ValueError,
+        lambda: main._usage_of(
+            _response(_text_reply(), _ttl_usage(3000, 0, 12, five_m=1, one_h=1))
+        ),
+        "a breakdown that does not sum",
+    )
+    print("ok  the adapter reads the nested breakdown, and its absence is not an error")
+
+
+# --------------------------------------------------------------------------- #
+# R11: the TTL guard and the flag
+# --------------------------------------------------------------------------- #
+
+
+def test_a_one_hour_run_marks_every_breakpoint_and_prices_the_write_at_2x():
+    """R11: the whole opt-in path, end to end against a fake server."""
+    client = _one_hour_client()
+
+    saving = main.run(
+        client, model="claude-sonnet-5", base_rate=2.0, ttl=placement.CACHE_TTL_1H
+    )
+
+    assert saving.write_multiplier == report.CACHE_WRITE_1H_MULTIPLIER
+    assert saving.write_premium_usd == round(3000 * 2.0 / 1e6, 6)
+    first, second = client.calls
+    marker = {"type": "ephemeral", "ttl": "1h"}
+    assert first["system"][0][placement.CACHE_CONTROL_KEY] == marker
+    assert first["tools"][-1][placement.CACHE_CONTROL_KEY] == marker
+    assert second["messages"][2]["content"][0][placement.CACHE_CONTROL_KEY] == marker
+    # The prefix itself is identical across the turns, exactly as at 5 minutes.
+    assert first["system"] == second["system"]
+    assert first["tools"] == second["tools"]
+    print("ok  a 1-hour run marks all four breakpoints and prices the write at 2x")
+
+
+def test_a_one_hour_run_billed_at_five_minutes_raises_ttl_mismatch():
+    """R11: proof, not trust - the note's whole reason for reading the breakdown."""
+    _rejects(
+        main.TTLMismatch,
+        lambda: main.run(
+            _one_hour_client(wrote_5m=3000),
+            model="claude-sonnet-5",
+            base_rate=2.0,
+            ttl=placement.CACHE_TTL_1H,
+        ),
+        "a 1-hour request written entirely at 5 minutes",
+    )
+    _rejects(
+        main.TTLMismatch,
+        lambda: main.run(
+            _one_hour_client(wrote_5m=1),
+            model="claude-sonnet-5",
+            base_rate=2.0,
+            ttl=placement.CACHE_TTL_1H,
+        ),
+        "a 1-hour request with one token written at 5 minutes",
+    )
+    # No breakdown at all is also no proof, and a 2x bill is not assumed.
+    _rejects(
+        main.TTLMismatch,
+        lambda: main.run(
+            _two_turn_client(),
+            model="claude-sonnet-5",
+            base_rate=2.0,
+            ttl=placement.CACHE_TTL_1H,
+        ),
+        "a 1-hour request whose response carried no breakdown",
+    )
+    # But the default path keeps working against exactly that response.
+    assert main.run(_two_turn_client(), model="claude-sonnet-5", base_rate=2.0).written
+
+    try:
+        main.run(
+            _one_hour_client(wrote_5m=3000),
+            model="m",
+            base_rate=2.0,
+            ttl=placement.CACHE_TTL_1H,
+        )
+    except main.TTLMismatch as exc:
+        assert "1h" in str(exc) and "5m=3000" in str(exc), str(exc)
+    print("ok  a 1-hour run the server wrote at 5 minutes raises TTLMismatch")
+
+
+def test_a_ttl_mismatch_exits_three_and_a_cache_miss_still_exits_two():
+    """R11: a new failure gets a new exit code; the old one does not move."""
+    assert main.EXIT_TTL_MISMATCH == 3
+    assert main.EXIT_NO_CACHE_HIT == 2
+    assert main.EXIT_USAGE == 64
+    assert len({main.EXIT_TTL_MISMATCH, main.EXIT_NO_CACHE_HIT, main.EXIT_USAGE}) == 3
+    assert issubclass(main.TTLMismatch, RuntimeError)
+    assert not issubclass(main.TTLMismatch, main.CacheMiss)
+    print("ok  TTLMismatch is its own failure with its own exit code, 3")
+
+
+def test_parse_ttl_takes_the_two_documented_forms_and_nothing_else():
+    """R11: a typo'd TTL must not silently fall back to the cheap default."""
+    assert main.parse_ttl([]) is placement.CACHE_TTL_5M
+    assert main.parse_ttl(["--ttl", "5m"]) is placement.CACHE_TTL_5M
+    assert main.parse_ttl(["--ttl", "1h"]) is placement.CACHE_TTL_1H
+
+    for argv in (
+        ["--ttl"],
+        ["--ttl", "1 hour"],
+        ["--ttl", "3600"],
+        ["--ttl", "1h", "extra"],
+        ["1h"],
+        ["--tll", "1h"],
+    ):
+        _rejects(main.UsageError, lambda argv=argv: main.parse_ttl(argv), repr(argv))
+    print("ok  parse_ttl accepts '5m' and '1h' and refuses to guess at anything else")
+
+
+def test_every_ttl_has_a_price():
+    """R11: exhaustive over the enum - a new TTL cannot default to the cheap rate."""
+    prices = {ttl: main.write_multiplier_for(ttl) for ttl in placement.CacheTTL}
+
+    assert prices[placement.CACHE_TTL_5M] == report.CACHE_WRITE_5M_MULTIPLIER
+    assert prices[placement.CACHE_TTL_1H] == report.CACHE_WRITE_1H_MULTIPLIER
+    assert len(prices) == len(placement.CacheTTL)
+    print("ok  every CacheTTL member has a write multiplier, checked exhaustively")
+
+
+def test_a_bad_ttl_flag_exits_64_before_a_key_is_even_read():
+    """R11: a usage error costs nothing - no key read, no SDK import, no call."""
+    saved = os.environ.pop(main.API_KEY_ENV, None)
+    os.environ[main.API_KEY_ENV] = "sk-ant-not-a-real-key"
+    stderr = io.StringIO()
+    try:
+        with contextlib.redirect_stderr(stderr):
+            code = main.main(["--ttl", "1 hour"])
+    finally:
+        del os.environ[main.API_KEY_ENV]
+        if saved is not None:
+            os.environ[main.API_KEY_ENV] = saved
+
+    assert code == main.EXIT_USAGE, code
+    assert "'5m'" in stderr.getvalue() and "'1h'" in stderr.getvalue()
+    assert main.TTL_FLAG in stderr.getvalue()
+    assert "anthropic" not in sys.modules, "the usage-error path imported the SDK"
+    print("ok  a bad --ttl exits 64 with the usage line, before any key is read")
+
+
+# --------------------------------------------------------------------------- #
 
 
 def main_() -> int:
@@ -447,6 +868,20 @@ def main_() -> int:
         test_the_run_reports_the_saving_from_the_two_usages,
         test_a_missing_cache_hit_raises_instead_of_reporting_nothing,
         test_without_a_key_main_prints_one_line_and_exits_zero,
+        test_the_one_hour_write_premium_is_a_full_extra_base_rate,
+        test_the_default_write_multiplier_is_still_the_five_minute_one,
+        test_the_one_hour_ttl_does_not_pay_for_itself_on_a_single_read,
+        test_a_write_multiplier_below_one_is_rejected,
+        test_render_shows_whichever_premium_multiplier_was_paid,
+        test_summarize_passes_the_write_multiplier_through,
+        test_a_ttl_breakdown_that_does_not_sum_is_unconstructable,
+        test_the_adapter_reads_the_nested_cache_creation_object,
+        test_a_one_hour_run_marks_every_breakpoint_and_prices_the_write_at_2x,
+        test_a_one_hour_run_billed_at_five_minutes_raises_ttl_mismatch,
+        test_a_ttl_mismatch_exits_three_and_a_cache_miss_still_exits_two,
+        test_parse_ttl_takes_the_two_documented_forms_and_nothing_else,
+        test_every_ttl_has_a_price,
+        test_a_bad_ttl_flag_exits_64_before_a_key_is_even_read,
     ]
     started = time.monotonic()
     for test in tests:
