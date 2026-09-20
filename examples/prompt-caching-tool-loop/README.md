@@ -27,11 +27,11 @@ Background: [`knowledge/prompt-caching.md`](../../knowledge/prompt-caching.md),
 
 | File | What it is |
 |------|-----------|
-| `placement.py` | The pure core: `place_breakpoints(messages, budget=...) -> Placement`. Deep-copies, validates at the boundary, inserts at most `budget` markers. No `anthropic` import, no I/O, no env, no clock. |
+| `placement.py` | The pure core: `place_breakpoints(messages, budget=..., ttl=...) -> Placement`. Deep-copies, validates at the boundary, inserts at most `budget` markers. No `anthropic` import, no I/O, no env, no clock. |
 | `report.py` | The pure saving math: `summarize(turn1, turn2, base_usd_per_mtok=...) -> Saving` and `render(saving) -> str`. The price itself is *not* here — it is passed in. |
 | `main.py` | The imperative shell. The only file that imports the SDK (lazily), reads the key, or prints. Builds the byte-stable prefix, makes the two billed calls, asserts the cache hit. |
-| `test_placement.py` | Offline self-test: 23 assertions on placement and the two static breakpoints. |
-| `test_report.py` | Offline self-test: 17 assertions on the arithmetic, the `usage` adapter, the two-turn run against a fake client, and the no-key path. |
+| `test_placement.py` | Offline self-test: 30 assertions on placement, the two static breakpoints, and the TTL wire forms. |
+| `test_report.py` | Offline self-test: 31 assertions on the arithmetic, the write multiplier, the `usage` adapter, the two-turn run against a fake client, and the no-key path. |
 | `requirements.txt` | `anthropic==1.2.0` — for the **live run only**. |
 
 ## Where the four breakpoints go
@@ -79,7 +79,7 @@ and still send exactly the markers this policy placed. Without that strip the
 moved tail's old marker orphans behind it, and a five-turn loop sends five
 breakpoints against a cap of four. The flip side: this module owns
 `cache_control` inside `messages`, so a marker you set yourself — including the
-out-of-scope `ttl: "1h"` form — does not survive.
+a marker at a different TTL — does not survive.
 
 ## Proving the saving: three counters, one identity
 
@@ -103,7 +103,7 @@ Priced off the model's base *input* rate:
 | What | Multiplier |
 |---|---|
 | 5-minute cache **write** | 1.25× (a 25% premium, paid once) |
-| 1-hour cache write | 2× (out of scope here) |
+| 1-hour cache write | 2× (`ttl=CACHE_TTL_1H`) |
 | cache **read**, either TTL | 0.10× |
 | uncached input | 1× |
 
@@ -351,11 +351,17 @@ API rejects it anyway).
   of the four slots. This example uses explicit block-level markers instead, so
   the placement policy is visible, testable and pure — but if you want the
   rolling marker and nothing else, the kwarg is the shorter road.
-- **The 1-hour TTL is out of scope.** `{"type": "ephemeral", "ttl": "1h"}`
-  writes at 2× instead of 1.25× and reads at the same 0.10×. Neither TTL needs a
-  beta header any more. When it is in use, `usage.cache_creation` carries a
-  nested `ephemeral_5m_input_tokens` / `ephemeral_1h_input_tokens` breakdown;
-  `report.py` reads only the flat `cache_creation_input_tokens`.
+- **The 1-hour TTL is supported, and off by default.** `{"type": "ephemeral",
+  "ttl": "1h"}` writes at 2× instead of 1.25× and reads at the same 0.10×, so it
+  pays back only over a longer gap between turns. Pass `ttl=CACHE_TTL_1H` to
+  `place_breakpoints`; the default `CACHE_TTL_5M` emits `{"type": "ephemeral"}`
+  with no `ttl` key at all, byte-identical to what this module sent before the
+  parameter existed. Neither TTL needs a beta header any more. `report.py` reads
+  `usage.cache_creation`'s nested `ephemeral_5m_input_tokens` /
+  `ephemeral_1h_input_tokens` breakdown, so a `ttl="1h"` request is *proven* to
+  have billed at 1h rather than assumed from the request shape. What stays out
+  of scope is **mixing** TTLs within one request: `ttl` applies to every marker
+  a given call places.
 - **Server tool results** (web search, code execution) get an *automatic*
   breakpoint on the tool result before the next loop iteration — but only if the
   request already carries at least one `cache_control` marker, and always at the

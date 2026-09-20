@@ -174,7 +174,7 @@ Both are small; a builder can reasonably take them in one cycle.
   against `knowledge/context-editing.md` and the `claude-api` skill first, and
   note whether `count_tokens` needs real thinking blocks in the input or accepts
   synthetic ones.
-- [researching] 1-hour cache TTL support in `examples/prompt-caching-tool-loop/`.
+- [building] 1-hour cache TTL support in `examples/prompt-caching-tool-loop/`.
   Both `placement.py`'s module docstring and the README footnote name the
   1-hour TTL (`{"type": "ephemeral", "ttl": "1h"}`, a 2x write multiplier
   instead of 1.25x) as explicitly out of scope, and PR #40's own research note
