@@ -107,7 +107,23 @@ measured your model.
 **modifies the messages prefix and invalidates the cache from the edit point
 forward**. That is exactly why `clear_at_least` exists (clear enough that the
 forced re-write pays for itself). In a long loop the two features pull against
-each other and the lab does not yet measure the net effect.
+each other.
+
+- **Scope of the loss:** only the `messages`-level breakpoints — the ordered
+  prefix is `tools` → `system` → `messages`, and the clear touches only
+  `messages`, so tools+system still read back on the clearing turn.
+- **Payback:** with `removed` = tokens cleared and `rewritten` =
+  `cache_creation_input_tokens` on the clearing turn,
+  **`payback_turns ≈ 11.5 × rewritten / removed`** (one-time cost
+  `rewritten × 1.15 × base` against `removed × 0.10 × base` saved per later
+  turn). Tune `clear_at_least` so `removed ≫ rewritten`.
+- **Placement:** once history passes the 20-block lookback, put the anchor
+  breakpoint on the first message that survives clearing (start of the
+  `keep`-th-from-last tool pair), **not** on `messages[0]` — the head region
+  becomes placeholder text every clearing turn, so a head anchor is a
+  guaranteed miss and a wasted slot.
+- Derived from docs, measured by `examples/context-editing-cache-tradeoff/`
+  (proposed 2026-09-07); until that lands these numbers are predictions.
 
 Related: [[tool-use-loop]], [[context-editing]], [[anthropic-models]],
 [[anthropic-python-sdk]]

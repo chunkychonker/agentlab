@@ -1,0 +1,15 @@
+# Only needed for the live run (python3 main.py with ANTHROPIC_API_KEY set).
+# Both offline self-tests (python3 test_compose.py, python3 test_payback.py)
+# need nothing beyond the stdlib.
+#
+# Pinned: 1.4.0 is the newest 1.x release (confirmed against PyPI on
+# 2026-09-07, which also lists 1.3.0, 1.2.0, 1.1.0 and 1.0.0). The response
+# fields this example reads - `usage.cache_creation_input_tokens`,
+# `usage.cache_read_input_tokens`, `usage.input_tokens`, and
+# `context_management.applied_edits[*].cleared_input_tokens` /
+# `.cleared_tool_uses` - are unchanged from the 0.x line, and the shell reads
+# each through one adapter so a rename raises rather than reporting a free
+# clear. Sibling examples pin differently (`prompt-caching-tool-loop` 1.2.0,
+# `context-editing-preview` 0.121.0); they are separate examples with their own
+# virtualenvs, so the pins do not have to agree.
+anthropic==1.4.0
