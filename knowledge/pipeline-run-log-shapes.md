@@ -102,3 +102,9 @@ pipeline-observer here.
   cycle can silently lose (a `BACKLOG.md` claim, not a log's closing line)
 - [[bash-3.2-testable-scripts]] — the environment constraint (bash 3.2 only)
   this experiment and any classifier built from it must respect
+- [[network-preflight-retry]] — a confirmed concrete instance of the
+  "a line sitting mid-file is routinely about a different night" gotcha above:
+  `grep -l "NETWORK UNREACHABLE" logs/run-*.log` matches
+  `run-2026-09-02_134705.log` even though that night's own preflight passed —
+  the pipeline-observer phase was quoting `run-2026-08-31`'s closing line into
+  its own report
