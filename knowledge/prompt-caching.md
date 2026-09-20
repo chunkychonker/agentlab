@@ -62,14 +62,41 @@ markers are the safe, long-stable choice.
   prompt.
 - Identity: `total_input = cache_read + cache_creation + input_tokens`.
 - 1-hour TTL adds nested `cache_creation.{ephemeral_5m_input_tokens,
-  ephemeral_1h_input_tokens}`.
+  ephemeral_1h_input_tokens}`, and docs state `cache_creation_input_tokens`
+  "equals the sum of the values in the `cache_creation` object" — so pricing a
+  single-TTL run never actually needs the nested object; the flat counter
+  times the right multiplier is already correct. The nested object's only job
+  is **proof**: reading it back confirms a `ttl: "1h"` request actually billed
+  at 1h rather than trusting the request shape alone.
 
 Turn 1 writes (`creation > 0`, `read == 0`); turn 2 within the TTL, same
 tools+system, grown messages, reads it back (`read ≈ turn-1 creation`).
 
 **Pricing multipliers on base input rate:** 5-min write **1.25×**, 1-h write 2×,
 read (either) **0.10×**. A re-read costs 10% of fresh; the write is a one-time
-25% premium — 5-min caching breaks even in under two reads.
+25% premium — 5-min caching breaks even in under two reads. Fable 5.1 / Mythos
+5.1 use a different 0.025× read rate; irrelevant to Sonnet/Opus/Haiku.
+
+**TTL wire form, re-verified 2026-09-16 (unchanged since 2026-08-29):** `ttl`
+is the string `"1h"` or, implicitly, `"5m"` by omitting the key — I could not
+find the explicit string `"5m"` used anywhere in the docs' own examples, only
+inferred from "omitting `ttl` defaults to 5 minutes," so treat the omitted
+form as the only verified 5-minute shape. One low-quality secondary source
+(a April-2026 blog post) shows `"ttl": 3600` (an integer, seconds) for the
+1-hour case; that does not match the docs, verified twice independently on
+2026-09-16 via two separate fetches of the same page — treat it as that
+author's own error, not a real accepted form.
+
+**Practitioner gotcha (not a wire-format issue):**
+[anthropics/claude-code#46829](https://github.com/anthropics/claude-code/issues/46829)
+(filed 2026-04-12, closed "not planned") found Claude Code's own CLI sessions
+used 1-hour-TTL writes almost exclusively Feb 1–Mar 5 2026, then silently
+reverted to mostly-5-minute writes from Mar 8 onward — never announced, ~17%
+cache-write overpayment for that user across three months. This is about
+Claude Code's own internal default, not the public `cache_control.ttl`
+request parameter documented above (which is unchanged and always opt-in) —
+but it's a real caveat: no client, including Anthropic's own, can be assumed
+to pick the longer TTL for you.
 
 **Cannot be previewed for $0.** `count_tokens` runs no caching logic and returns
 no cache fields (see [[context-editing]]); you need one real generation pair.

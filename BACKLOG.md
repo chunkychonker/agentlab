@@ -174,6 +174,27 @@ Both are small; a builder can reasonably take them in one cycle.
   against `knowledge/context-editing.md` and the `claude-api` skill first, and
   note whether `count_tokens` needs real thinking blocks in the input or accepts
   synthetic ones.
+- [building] 1-hour cache TTL support in `examples/prompt-caching-tool-loop/`.
+  Both `placement.py`'s module docstring and the README footnote name the
+  1-hour TTL (`{"type": "ephemeral", "ttl": "1h"}`, a 2x write multiplier
+  instead of 1.25x) as explicitly out of scope, and PR #40's own research note
+  names the same thing out of scope for the context-editing-tradeoff work, so
+  it's genuinely untouched. Filed by the researcher on 2026-09-16 because the
+  Coding agents / Skills / MCP sections above had no plain `[ ]` item left —
+  every remaining entry there is `[done #N]` or a `[stranded cycle/...]` claim
+  that a `git diff` against its branch showed was already fully researched
+  and built, just unshipped by a session-limit-killed cycle (see
+  `logs/last-health.md`). Increment: add a `ttl` keyword-only parameter to
+  `place_breakpoints` (default unchanged, byte-identical marker); price the
+  2x-vs-1.25x write with a `write_multiplier` field on `report.Saving` instead
+  of the hardcoded constant; read `usage.cache_creation`'s nested
+  `ephemeral_5m_input_tokens`/`ephemeral_1h_input_tokens` to *prove* a
+  `ttl="1h"` request actually billed at 1h rather than assuming the request
+  shape was enough. Offline tests extend the existing 23+17 assertions in
+  `test_placement.py`/`test_report.py` (no key, no network); one cheap live
+  run captures a second dated transcript next to the existing 2026-08-31 one
+  so the README shows both real TTL tradeoffs side by side. See
+  `research/2026-09-16-prompt-caching-1h-ttl.md`.
 
 ## Pipeline & repo hygiene
 - [done #41] Teach the health check to run

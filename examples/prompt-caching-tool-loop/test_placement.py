@@ -19,11 +19,21 @@ Each test maps to an acceptance criterion from the research note
   P8. boundary failures         -> ValueError / TypeError, never a silent skip
   P9. the static breakpoints    -> system and tools carry exactly one each, the
                                    prefix is byte-stable, and all four fit the cap
+
+and from research/2026-09-16-prompt-caching-1h-ttl.md:
+
+  P10. the TTL parameter        -> the default is byte-identical to the
+                                   pre-TTL marker, `1h` marks every block it
+                                   places, and an unknown TTL raises before
+                                   anything is copied
+  P11. one TTL per request      -> all four breakpoints of a 1-hour run carry
+                                   the same `ttl`; mixing is out of scope
 """
 
 from __future__ import annotations
 
 import copy
+import json
 import sys
 import time
 
@@ -492,6 +502,172 @@ def test_all_four_breakpoints_of_a_live_request_fit_the_cap():
 
 
 # --------------------------------------------------------------------------- #
+# P10-P11: the TTL parameter (research/2026-09-16-prompt-caching-1h-ttl.md)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_default_ttl_is_the_pre_ttl_marker_byte_for_byte():
+    """P10: the regression guard - adding the knob must not move the default wire.
+
+    `{"type": "ephemeral"}` with no `ttl` key is the only 5-minute form the docs
+    show. An explicit `"ttl": "5m"` would be an unverified wire form *and* would
+    change the hashed prefix of every caller that never asked for a TTL.
+    """
+    messages = _tool_loop(rounds=7)
+
+    implicit = placement.place_breakpoints(messages, budget=2)
+    explicit = placement.place_breakpoints(messages, budget=2, ttl=placement.CACHE_TTL_5M)
+
+    assert implicit.messages == explicit.messages
+    assert _marked_positions(implicit.messages) == _marked_positions(explicit.messages)
+    for placed in (implicit, explicit):
+        for message_index, block_index in _marked_positions(placed.messages):
+            marker = placed.messages[message_index]["content"][block_index][
+                placement.CACHE_CONTROL_KEY
+            ]
+            assert marker == {"type": "ephemeral"}, marker
+            assert placement.TTL_KEY not in marker, marker
+    print("ok  the default TTL is the pre-TTL marker byte for byte, with no ttl key")
+
+
+def test_the_one_hour_ttl_marks_every_block_this_call_marks():
+    """P10: both breakpoints, not just the rolling one - and as a plain JSON str."""
+    messages = _tool_loop(rounds=7)  # 22 blocks: past the lookback, so two markers
+
+    placed = placement.place_breakpoints(messages, budget=2, ttl=placement.CACHE_TTL_1H)
+
+    positions = _marked_positions(placed.messages)
+    assert placed.marker_count == 2, placed.marker_count
+    assert len(positions) == 2, positions
+    for message_index, block_index in positions:
+        marker = placed.messages[message_index]["content"][block_index][
+            placement.CACHE_CONTROL_KEY
+        ]
+        assert marker == {"type": "ephemeral", "ttl": "1h"}, marker
+        # It goes on the wire as JSON, so the enum must not leak into the body.
+        assert json.loads(json.dumps(marker)) == {"type": "ephemeral", "ttl": "1h"}
+        assert type(marker[placement.TTL_KEY]) is str, type(marker[placement.TTL_KEY])
+    print("ok  the 1-hour TTL marks every block it places, as a plain JSON string")
+
+
+def test_an_unknown_ttl_is_rejected_before_anything_is_copied():
+    """P10: a typo'd TTL is a silent 5-minute bill otherwise - the exact failure
+    the research note's practitioner source describes."""
+    messages = _tool_loop(rounds=3)
+    before = copy.deepcopy(messages)
+
+    for bad in ("1 hour", "3600", "1H", "5 minutes", "", 3600, None):
+        _rejects(
+            ValueError,
+            lambda bad=bad: placement.place_breakpoints(messages, budget=2, ttl=bad),
+            f"ttl={bad!r}",
+        )
+        _rejects(
+            ValueError,
+            lambda bad=bad: placement.ephemeral_marker(bad),
+            f"ephemeral_marker({bad!r})",
+        )
+    assert messages == before, "a rejected call still touched the caller's list"
+
+    # And the message names what would have been accepted, rather than just failing.
+    try:
+        placement.place_breakpoints(messages, budget=2, ttl="1 hour")
+    except ValueError as exc:
+        assert "'5m'" in str(exc) and "'1h'" in str(exc), str(exc)
+    print("ok  an unknown ttl raises ValueError naming both accepted values")
+
+
+def test_a_ttl_marker_is_a_fresh_dict_not_a_shared_one():
+    """P10: same aliasing guard as `EPHEMERAL`, now for the 1-hour form too."""
+    first = placement.ephemeral_marker(placement.CACHE_TTL_1H)
+    second = placement.ephemeral_marker(placement.CACHE_TTL_1H)
+
+    assert first == second
+    assert first is not second
+    first["ttl"] = "mutated"
+    assert placement.ephemeral_marker(placement.CACHE_TTL_1H)["ttl"] == "1h"
+    assert placement.ephemeral_marker(placement.CACHE_TTL_5M) == placement.EPHEMERAL
+    assert placement.ephemeral_marker(placement.CACHE_TTL_5M) is not placement.EPHEMERAL
+    print("ok  every marker is a fresh dict, so no edit reaches the constants")
+
+
+def test_a_marker_at_another_ttl_does_not_survive_re_placement():
+    """P10: this module owns `cache_control` in `messages` - including its TTL.
+
+    A caller that hand-marked a block at 1 hour and then runs the default policy
+    must not keep a stray 1-hour breakpoint, or one request would carry two TTLs
+    and the write would be billed at two multipliers.
+    """
+    messages = _tool_loop(rounds=7)
+    messages[0]["content"] = [
+        {
+            "type": "text",
+            "text": "hand-marked",
+            placement.CACHE_CONTROL_KEY: {"type": "ephemeral", "ttl": "1h"},
+        }
+    ]
+
+    placed = placement.place_breakpoints(messages, budget=1)
+
+    markers = [
+        placed.messages[m]["content"][b][placement.CACHE_CONTROL_KEY]
+        for m, b in _marked_positions(placed.messages)
+    ]
+    assert placed.marker_count == 1, placed.marker_count
+    assert markers == [{"type": "ephemeral"}], markers
+    print("ok  a hand-placed marker at another TTL is stripped, not inherited")
+
+
+def test_all_four_breakpoints_of_a_one_hour_run_share_one_ttl():
+    """P11: mixing TTLs is out of scope, so the whole request must agree.
+
+    The static tools and system breakpoints carry the bulk of the cached prefix;
+    if they stayed at 5 minutes while the message markers went to 1 hour, turn
+    1's write would land mostly in `ephemeral_5m_input_tokens` and the run would
+    pay 2x prices on a 5-minute entry.
+    """
+    ttl = placement.CACHE_TTL_1H
+    expected = {"type": "ephemeral", "ttl": "1h"}
+
+    system = main.build_system(ttl=ttl)
+    tools = main.build_tools(ttl=ttl)
+    placed = placement.place_breakpoints(
+        _tool_loop(rounds=7), budget=main.MESSAGES_BUDGET, ttl=ttl
+    )
+
+    markers = [block[placement.CACHE_CONTROL_KEY] for block in system]
+    markers += [
+        tool[placement.CACHE_CONTROL_KEY]
+        for tool in tools
+        if placement.CACHE_CONTROL_KEY in tool
+    ]
+    markers += [
+        placed.messages[m]["content"][b][placement.CACHE_CONTROL_KEY]
+        for m, b in _marked_positions(placed.messages)
+    ]
+
+    assert len(markers) == placement.MAX_BREAKPOINTS, len(markers)
+    assert all(marker == expected for marker in markers), markers
+    # And the default still builds the four 5-minute markers it always did.
+    assert main.build_system()[0][placement.CACHE_CONTROL_KEY] == {"type": "ephemeral"}
+    assert main.build_tools()[-1][placement.CACHE_CONTROL_KEY] == {"type": "ephemeral"}
+    print("ok  all four breakpoints of a 1-hour run carry the same ttl")
+
+
+def test_the_cached_prefix_bytes_do_not_change_with_the_ttl():
+    """P11: only the marker moves - the cached text itself is TTL-independent."""
+    five = main.build_system(ttl=placement.CACHE_TTL_5M)
+    hour = main.build_system(ttl=placement.CACHE_TTL_1H)
+
+    assert five[0]["text"] == hour[0]["text"]
+    assert [tool["name"] for tool in main.build_tools(ttl=placement.CACHE_TTL_1H)] == [
+        tool["name"] for tool in main.build_tools(ttl=placement.CACHE_TTL_5M)
+    ]
+    assert five[0][placement.CACHE_CONTROL_KEY] != hour[0][placement.CACHE_CONTROL_KEY]
+    print("ok  the TTL changes the marker and nothing else about the prefix")
+
+
+# --------------------------------------------------------------------------- #
 
 
 def main_() -> int:
@@ -519,6 +695,13 @@ def main_() -> int:
         test_only_the_last_tool_carries_the_tools_breakpoint,
         test_the_static_prefix_is_byte_stable,
         test_all_four_breakpoints_of_a_live_request_fit_the_cap,
+        test_the_default_ttl_is_the_pre_ttl_marker_byte_for_byte,
+        test_the_one_hour_ttl_marks_every_block_this_call_marks,
+        test_an_unknown_ttl_is_rejected_before_anything_is_copied,
+        test_a_ttl_marker_is_a_fresh_dict_not_a_shared_one,
+        test_a_marker_at_another_ttl_does_not_survive_re_placement,
+        test_all_four_breakpoints_of_a_one_hour_run_share_one_ttl,
+        test_the_cached_prefix_bytes_do_not_change_with_the_ttl,
     ]
     started = time.monotonic()
     for test in tests:

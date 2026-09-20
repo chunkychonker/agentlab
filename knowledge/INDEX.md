@@ -61,7 +61,11 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   `cache_creation_input_tokens` / `cache_read_input_tokens` / `input_tokens`
   identity and the 1.25×/0.10× multipliers, why `count_tokens` can't preview it
   for $0, the practitioner cache-killers (incl. parallel fan-out sharing a
-  prefix — N writes, 0 reads), and the direct tension with [[context-editing]]
+  prefix — N writes, 0 reads), the direct tension with [[context-editing]],
+  and the 1-hour TTL's `"5m"`/`"1h"` string wire form, 2× write multiplier,
+  the nested `cache_creation.ephemeral_{5m,1h}_input_tokens` proof-not-pricing
+  role, and the Claude-Code-CLI-default practitioner gotcha (re-verified
+  2026-09-16, unchanged since 2026-08-29)
 
 ## Skills
 - [[agent-skills]] — `SKILL.md` anatomy: progressive disclosure (3 load
