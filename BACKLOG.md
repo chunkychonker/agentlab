@@ -261,3 +261,36 @@ Full detail is in the dated `logs/lab-health-*.log` for that date.
 - [ ] fix (health 2026-09-15): BACKLOG.md:216 marked [building], shipped in PR #42 (merged 2026-09-10, branch cycle/2026-09-10-backlog-mark-done-reconcile) — never advanced to [done #42]. This line is itself a health finding about PR #37 that its own fix (PR #42) should have closed but couldn't reconcile in its own cycle; the 2026-09-13 health check alread...
 - [ ] fix (health 2026-09-15): no run log for 2026-09-04
 - [ ] fix (health 2026-09-15): no run log for 2026-09-06
+
+## Stranded work (unshipped branches)
+Appended by `.pipeline/run.sh` when a failed cycle's claim names an item
+that is not on main — the researcher wrote the topic and the claim in one
+edit, so main never had it. The branch holds the work; salvaging it is a
+human's call.
+- [stranded cycle/2026-09-12-unshipped-024106-1] MCP's other transport: Streamable HTTP, not stdio. Every MCP example
+  in the lab so far (`mcp-hello-world`, and the two stranded `mcp-prompts` /
+  `mcp-resources-claude-code` items above) either uses stdio or bypasses the wire
+  entirely via the SDK's in-memory `Client`; `mcp-hello-world/README.md` names
+  "HTTP transports (streamable-http, sse)" explicitly out of scope. Increment: a
+  server exposed over Streamable HTTP instead, proven at the actual wire level —
+  session-ID issuance, JSON vs SSE response framing, the DNS-rebinding
+  Host-header check — via `httpx2.ASGITransport` wired directly to
+  `MCPServer.streamable_http_app()`, no real socket, no live network, no key.
+  See `research/2026-09-12-mcp-streamable-http.md`.
+- [stranded cycle/2026-09-16-unshipped-023645-2] Manifest formats beyond `requirements.txt`/`package.json` for the
+  dependency-pin scanner. `examples/skill-script-execution/README.md` names this
+  explicitly out of scope ("Manifest formats beyond requirements.txt/package.json
+  (e.g. Cargo.toml, go.mod) — a natural follow-up, not this cycle's scope").
+  Increment: teach `scan_dependencies.py` a `scan_cargo_toml` case (stdlib
+  `tomllib`, Python ≥3.11, no new dependency) covering `[dependencies]`,
+  `[dev-dependencies]`, `[build-dependencies]`; only an explicit `=`-prefixed
+  exact requirement counts as pinned — a bare or `^`-prefixed version defaults
+  to Cargo's caret range, the same "not actually pinned" trap `package.json`'s
+  bare-semver case already covers for npm. `{ path = ... }`/`{ git = ... }`/
+  `{ workspace = true }` table entries have no meaningful semver pin to
+  evaluate and are skipped silently, same precedent as `requirements.txt`'s
+  comment/`-r` lines. go.mod stays out of scope: Go's module file has no
+  floating-range syntax, so the pinned-vs-unpinned question doesn't apply
+  there. Offline self-test only, extending `test_scan_dependencies.py`'s
+  existing pattern — no API key, no network. See
+  `research/2026-09-16-cargo-toml-dependency-scan.md`.
