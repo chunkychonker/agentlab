@@ -41,13 +41,45 @@ the night did not run — say what you actually observed.
 ## What you check
 
 ### 1. Run outcomes
-For each run log in the window, determine how the night ended:
+The phase prompt hands you a **MANIFEST**: one `<basename>|<STATE>|<reason>`
+line per run log in the window, precomputed by `.pipeline/run_log.sh` from each
+log's last content line. Those states are the ground truth for this section —
+do not re-derive them by re-reading each file, and do not contradict one
+without naming the line of the file you are contradicting it with. Split each
+line on its first two `|` only: a reason can itself contain `|`.
+
 - **OK** — reached `=== done <TS> ===` and shipped every cycle
   (`shipped N/N`). Record it; it is not a finding.
-- **PARTIAL** — reached `=== done <TS> ===` but `shipped X/N` with `X < N`.
-  State which cycle didn't ship and why, from the log.
-- **ABORTED** — never reached `=== done`. State the last thing it did and the
-  abort message (the script's abort lines end with `Aborting.`).
+- **PARTIAL** — reached `=== done <TS> ===` but `shipped X/N` with `X < N`. The
+  reason carries only the counts, so open the log to say which cycle didn't
+  ship and why.
+- **ABORTED** — the last content line is not a parseable `=== done` line. There
+  are **two sub-shapes**, and the difference is the whole reason this is
+  precomputed:
+  - **aborted with a message** — the run printed something before it stopped: a
+    preflight refusal (those lines do end with `Aborting.`), a
+    `phase '<name>' exited non-zero — see <log>` line, or arbitrary phase
+    output. The manifest's reason quotes that last line verbatim.
+  - **aborted silently** — the last content line is a
+    `--- phase: <name> (model: <model>) ---` announcement with *nothing after
+    it at all*, and the file contains no `Aborting.` anywhere. Nothing printed a
+    reason because nothing was left running to print one. Real instance:
+    `run-2026-08-29_114701.log`, documented in
+    `knowledge/pipeline-run-log-shapes.md`. "Phase X started, nothing followed"
+    IS the finding — report it as that. Do not hunt for an abort message that
+    does not exist, and do not guess at what killed it.
+- **UNREADABLE** or **UNDATED** — the classifier could not judge that file at
+  all (it could not be read, or its name carries no date to compare against the
+  cutoff). These are the only lines in the manifest that oblige you to open the
+  file yourself for section 1 — or to say plainly that you could not.
+
+Two prompts carry no manifest and say so in as many words: the window was
+**EMPTY** (report zero runs examined; do not widen it), or the manifest could
+not be built (read `logs/run-*.log` in the window yourself this time). There is
+no third case — if you see a MANIFEST, use it.
+
+Sections 2–4 below need more than a one-line reason carries — the cause text,
+the failing phase's surroundings, claim state — so open the logs for those.
 
 A cycle that did not ship because the reviewer wrote `VERDICT: FAIL` is the
 gate working correctly. Record it as PARTIAL, but say plainly in the reason

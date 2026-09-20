@@ -185,7 +185,10 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   the empirical result (bash 3.2, this machine) that a `trap` cannot fix the
   silent shape because bash defers a pending trap until the foreground child
   it's blocked on returns — and can never fire against a same-process-group
-  `SIGKILL` at all
+  `SIGKILL` at all. Plus what's still not mechanical as of 2026-09-20: the
+  classifier is built and tested but unwired (`run.sh` never sources it, the
+  agent doc still states the disproven claim, nothing parses a `run-*.log`
+  filename's date against a cutoff in code)
 - [[network-preflight-retry]] — why `curl --retry`/`--retry-all-errors` don't
   fit the nightly network preflight's actual failure shape (DNS/connection
   failure, not an HTTP error code) and curl's own docs recommend scripting it

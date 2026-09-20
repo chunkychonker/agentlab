@@ -59,7 +59,7 @@ export CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0
 
 echo "=== agentlab pipeline $TS ===" | tee -a "$LOG"
 
-# The backlog file the demo track draws from, and the eight libraries holding
+# The backlog file the demo track draws from, and the nine libraries holding
 # this script's decision logic: backlog.sh (is the queue stocked, is a claim
 # stranded, has this finding been filed), verdict.sh (does the review authorise
 # shipping), health.sh (what did the health check actually find),
@@ -67,13 +67,16 @@ echo "=== agentlab pipeline $TS ===" | tee -a "$LOG"
 # preflight.sh (what does a dirty main mean), postcondition.sh (did a phase
 # actually produce the artifact the next one needs),
 # schedule.sh (does the clock say tonight's run should happen at all),
-# network_retry.sh (is another network probe owed, and after how long).
-# All eight live outside this script so they can be unit-tested offline
-# (`bash .pipeline/test_backlog.sh`, `bash .pipeline/test_gates.sh`) instead of
-# only being exercised on the rare night each gate fires. Sourcing defines
-# functions and constants only — it runs nothing and prints nothing.
+# network_retry.sh (is another network probe owed, and after how long),
+# run_log.sh (how did each past run END — the structural OK/PARTIAL/ABORTED
+# reading the pipeline-observer phase used to re-derive by eye every run).
+# All nine live outside this script so they can be unit-tested offline
+# (`bash .pipeline/test_backlog.sh`, `bash .pipeline/test_gates.sh`,
+# `bash .pipeline/test_run_log.sh`) instead of only being exercised on the rare
+# night each gate fires. Sourcing defines functions and constants only — it
+# runs nothing and prints nothing.
 BACKLOG_FILE="BACKLOG.md"
-for lib in backlog verdict health pipeline_health preflight postcondition schedule network_retry; do
+for lib in backlog verdict health pipeline_health preflight postcondition schedule network_retry run_log; do
   if [ ! -r "$REPO/.pipeline/$lib.sh" ]; then
     echo "MISSING $REPO/.pipeline/$lib.sh — required. Aborting." | tee -a "$LOG"
     exit 1
@@ -996,10 +999,39 @@ if [ -n "$LAST_PIPELINE_LOG" ]; then
 fi
 if [ "$RUN_PIPELINE_OBS" -eq 1 ]; then
   rm -f "$PIPELINE_SNAPSHOT_FILE"
+
+  # Precompute the window's run outcomes instead of paying a model to re-derive
+  # them. run_log_manifest (.pipeline/run_log.sh) lists the same set this
+  # phase's prompt has always promised to cover — logs/run-*.log on or after
+  # $PIPE_CUTOFF, minus this run's own still-open log — and classifies each one
+  # structurally. That is the mechanical half of section 1 of the observer's
+  # report, and the half it kept running out of session budget on.
+  #
+  # Three distinct prompts follow, because "no run log in range" and "the
+  # listing could not be trusted" must not read the same to the subagent: on a
+  # non-zero return the prompt falls back to the old read-them-yourself
+  # instruction verbatim, so a broken manifest degrades the phase's cost, never
+  # its coverage. classify_run_log's own stderr goes to this run's log.
+  PIPE_MANIFEST="$(run_log_manifest logs "$PIPE_CUTOFF" "logs/run-$TS.log" 2>>"$LOG")"
+  PIPE_MANIFEST_RC=$?
+  PIPE_RUN_COUNT="$(printf '%s\n' "$PIPE_MANIFEST" | grep -c . )"
+  if [ "$PIPE_MANIFEST_RC" -ne 0 ]; then
+    echo "pipeline observer window: run log manifest unavailable (run_log_manifest rc=$PIPE_MANIFEST_RC, cutoff $PIPE_CUTOFF) — the phase will read the logs itself." | tee -a "$LOG"
+    PIPE_WINDOW="Window: examine logs/run-*.log dated on or after $PIPE_CUTOFF (the literal string ALL means examine every run log present), but EXCLUDE logs/run-$TS.log — that is this run, still in progress, and it has not written its final line yet. (A precomputed OK/PARTIAL/ABORTED manifest was attempted and could not be built: run_log_manifest exited $PIPE_MANIFEST_RC and wrote the reason to logs/run-$TS.log. Read the run logs directly this time.)"
+  elif [ "$PIPE_RUN_COUNT" -eq 0 ]; then
+    echo "pipeline observer window: 0 run logs in scope (cutoff $PIPE_CUTOFF)." | tee -a "$LOG"
+    PIPE_WINDOW="Window: EMPTY. .pipeline/run_log.sh found no logs/run-*.log dated on or after $PIPE_CUTOFF apart from logs/run-$TS.log, which is this run, still in progress, and is excluded. Report 0 runs examined and (none) under Run outcomes, Recurring abort causes and Phase failures rather than widening the window to find something to say; Claim-state drift, Schedule gaps and Quarantined strays do not come from run logs and are still in scope."
+  else
+    echo "pipeline observer window: $PIPE_RUN_COUNT run log(s) classified by .pipeline/run_log.sh (cutoff $PIPE_CUTOFF)." | tee -a "$LOG"
+    PIPE_WINDOW="Window: the $PIPE_RUN_COUNT run log(s) in the MANIFEST below are exactly the logs in scope — logs/run-*.log dated on or after $PIPE_CUTOFF (the literal string ALL means every run log present), with logs/run-$TS.log already excluded because that is this run, still in progress, and it has not written its final line yet. Each manifest line is '<basename>|<STATE>|<reason>', computed by .pipeline/run_log.sh from that log's last content line; split on the first two delimiters only, because a reason can itself contain '|'. STATE is OK, PARTIAL or ABORTED, or — when the classifier could not judge the file at all — UNREADABLE or UNDATED. Use these states as the ground truth for section 1 (Run outcomes) instead of re-deriving them by reading each file; open a run log directly only for what a terse reason cannot carry (the cause text for section 2, the phase-failure specifics for section 3, anything you need for section 4) or when its line says UNREADABLE or UNDATED. MANIFEST BEGIN
+$PIPE_MANIFEST
+MANIFEST END"
+  fi
+
   # phase_no_postcondition: same shape as the health phase — file_pipeline_findings
   # runs only on the success branch and reads the report itself.
   if run_phase sonnet "pipeline observer" phase_no_postcondition \
-    "Use the agentlab-pipeline-observer subagent to observe the pipeline itself. This run's timestamp is $TS — write the dated report to logs/lab-pipeline-$TS.log and the latest-snapshot to logs/last-pipeline-health.md, following the subagent's instructions exactly, including the documented section headings (a script parses that snapshot). Window: examine logs/run-*.log dated on or after $PIPE_CUTOFF (the literal string ALL means examine every run log present), but EXCLUDE logs/run-$TS.log — that is this run, still in progress, and it has not written its final line yet. This must not modify anything under examples/, knowledge/, research/, projects/, .pipeline/, .claude/, or BACKLOG.md, must not commit or push, and must not affect tonight's PRs or merges above."
+    "Use the agentlab-pipeline-observer subagent to observe the pipeline itself. This run's timestamp is $TS — write the dated report to logs/lab-pipeline-$TS.log and the latest-snapshot to logs/last-pipeline-health.md, following the subagent's instructions exactly, including the documented section headings (a script parses that snapshot). $PIPE_WINDOW This must not modify anything under examples/, knowledge/, research/, projects/, .pipeline/, .claude/, or BACKLOG.md, must not commit or push, and must not affect tonight's PRs or merges above."
   then
     # Same rule as the health phase: file only after a phase that exited clean,
     # since a phase that died mid-report leaves a truncated snapshot and filing

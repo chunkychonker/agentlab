@@ -93,6 +93,41 @@ would be coupling-by-meaning (CLAUDE.md §2) between two files that are never
 edited together, and is also precisely the assumption that failed the
 pipeline-observer here.
 
+## Not yet wired in (as of 2026-09-20)
+
+`classify_run_log` (above) exists and is fully tested (`bash
+.pipeline/test_run_log.sh`), but three things downstream of it are still
+true, confirmed by direct `grep`, not inference — worth checking whether
+they're still true before assuming this note describes the live system:
+
+- **`run.sh` never sources `run_log.sh`.** Its `for lib in ...` loop lists
+  eight libraries (`backlog verdict health pipeline_health preflight
+  postcondition schedule network_retry`); `run_log` is not one of them, and
+  `test_gates.sh` mentions the file only in a comment, never in a sourced-lib
+  loop or a test case.
+- **`.claude/agents/agentlab-pipeline-observer.md` still states the disproven
+  claim as fact.** Section "1. Run outcomes" says an ABORTED run's "abort
+  message" — universally — is "the script's abort lines end with
+  `Aborting.`" This note's own "The three shapes" section above already shows
+  that's false for the silent sub-shape; the agent's instructions were never
+  updated to say so.
+- **Nothing anywhere parses a `run-*.log` filename's embedded date against a
+  cutoff.** `run.sh` computes `PIPE_CUTOFF` (a date string) for the
+  pipeline-observer's window, but only ever *hands that string to the
+  subagent in its prompt* — the actual filtering of which `logs/run-*.log`
+  files fall in or out of the window is done by the model reading filenames
+  itself, every run. `PIPE_CUTOFF`/`LAST_DATE` date-extraction exists inline
+  for `lab-pipeline-*.log`/`lab-health-*.log` (the two cadence gates), not for
+  `run-*.log`.
+
+See `research/2026-09-20-pipeline-run-log-classifier-wiring.md` for the
+proposed fix (two new functions, `run_log_in_window` and `run_log_manifest`,
+extending `run_log.sh` itself) and PR #44's own research note
+(`research/2026-09-17-pipeline-run-log-classifier.md`) for why this wiring was
+deferred in the first place (it was blocked on PR #36/phase-postconditions
+landing and its `run_phase` signature churn settling — confirmed settled by
+2026-09-20, via `git merge-base --is-ancestor` against `main`).
+
 ## Related
 
 - [[health-finding-parsers]] — the sibling case: a parser/producer contract

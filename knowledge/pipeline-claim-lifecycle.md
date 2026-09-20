@@ -154,7 +154,16 @@ parent and the same first-parent diff still describes what the PR added.
 **What it still does not cover.** A PR that auto-merge declined (conflict, or
 `mergeable=UNKNOWN`) and a human merged later never reaches this call site, so
 its item stays `[building]` until the observer re-files it. A periodic
-`gh pr list --state merged` sweep is the deferred follow-up. And exactly one PR
+`gh pr list --state merged` sweep is the deferred follow-up. (Observed
+2026-09-20: exactly this — four items, `strict: true` tool schemas, the
+`clear_thinking_20251015` preview, the 1-hour cache TTL, and the network-
+preflight retry, were built on branches later merged by hand as PRs #46-#49
+through an out-of-band "salvage" workflow rather than `run.sh`'s own
+auto-merge path. All four stayed `[building]`/`[ ]` in `BACKLOG.md` until a
+separate hand-written `chore(backlog): mark the four salvaged items done
+(#46-#49)` commit fixed them — the sweep this paragraph already predicted is
+still the deferred follow-up, now with a second confirmed instance.) And
+exactly one PR
 could never be fixed by its own code: the one that introduced it, because
 `run_cycle` was already parsed into the running shell before the new call site
 existed on disk — that last one took the same hand-written mark-done commit as
