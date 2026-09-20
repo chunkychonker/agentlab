@@ -40,6 +40,23 @@ LOG="logs/run-$TS.log"
 # silently re-price the nightly job. See run_phase for which phase gets which.
 CLAUDE="claude -p --permission-mode bypassPermissions"
 
+# Wait for background tasks instead of killing them at the 600s default.
+#
+# The default terminates a phase's own subagent mid-flight and STILL exits 0,
+# so the phase reports success having written nothing — the exact shape
+# postcondition.sh was built to catch. It caught it; the underlying kill was
+# never turned off. Five nights lost whole cycles to this: 2026-08-29,
+# 09-01 (three phases), 09-13 and 09-14 (both cycles each). The health check
+# filed the error text verbatim, and the text names its own fix.
+#
+# 0 means wait indefinitely. That is the right value here and not a risk worth
+# bounding: the only thing this job runs is its own subagents, launchd starts
+# it once a night, and the run window gate above already refuses a start that
+# would spill into the working day. A phase that genuinely hangs is a hung
+# night, which is visible in the log the next morning — strictly better than a
+# phase that is killed and reports success.
+export CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0
+
 echo "=== agentlab pipeline $TS ===" | tee -a "$LOG"
 
 # The backlog file the demo track draws from, and the seven libraries holding

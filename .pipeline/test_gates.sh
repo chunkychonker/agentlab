@@ -945,6 +945,31 @@ assert_eq "R11" "1" \
   "$(grep -c 'EXCLUDE logs/run-\$TS.log' "$RUN_SH")" \
   "the observer phase prompt excludes this run's own in-progress log"
 
+# The 600s background-task ceiling kills a phase's subagent mid-flight and
+# still exits 0, so the phase reports success having produced nothing. The
+# postcondition gates catch that; this turns off the thing they are catching.
+# Pinned here because the symptom is indistinguishable from a slow night and
+# the only evidence is one line buried in a log nobody reads until the health
+# check runs a week later.
+#
+# It must be `export`ed, not merely assigned: the phase runs in a child
+# process, and a bare assignment would leave the child on the default with
+# nothing in the run log saying so.
+assert_eq "R15" "1" \
+  "$(grep -c '^export CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0$' "$RUN_SH")" \
+  "run.sh exports CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0, so no phase is killed at 600s"
+
+# Exported before the first phase can run, not merely somewhere in the file:
+# an export placed below run_phase's first call site would leave the early
+# phases on the default and be invisible in every log.
+ceiling_ln="$(grep -n '^export CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0$' "$RUN_SH" | head -1 | cut -d: -f1)"
+runphase_ln="$(grep -n '^run_phase () {' "$RUN_SH" | head -1 | cut -d: -f1)"
+if [ -n "$ceiling_ln" ] && [ -n "$runphase_ln" ] && [ "$ceiling_ln" -lt "$runphase_ln" ]; then
+  pass "R16" "the ceiling is exported (line $ceiling_ln) before run_phase is defined (line $runphase_ln)"
+else
+  fail "R16" "the ceiling export does not precede run_phase: export=$ceiling_ln, run_phase=$runphase_ln"
+fi
+
 # The preflight must classify BEFORE scrub_artifacts runs: the scrub is
 # `git clean -fdx`, so a stray still lying in the tree when it fires is deleted
 # rather than rescued. Ordering IS the fix, same as R1.
