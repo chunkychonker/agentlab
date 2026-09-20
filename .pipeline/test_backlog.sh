@@ -588,6 +588,140 @@ assert_eq "C32a" "" "$c32_syntax" "bash -n is clean on run.sh, backlog.sh and th
 assert_eq "C32b" "done #" "$BACKLOG_DONE_MARKER_PREFIX" \
   "the done marker is spelled '- [done #N] ', the format the rest of the repo reads"
 
+# --- Stranded claims with no item on main (C33-C40) ------------------------
+#
+# Acceptance criteria for the 2026-09-20 fix to backlog_apply_stranded's dead
+# end. The fixture below is the real 2026-09-12 case: the researcher wrote the
+# topic and its '[researching]' marker in ONE edit, so no commit ever added a
+# '- [ ] ' line for it and main cannot be rewritten to carry the claim. The
+# item text wraps, which is the whole reason backlog_claimed_item exists.
+
+INVENTED_KEY="MCP's other transport: Streamable HTTP, not stdio. Every MCP example"
+INVENTED_REST="  in the lab so far (\`mcp-hello-world\`) either uses stdio or bypasses the
+  wire entirely via the SDK's in-memory \`Client\`."
+INVENTED_BRANCH="cycle/2026-09-12-unshipped-024106-1"
+
+# A diff that ADDS the claim outright — no '-- [ ] ' counterpart, which is
+# exactly what distinguishes this case from C15's.
+INVENTED_DIFF="$(printf '%s\n' \
+  'diff --git a/BACKLOG.md b/BACKLOG.md' \
+  '@@ -100,6 +100,10 @@' \
+  ' ## MCP' \
+  "+- [researching] $INVENTED_KEY" \
+  "+  in the lab so far (\`mcp-hello-world\`) either uses stdio or bypasses the" \
+  "+  wire entirely via the SDK's in-memory \`Client\`." \
+  ' ')"
+
+# --- C33: the whole item comes back, not just its first line ---------------
+
+assert_eq "C33" "$INVENTED_KEY
+$INVENTED_REST" "$(backlog_claimed_item "$INVENTED_DIFF")" \
+  "backlog_claimed_item returns the claim's text plus its indented continuation, marker stripped"
+
+# --- C34: a diff with no claim is 'skip', not 'error' ----------------------
+# Same contract as backlog_claimed_line (C16), so the two stay interchangeable
+# at the call site.
+
+c34_out="$(backlog_claimed_item "$(printf '%s\n' '@@ -1 +1 @@' '-old' '+new')")"
+c34_rc=$?
+assert_eq "C34" "1|" "$c34_rc|$c34_out" \
+  "a diff carrying no claim returns 1 with empty stdout"
+
+# --- C35: a context line ends the item, so unrelated adds are not swallowed -
+
+C35_DIFF="$(printf '%s\n' \
+  "+- [researching] $INVENTED_KEY" \
+  "+  its indented continuation" \
+  '+- [ ] a SEPARATE item added by the same commit')"
+assert_eq "C35" "$INVENTED_KEY
+  its indented continuation" "$(backlog_claimed_item "$C35_DIFF")" \
+  "an added line at column 0 ends the item rather than being read as continuation"
+
+# --- C36: the item is appended, and stays out of the unclaimed count -------
+# The invariant that matters: filing a stranded item must never hand the
+# researcher something to re-pick, or the rebuild this prevents happens anyway.
+
+INVENTED="$WORK/invented.md"
+write_claim_fixture "$INVENTED"
+c36_before="$(backlog_count_unclaimed "$INVENTED")"
+backlog_file_stranded "$INVENTED" "$INVENTED_BRANCH" "$INVENTED_KEY
+$INVENTED_REST"
+c36_rc=$?
+c36_after="$(backlog_count_unclaimed "$INVENTED")"
+c36_line="$(grep -c "^- \[stranded $INVENTED_BRANCH\] $INVENTED_KEY\$" "$INVENTED" || true)"
+c36_cont="$(grep -c "^  wire entirely via the SDK's in-memory" "$INVENTED" || true)"
+assert_eq "C36" "0|$c36_before|1|1" "$c36_rc|$c36_after|$c36_line|$c36_cont" \
+  "the item is filed as [stranded <branch>], carries its continuation, and does not raise the unclaimed count"
+
+# --- C37: the section is created once, not once per item -------------------
+
+backlog_file_stranded "$INVENTED" "cycle/2026-09-16-unshipped-022321-1" \
+  "1-hour cache TTL support in \`examples/prompt-caching-tool-loop/\`."
+c37_rc=$?
+c37_heads="$(grep -c "^$BACKLOG_STRANDED_SECTION\$" "$INVENTED" || true)"
+c37_items="$(grep -c '^- \[stranded cycle/' "$INVENTED" || true)"
+assert_eq "C37" "0|1|2" "$c37_rc|$c37_heads|$c37_items" \
+  "a second filing reuses the existing section heading"
+
+# --- C38: idempotent — the same branch reconciled again changes nothing ----
+# This is the case that runs every night. Without it the file would grow one
+# duplicate item per night per stranded branch, and `git status` would never be
+# clean.
+
+cp "$INVENTED" "$WORK/invented.before"
+backlog_file_stranded "$INVENTED" "$INVENTED_BRANCH" "$INVENTED_KEY
+$INVENTED_REST"
+c38_rc=$?
+if [ "$c38_rc" == "3" ] && diff -q "$WORK/invented.before" "$INVENTED" >/dev/null; then
+  pass "C38" "re-filing the same item returns 3 and leaves the file byte-identical"
+else
+  fail "C38" "re-file rc=$c38_rc (want 3) or the file changed"
+fi
+
+# --- C39: an item salvaged into a PR is not resurrected --------------------
+# The dedupe is against EVERY marker, not just [stranded ]. Once a human opens
+# a PR for the branch and the item reads [done #N], re-filing it would reopen
+# finished work as a live claim.
+
+SALVAGED_INV="$WORK/salvaged-invented.md"
+write_claim_fixture "$SALVAGED_INV"
+echo "- [done #46] $INVENTED_KEY" >> "$SALVAGED_INV"
+cp "$SALVAGED_INV" "$WORK/salvaged-invented.before"
+backlog_file_stranded "$SALVAGED_INV" "$INVENTED_BRANCH" "$INVENTED_KEY
+$INVENTED_REST"
+c39_rc=$?
+if [ "$c39_rc" == "3" ] && diff -q "$WORK/salvaged-invented.before" "$SALVAGED_INV" >/dev/null; then
+  pass "C39" "an item already marked [done #N] is not re-filed, rc 3"
+else
+  fail "C39" "salvaged-item rc=$c39_rc (want 3) or the file changed"
+fi
+
+# --- C40: empty inputs and an unwritable file fail loudly ------------------
+
+c40_empty_branch=0
+backlog_file_stranded "$INVENTED" "" "$INVENTED_KEY" 2>/dev/null || c40_empty_branch=$?
+c40_empty_item=0
+backlog_file_stranded "$INVENTED" "$INVENTED_BRANCH" "" 2>/dev/null || c40_empty_item=$?
+UNWRITABLE_INV="$WORK/unwritable-invented.md"
+write_claim_fixture "$UNWRITABLE_INV"
+chmod 444 "$UNWRITABLE_INV"
+c40_unwritable=0
+backlog_file_stranded "$UNWRITABLE_INV" "$INVENTED_BRANCH" "$INVENTED_KEY" 2>/dev/null || c40_unwritable=$?
+chmod 644 "$UNWRITABLE_INV"
+assert_eq "C40" "1|1|1" "$c40_empty_branch|$c40_empty_item|$c40_unwritable" \
+  "an empty branch, an empty item, and an unwritable file each return 1"
+
+# --- C41: the append path is wired into run.sh's rc=2 branch ---------------
+# Same justification as C12 and C23: the decision is unit-tested above, so what
+# is left to get wrong is the call site. Before this increment rc=2 printed a
+# message and did nothing, four nights running.
+
+c41_call="$(grep -c 'backlog_file_stranded "\$BACKLOG_FILE" "\$ref" "\$item"' "$RUN_SH" || true)"
+c41_item="$(grep -c 'item="\$(backlog_claimed_item "\$diff")"' "$RUN_SH" || true)"
+c41_stale="$(grep -c 'reworded or removed) — a human needs to look' "$RUN_SH" || true)"
+assert_eq "C41" "1|1|1" "$c41_call|$c41_item|$c41_stale" \
+  "run.sh reads the full item and files it on rc=2; the old dead-end message survives only on the shipped-claim path"
+
 # --- Summary ---------------------------------------------------------------
 
 echo ""

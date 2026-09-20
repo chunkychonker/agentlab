@@ -215,6 +215,163 @@ backlog_apply_stranded () {
   return 0
 }
 
+# --- Stranded claims with no item on main ----------------------------------
+#
+# backlog_apply_stranded's return 2 — "no line in <path> has this item text" —
+# was a dead end: run.sh printed "a human needs to look" and no human ever did.
+# Three branches sat in that state for four consecutive nights (2026-09-16
+# through 2026-09-19), each holding a finished increment with tests.
+#
+# The cause is not rewording. The researcher is told to claim the topmost
+# '- [ ] ' item, but when everything is claimed or already covered by an open
+# PR its instructions run out, and what it does instead is WRITE A NEW ITEM
+# already marked '[researching]'. That item therefore never existed on main:
+# `git log -S` finds no commit that ever added the text. When the cycle fails,
+# main resets to a BACKLOG.md that never had the line, and there is nothing for
+# backlog_apply_stranded to rewrite.
+#
+# Appending the claim is the reconciliation. It is the same end state
+# backlog_apply_stranded produces — an item marked '[stranded <branch>]',
+# invisible to the researcher's pick, naming the branch to salvage — reached by
+# adding the line rather than rewriting it.
+
+# Where appended stranded items land. A section of their own, not the health
+# section: these are topics with finished work behind them, and filing them
+# among rot findings would bury the one kind of backlog item that is already
+# built.
+BACKLOG_STRANDED_SECTION="## Stranded work (unshipped branches)"
+
+# The full claimed item inside <diff-text>, marker stripped, on stdout: the
+# claim line's text followed by its indented continuation lines.
+#
+# backlog_claimed_line reports only the first line, which is the right answer
+# for identity (that line is the key everything matches on) and the wrong one
+# for writing the item down. Backlog items wrap, and a first line alone reads as
+# a fragment — "MCP's other transport: Streamable HTTP, not stdio. Every MCP
+# example" stops mid-sentence. An item filed like that sends the next reader to
+# the branch to find out what it is, which is the trap this whole function
+# exists to close.
+#
+# A continuation is an ADDED line that is indented; the first added line that is
+# not, or any context/removed line, ends the item. That is BACKLOG.md's own
+# format — '- [ ] ' at column 0, continuations indented — so nothing here
+# guesses.
+#
+# Failure modes:
+#   no added claim line in <diff-text>, or its marker is unrecognised
+#   -> return 1, nothing on stdout. Same contract as backlog_claimed_line, so
+#   callers treat it as "skip", not "error".
+backlog_claimed_item () {
+  local diff="$1" line found="" out=""
+  # A here-string, not a pipeline: bash 3.2 runs the right side of a pipe in a
+  # subshell and neither $found nor $out would survive it.
+  while IFS= read -r line; do
+    if [ -z "$found" ]; then
+      case "$line" in
+        '+- [researching] '*|'+- [building] '*)
+          found=1
+          out="$(backlog_claim_key "${line#+}")" || return 1
+          ;;
+      esac
+      continue
+    fi
+    case "$line" in
+      '+ '*|'+'"$(printf '\t')"*)
+        out="$out
+${line#+}"
+        ;;
+      *) break ;;
+    esac
+  done <<< "$diff"
+  [ -z "$found" ] && return 1
+  printf '%s\n' "$out"
+}
+
+# Append <item> to <path> as '- [stranded <branch>] <item>' under
+# BACKLOG_STRANDED_SECTION, creating that section at the end of the file if it
+# is not there.
+#
+# <item> is the full item text, marker already stripped — backlog_claimed_item's
+# output. Its FIRST line is the identity key, matched literally for exactly the
+# reason backlog_claim_key documents: item text carries backticks, parentheses
+# and brackets, so any pattern built from it would misfire.
+#
+# A reconciler, not a one-shot: it decides from the file's current contents and
+# dedupes on the key against every marker, so the same branch reconciled again
+# tomorrow changes nothing and `git status` stays clean. That idempotence is
+# what makes it safe to call on every pass of every night.
+#
+# End of the file, and never '- [ ] ': the researcher works top-down over
+# unclaimed items, so an appended stranded item is invisible to the next pick
+# (backlog_count_unclaimed matches '- [ ] ' only) and cannot cause the rebuild
+# it exists to prevent.
+#
+# Failure modes (distinct codes — run.sh logs them differently, and "already
+# filed" must never be reported as "could not write"):
+#   0  filed: <path> now carries a stranded item for <item>'s key
+#   1  <path> is not a readable, writable regular file, <branch> or <item> is
+#      empty, or the append failed
+#   3  nothing to do: a line carrying that key already exists under some marker
+backlog_file_stranded () {
+  local path="$1" branch="$2" item="$3"
+  if [ ! -f "$path" ] || [ ! -r "$path" ] || [ ! -w "$path" ]; then
+    echo "backlog_file_stranded: '$path' is not a readable, writable file" >&2
+    return 1
+  fi
+  [ -n "$branch" ] || { echo "backlog_file_stranded: empty branch" >&2; return 1; }
+  [ -n "$item" ] || { echo "backlog_file_stranded: empty item" >&2; return 1; }
+
+  # The key is the item's first line. The newline pattern has to be $'\n' and
+  # cannot be "$(printf '\n')": command substitution strips trailing newlines,
+  # so the latter yields the empty string, ${item%%*} strips the whole item, and
+  # every call fails on the empty-key guard below. C36-C39 caught exactly that.
+  local nl key rest
+  nl=$'\n'
+  key="${item%%${nl}*}"
+  [ -n "$key" ] || { echo "backlog_file_stranded: item has an empty first line" >&2; return 1; }
+
+  # One pass answers both questions: is this item already filed, and does the
+  # section heading exist yet. Dedupe is against every marker, not just
+  # '[stranded ]' — the item may have been salvaged into a PR and marked
+  # '[done #N]' since, and re-filing it then would resurrect finished work as an
+  # open claim. Reading the file here rather than shelling out to awk also means
+  # a heading that is present cannot be missed by a failed subprocess, which
+  # would append a duplicate heading on every night that followed.
+  local line have_section=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "- ["*"] $key") return 3 ;;
+      "$BACKLOG_STRANDED_SECTION") have_section=1 ;;
+    esac
+  done < "$path"
+
+  # The continuation lines, verbatim. Everything after the first newline; empty
+  # when the item is a single line.
+  rest=""
+  case "$item" in
+    *"$nl"*) rest="${item#*${nl}}" ;;
+  esac
+
+  if [ -z "$have_section" ]; then
+    {
+      printf '\n%s\n' "$BACKLOG_STRANDED_SECTION"
+      printf '%s\n' "Appended by \`.pipeline/run.sh\` when a failed cycle's claim names an item"
+      printf '%s\n' "that is not on main — the researcher wrote the topic and the claim in one"
+      printf '%s\n' "edit, so main never had it. The branch holds the work; salvaging it is a"
+      printf '%s\n' "human's call."
+    } >> "$path" || return 1
+  fi
+
+  # `if`, not `[ -n "$rest" ] &&`: the test is the group's last command, so a
+  # single-line item (no continuation) would make the group exit 1 and the
+  # append report a failure it did not have. An `if` with no taken branch is 0.
+  {
+    printf '%s\n' "- [$BACKLOG_STRANDED_MARKER $branch] $key"
+    if [ -n "$rest" ]; then printf '%s\n' "$rest"; fi
+  } >> "$path" || return 1
+  return 0
+}
+
 # --- Shipped claims --------------------------------------------------------
 #
 # The mirror image of the stranded-claim problem above. When a cycle SUCCEEDS,

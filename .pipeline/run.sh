@@ -737,7 +737,7 @@ file_pipeline_findings () {
 # intent, which is exactly what this pipeline does not automate.
 reconcile_stranded_claims () {
   local label="$1"
-  local refs ref base diff claimed key changed=0 rc
+  local refs ref base diff claimed key item changed=0 rc
 
   # for-each-ref, not `git branch --list`: the glob is matched against the
   # refname by git itself, and both local and origin copies are found. A push
@@ -773,7 +773,22 @@ reconcile_stranded_claims () {
     case "$rc" in
       0) changed=$(( changed + 1 ))
          echo "  $ref: claim re-applied — item marked [$BACKLOG_STRANDED_MARKER $ref]." | tee -a "$LOG" ;;
-      2) echo "  $ref: its item is no longer in $BACKLOG_FILE (reworded or removed) — a human needs to look." | tee -a "$LOG" ;;
+      # Not on main at all. Almost always because the researcher wrote the topic
+      # and its '[researching]' marker in one edit, so main never carried the
+      # item — see backlog.sh's "Stranded claims with no item on main". Append
+      # it rather than print at a human who, for four nights running in
+      # September 2026, did not look.
+      2) if item="$(backlog_claimed_item "$diff")"; then
+           backlog_file_stranded "$BACKLOG_FILE" "$ref" "$item"
+           case $? in
+             0) changed=$(( changed + 1 ))
+                echo "  $ref: its item was never on main — filed as [$BACKLOG_STRANDED_MARKER $ref] under '$BACKLOG_STRANDED_SECTION'." | tee -a "$LOG" ;;
+             3) echo "  $ref: its item was never on main but is already filed — left alone." | tee -a "$LOG" ;;
+             *) echo "  $ref: its item is not on main and could not be filed — see $LOG." | tee -a "$LOG" ;;
+           esac
+         else
+           echo "  $ref: claim line found but its item text could not be read — a human needs to look." | tee -a "$LOG"
+         fi ;;
       3) echo "  $ref: already reconciled, shipped, or in flight — left alone." | tee -a "$LOG" ;;
       *) echo "  $ref: cannot rewrite $BACKLOG_FILE — skipping." | tee -a "$LOG" ;;
     esac
