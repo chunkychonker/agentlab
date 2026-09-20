@@ -24,6 +24,14 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   (retry locally / report to the model with `is_error` / abort loudly), the
   `is_error` wire contract and what a good error message looks like, and
   `strict: true` as prevention for one whole error class
+- [[strict-tool-use]] — the prevention half in full: `strict: true` is a
+  top-level tool key, GA since 2026-01-29 with **no beta header**, supported on
+  `claude-haiku-4-5` (matrix now published), the allowed/rejected JSON Schema
+  subset (`additionalProperties: false` mandatory, no numeric/length/`pattern`
+  constraints), 24h grammar cache keyed on schema structure + tool set, what it
+  does *not* override (`refusal` / `max_tokens`), and the SDK path
+  (`beta_tool(strict=True)` → `.to_dict()` → `tool_runner`, verified in
+  `anthropic==1.3.0`)
 - [[anthropic-python-sdk]] — SDK basics: client, `messages.create`, response shape
 - [[sdk-retry-behavior]] — the *other* retry layer: source-verified SDK transport
   retry defaults, which statuses retry, `retry-after` handling and its ≤60s
