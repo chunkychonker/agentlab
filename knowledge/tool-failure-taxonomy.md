@@ -42,15 +42,15 @@ defaults to unbounded (see [[typed-tool-registry]]).
 `"strict": true` on a tool definition grammar-constrains sampling so tool `input`
 always matches `input_schema` and tool `name` is always valid — deleting the
 missing-parameter / wrong-type / unknown-name class rather than handling it.
-Caveats: only a JSON Schema subset, compiled schemas cached ≤24h, no PHI in
-schema property names / enums / patterns. No per-model support matrix is
-published (all doc examples use `claude-opus-5`), so confirm before assuming it
-works on a cheap model.
+Full detail (field, no-beta-header-since-GA-2026-01-29, model list, JSON Schema
+subset, SDK `strict=` kwarg) is in [[strict-tool-use]]. Correction to the
+earlier caveat here: the per-model matrix **is** now published and includes
+`claude-haiku-4-5` — the lab's cheap default is eligible, no tier jump needed.
 
 Sources: [Handle tool calls](https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls),
 [Strict tool use](https://platform.claude.com/docs/en/agents-and-tools/tool-use/strict-tool-use)
-(both fetched 2026-08-10);
+(re-checked 2026-09-03);
 [Writing effective tools for agents](https://www.anthropic.com/engineering/writing-tools-for-agents) (2025-09-11).
 
 Related: [[sdk-retry-behavior]] (the *other* retry layer), [[tool-use-loop]],
-[[typed-tool-registry]]
+[[typed-tool-registry]], [[strict-tool-use]] (the prevention half in full)

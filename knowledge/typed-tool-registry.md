@@ -48,6 +48,10 @@ final_message = runner.until_done()    # or `for message in runner: ...`
   nothing ever stops the loop on a failing tool, a permanently-broken tool spins
   until `max_iterations` — see [[tool-failure-taxonomy]].
 - Async variant: `@beta_async_tool` for `async def` tools.
+- `@beta_tool(strict=True)` (kwarg, verified in `anthropic==1.3.0`) makes
+  `.to_dict()` emit top-level `"strict": true`; the generated schema already
+  carries `additionalProperties: false` + all-args-`required`, so it is
+  strict-subset-compatible unmodified. See [[strict-tool-use]].
 
 ## Gotchas
 
