@@ -45,7 +45,7 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
   `accumulate()` — the same trick `examples/streaming-tool-loop/test_agent.py`
   already uses, no key. Confirm the delta event names against the `claude-api`
   skill first, as the #32 item did for the base events.
-- [building] `strict: true` tool schemas as prevention rather than cure.
+- [done #46] `strict: true` tool schemas as prevention rather than cure.
   `knowledge/tool-failure-taxonomy.md` records strict schema-constrained sampling
   as removing "one whole error class", and both `examples/typed-tool-registry/`
   and `examples/tool-error-policy/` push it out of scope. Increment: a
@@ -161,7 +161,7 @@ Both are small; a builder can reasonably take them in one cycle.
   removes can be previewed for $0 with `count_tokens` as in #25; the cache-write
   cost that same clear incurs cannot (#35), so the net still needs one cheap real
   generation — say so in the README.
-- [building] Previewing `clear_thinking_20251015` for $0, the sibling edit
+- [done #47] Previewing `clear_thinking_20251015` for $0, the sibling edit
   `examples/context-editing-preview/` names as out of scope. Increment: a second
   pure policy type beside `ClearToolUsesPolicy` in `policy.py` that serialises the
   `clear_thinking_20251015` `context_management` edit, plus a shell that counts a
@@ -174,7 +174,7 @@ Both are small; a builder can reasonably take them in one cycle.
   against `knowledge/context-editing.md` and the `claude-api` skill first, and
   note whether `count_tokens` needs real thinking blocks in the input or accepts
   synthetic ones.
-- [building] 1-hour cache TTL support in `examples/prompt-caching-tool-loop/`.
+- [done #48] 1-hour cache TTL support in `examples/prompt-caching-tool-loop/`.
   Both `placement.py`'s module docstring and the README footnote name the
   1-hour TTL (`{"type": "ephemeral", "ttl": "1h"}`, a 2x write multiplier
   instead of 1.25x) as explicitly out of scope, and PR #40's own research note
@@ -231,7 +231,7 @@ Filed automatically by `.pipeline/run.sh` from `logs/last-health.md`.
 Full detail is in the dated `logs/lab-health-*.log` for that date.
 - [done #44] fix (health 2026-09-02): run-2026-08-29_114701 — no "=== done"; log stops mid "cycle 2/2: review" with no verdict and no "Aborting." line. Cycle 1 was a clean review FAIL (mcp-prompts knowledge note not reconciled with the build); cycle 2 research h...
 - [stranded cycle/2026-09-17-unshipped-024123-1] fix (health 2026-09-02): run-2026-08-30_114704 — "main has uncommitted changes to tracked files (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting." Aborted at preflight; downstream of run-2026-08-29's t...
-- [researching] fix (health 2026-09-02): run-2026-08-31_114702 — "NETWORK UNREACHABLE (api.anthropic.com / github.com) — check VPN. Aborting." Sole line in the log; first occurrence since the PR #31 probe fix.
+- [done #49] fix (health 2026-09-02): run-2026-08-31_114702 — "NETWORK UNREACHABLE (api.anthropic.com / github.com) — check VPN. Aborting." Sole line in the log; first occurrence since the PR #31 probe fix.
 - [ ] fix (health 2026-09-02): run-2026-09-01_134705 — shipped 0/2. Cycle 1 clean VERDICT: FAIL (no increment: researcher killed by the 600s ceiling, builder correctly refused to build). Cycle 2 verdict MISSING (same 600s researcher kill; review phase wro...
 - [ ] fix (health 2026-09-02): "Background tasks still running after 600s; terminating. Set CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 to wait indefinitely." — 2 nights: 2026-08-29 (cycle 2 research) and 2026-09-01 (cycle 1 research, cycle 2 research, and the pipeline-observer phase — 3 occurrences that night). Direct cause of run-2026-09-01 shipping 0/2 a...
 - [done #42] fix (health 2026-09-02): BACKLOG.md:24 "Parallel specialist execution in the orchestrator" marked [building], shipped in PR #37 (merged 2026-09-02, branch cycle/2026-09-02-parallel-specialist-execution) — never advanced to [done #37]. Both maintain/auto-merge and the post-loop reconcile for that cycle have already run, so no remaining pipeline step will correct it. (researcher 2026-09-10: one increment resolves this and the PR #38 line below — see research/2026-09-10-backlog-mark-done-reconcile.md)
