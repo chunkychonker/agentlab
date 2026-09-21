@@ -146,16 +146,22 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
 
 ## Repo hygiene & self-verification
 - [[pipeline-claim-lifecycle]] — how a `BACKLOG.md` claim moves through a night
-  and the *three* places it is silently lost: a failed cycle's
+  and the *four* places it is silently lost: a failed cycle's
   `snapshot_dirty_main` + `reset_to_clean_main` releases the claim with no PR
   for `gh pr list` to find (fixed by `reconcile_stranded_claims`); the
   replenishment gate is satisfied by the researcher's own empty-backlog
-  fallback (so it has never once fired); and a *successful* cycle never
+  fallback (so it has never once fired); a *successful* cycle never
   rewrote its own `[building]` line to `[done #N]`, so a shipped item read as
   in-progress until a human caught it — five times, most recently PR #41
   (fixed 2026-09-10 by `reconcile_shipped_claim` + `backlog_mark_done`, the
   mirror of the stranded-claim fix, including why `git merge-base` cannot
-  recover a *merged* PR's claim the way it recovers a stranded branch's).
+  recover a *merged* PR's claim the way it recovers a stranded branch's); and
+  a claim resolved by a **direct commit with no PR** (two real instances,
+  2026-09-20: commits `832134b`/`b116b0b`), which has no reconciliation path
+  at all yet — `reconcile_shipped_claim` is keyed on a PR number a direct
+  commit doesn't have — proposed fix `backlog_mark_done_by_commit`
+  (substring-matched, not exact-line, with an explicit ambiguous-match failure
+  mode; not yet built, see research/2026-09-21-backlog-direct-commit-reconcile.md).
   Plus the literal `^- \[ \]` counting contract, now consolidated to a single
   executable copy at `.pipeline/backlog.sh:39`, and why the surrounding
   `|| true` is load-bearing

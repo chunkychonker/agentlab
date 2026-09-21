@@ -13,7 +13,8 @@
 # suite grew: C1..C14 and INV1 from
 # research/2026-08-12-backlog-replenish-ordering.md, C15..C23 from the
 # 2026-08-13 stranded-claim fix (PR #28), C24..C32 from
-# research/2026-09-10-backlog-mark-done-reconcile.md.
+# research/2026-09-10-backlog-mark-done-reconcile.md, C42..C51 from
+# research/2026-09-21-backlog-direct-commit-reconcile.md.
 #
 # bash 3.2 only, like everything else in .pipeline/ — see
 # knowledge/bash-3.2-testable-scripts.md.
@@ -721,6 +722,218 @@ c41_item="$(grep -c 'item="\$(backlog_claimed_item "\$diff")"' "$RUN_SH" || true
 c41_stale="$(grep -c 'reworded or removed) — a human needs to look' "$RUN_SH" || true)"
 assert_eq "C41" "1|1|1" "$c41_call|$c41_item|$c41_stale" \
   "run.sh reads the full item and files it on rc=2; the old dead-end message survives only on the shipped-claim path"
+
+# --- Claims resolved by a direct commit (C42-C51) --------------------------
+#
+# Acceptance criteria for the 2026-09-21 by-commit reconciler: the mirror of
+# C24-C32 for work that reaches main WITHOUT a PR, where there is no number for
+# reconcile_shipped_claim's `gh pr view` to look up and no verbatim item text to
+# match on. See research/2026-09-21-backlog-direct-commit-reconcile.md and
+# knowledge/pipeline-claim-lifecycle.md (failure 4).
+
+# The real commit that motivated this increment, and a 7-character SHA — the
+# short end of the accepted 7-40 range, exercised by every case below.
+COMMIT_SHA="832134b"
+# Deliberately full of pattern metacharacters: to a glob or a regex alike,
+# '[no timeout]' is a character class and the backticks are quoting, so an item
+# matched by anything other than a literal test misfires on this one.
+COMMIT_KEY='fix (pipeline): the `claude -p` call hangs [no timeout] — see `run.sh`'
+COMMIT_SUBSTR='hangs [no timeout]'
+
+write_commit_fixture () {   # <path> <marker> <key> — one marked item plus decoys
+  {
+    echo "# BACKLOG"
+    echo ""
+    echo "## Coding agents"
+    echo "- [done #32] Streaming the hand-written tool loop"
+    echo "- $2 $3"
+    echo "  a continuation line belonging to the item above, carrying no marker"
+    echo "- [ ] an unrelated unclaimed item"
+    echo "- [researching] a different cycle's claim"
+  } > "$1"
+}
+
+# Temp files the by-commit writer left behind. Must be 0 after every call,
+# successful or not — the same invariant C22 and C30 pin for their writers.
+bycommit_temps () { ls "$WORK" | grep -c 'markdonebycommit\.' || true; }
+
+# --- C42: one unresolved match is rewritten, and only that line changes ----
+
+BYCOMMIT="$WORK/bycommit.md"
+write_commit_fixture "$BYCOMMIT" "[ ]" "$COMMIT_KEY"
+cp "$BYCOMMIT" "$WORK/bycommit.before"
+backlog_mark_done_by_commit "$BYCOMMIT" "$COMMIT_SUBSTR" "$COMMIT_SHA"
+c42_rc=$?
+assert_eq "C42a" "0" "$c42_rc" "one unresolved item containing the substring returns 0"
+assert_eq "C42b" "- [$BACKLOG_DONE_BY_COMMIT_PREFIX$COMMIT_SHA] $COMMIT_KEY" \
+  "$(grep -F -- "$COMMIT_SUBSTR" "$BYCOMMIT")" \
+  "the matched item carries the SHA marker, its bracketed, backticked text intact"
+c42_edits="$(diff "$WORK/bycommit.before" "$BYCOMMIT" | grep -c '^[<>]' || true)"
+assert_eq "C42c" "2|0" "$c42_edits|$(bycommit_temps)" \
+  "exactly one line was rewritten, and no temp file survived the rename"
+
+# --- C43: idempotent — a second pass changes nothing -----------------------
+# Fed its own output back, which is what re-reading the same commit does. The
+# distinction that matters: rc 3 ("already done"), never rc 2 ("never found").
+
+cp "$BYCOMMIT" "$WORK/bycommit.done"
+backlog_mark_done_by_commit "$BYCOMMIT" "$COMMIT_SUBSTR" "$COMMIT_SHA"
+c43_rc=$?
+if [ "$c43_rc" == "3" ] && diff -q "$WORK/bycommit.done" "$BYCOMMIT" >/dev/null; then
+  pass "C43" "a second by-commit pass returns 3 and leaves the file byte-identical"
+else
+  fail "C43" "second pass rc=$c43_rc (want 3) or the file changed"
+fi
+
+# --- C44: the match is not restricted to one marker ------------------------
+# backlog_mark_done only ever matches '[building]', because only the builder
+# calls it. A direct commit can close an item sitting in any unresolved state,
+# so every marker except '[done ...]' has to be eligible.
+
+C44_MARKED="$WORK/bycommit-marker.md"
+c44_rcs=""
+c44_lines=""
+for c44_marker in "[ ]" "[researching]" "[building]" "[stranded cycle/2026-09-20-unshipped-022445-1]"; do
+  write_commit_fixture "$C44_MARKED" "$c44_marker" "$COMMIT_KEY"
+  backlog_mark_done_by_commit "$C44_MARKED" "$COMMIT_SUBSTR" "$COMMIT_SHA"
+  c44_rcs="$c44_rcs$?"
+  c44_lines="$c44_lines$(grep -c "^- \[$BACKLOG_DONE_BY_COMMIT_PREFIX$COMMIT_SHA\] " "$C44_MARKED" || true)"
+done
+assert_eq "C44" "0000|1111" "$c44_rcs|$c44_lines" \
+  "[ ], [researching], [building] and [stranded <branch>] are each matched and rewritten"
+
+# --- C45: a substring nothing carries is reported, not invented ------------
+
+BC_MISSING="$WORK/bycommit-missing.md"
+write_commit_fixture "$BC_MISSING" "[ ]" "$COMMIT_KEY"
+cp "$BC_MISSING" "$WORK/bycommit-missing.before"
+backlog_mark_done_by_commit "$BC_MISSING" "a phrase nobody ever filed" "$COMMIT_SHA"
+c45_rc=$?
+if [ "$c45_rc" == "2" ] && diff -q "$WORK/bycommit-missing.before" "$BC_MISSING" >/dev/null; then
+  pass "C45" "an unmatched substring returns 2 and leaves the file untouched"
+else
+  fail "C45" "unmatched substring rc=$c45_rc (want 2) or the file changed"
+fi
+
+# --- C46: two unresolved matches are refused, not guessed between ----------
+# The failure mode exact matching never has to handle, and the one that would
+# be silently destructive: rewriting the wrong item hides an open finding AND
+# credits the commit with work it did not do.
+
+BC_AMBIG="$WORK/bycommit-ambiguous.md"
+write_commit_fixture "$BC_AMBIG" "[ ]" "$COMMIT_KEY"
+echo "- [building] a second, unrelated item that also mentions $COMMIT_SUBSTR" >> "$BC_AMBIG"
+cp "$BC_AMBIG" "$WORK/bycommit-ambiguous.before"
+backlog_mark_done_by_commit "$BC_AMBIG" "$COMMIT_SUBSTR" "$COMMIT_SHA"
+c46_rc=$?
+if [ "$c46_rc" == "4" ] && diff -q "$WORK/bycommit-ambiguous.before" "$BC_AMBIG" >/dev/null; then
+  pass "C46" "2+ unresolved matches return 4 and leave the file untouched"
+else
+  fail "C46" "ambiguous rc=$c46_rc (want 4) or the file changed"
+fi
+
+# --- C47: the two done markers coexist without clobbering each other -------
+# '[done #17]' names the PR that shipped the work. This reconciler must read it
+# as closed and leave the number alone, never overwrite it with a SHA.
+
+BC_PRDONE="$WORK/bycommit-prdone.md"
+write_commit_fixture "$BC_PRDONE" "[${BACKLOG_DONE_MARKER_PREFIX}17]" "$COMMIT_KEY"
+cp "$BC_PRDONE" "$WORK/bycommit-prdone.before"
+backlog_mark_done_by_commit "$BC_PRDONE" "$COMMIT_SUBSTR" "$COMMIT_SHA"
+c47_rc=$?
+c47_line="$(grep -F -- "$COMMIT_SUBSTR" "$BC_PRDONE")"
+if [ "$c47_rc" == "3" ] \
+  && [ "$c47_line" == "- [${BACKLOG_DONE_MARKER_PREFIX}17] $COMMIT_KEY" ] \
+  && diff -q "$WORK/bycommit-prdone.before" "$BC_PRDONE" >/dev/null; then
+  pass "C47" "an item already marked [${BACKLOG_DONE_MARKER_PREFIX}17] returns 3 and keeps its PR number"
+else
+  fail "C47" "already-done rc=$c47_rc (want 3), line='$c47_line', or the file changed"
+fi
+
+# --- C48: the SHA is validated at the boundary, before any byte is written -
+# Digits-only would accept a PR number and write '[done 123]' one line away
+# from '[done #123]', which is exactly the confusion the '#'-less marker
+# exists to prevent. The 41-character case pins the upper bound; C42's
+# '832134b' pins the lower one.
+
+C48_HEX40="$(printf '%040d' 0)"   # 40 hex characters: a well-formed full SHA
+C48_HEX41="${C48_HEX40}0"         # one too many
+
+BC_BADSHA="$WORK/bycommit-badsha.md"
+write_commit_fixture "$BC_BADSHA" "[ ]" "$COMMIT_KEY"
+cp "$BC_BADSHA" "$WORK/bycommit-badsha.before"
+c48_rcs=""
+c48_changed=0
+for c48_sha in "" "832134B" "832134z" "832134" "$C48_HEX41"; do
+  backlog_mark_done_by_commit "$BC_BADSHA" "$COMMIT_SUBSTR" "$c48_sha" 2>/dev/null
+  c48_rcs="$c48_rcs$?"
+  diff -q "$WORK/bycommit-badsha.before" "$BC_BADSHA" >/dev/null || c48_changed=1
+done
+assert_eq "C48a" "11111|0|0" "$c48_rcs|$c48_changed|$(bycommit_temps)" \
+  "empty, uppercase, non-hex, 6- and 41-character SHAs are each refused; file untouched, no temp file"
+
+BC_FULLSHA="$WORK/bycommit-fullsha.md"
+write_commit_fixture "$BC_FULLSHA" "[ ]" "$COMMIT_KEY"
+backlog_mark_done_by_commit "$BC_FULLSHA" "$COMMIT_SUBSTR" "$C48_HEX40"
+c48b_rc=$?
+assert_eq "C48b" "0|- [$BACKLOG_DONE_BY_COMMIT_PREFIX$C48_HEX40] $COMMIT_KEY" \
+  "$c48b_rc|$(grep -F -- "$COMMIT_SUBSTR" "$BC_FULLSHA")" \
+  "a full 40-character SHA is accepted: the 7-40 bound is inclusive at both ends"
+
+# --- C49: an unusable path fails loudly, leaving no temp file --------------
+# Root bypasses permission bits, so the chmod half only means anything as a
+# normal user (same caveat as C11b and C30).
+
+backlog_mark_done_by_commit "$WORK/no-such-backlog.md" "$COMMIT_SUBSTR" "$COMMIT_SHA" 2>/dev/null
+c49_missing=$?
+assert_eq "C49a" "1|0" "$c49_missing|$(bycommit_temps)" \
+  "a path that does not exist returns 1 and writes nothing"
+
+if [ "$(id -u)" -ne 0 ]; then
+  BC_LOCKED="$WORK/bycommit-locked.md"
+  write_commit_fixture "$BC_LOCKED" "[ ]" "$COMMIT_KEY"
+  chmod 000 "$BC_LOCKED"
+  backlog_mark_done_by_commit "$BC_LOCKED" "$COMMIT_SUBSTR" "$COMMIT_SHA" 2>/dev/null
+  c49_locked=$?
+  chmod 644 "$BC_LOCKED"
+  assert_eq "C49b" "1|0" "$c49_locked|$(bycommit_temps)" \
+    "a chmod-000 backlog returns 1 and leaves no .markdonebycommit temp file behind"
+else
+  echo "SKIP  C49b: running as root, permission bits are unenforceable"
+fi
+
+# --- C50: the real motivating finding, matched by its own quoted clause ----
+# BACKLOG.md line 236 verbatim as of 2026-09-21 (claimed, hence [researching]),
+# whose named cause commit 832134b fixed on main with no PR. The substring is
+# the quoted log line already embedded in the finding — the anchor health-filed
+# items reliably carry. Copied in rather than read from BACKLOG.md: this suite
+# is offline and must keep passing after the real line is finally closed.
+
+REAL_ITEM='fix (health 2026-09-02): "Background tasks still running after 600s; terminating. Set CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 to wait indefinitely." — 2 nights: 2026-08-29 (cycle 2 research) and 2026-09-01 (cycle 1 research, cycle 2 research, and the pipeline-observer phase — 3 occurrences that night). Direct cause of run-2026-09-01 shipping 0/2 a... (researcher 2026-09-21: the named cause is already fixed on main by direct commit 832134b, 2026-09-20 — no PR, so `reconcile_shipped_claim` cannot ever close this line; see research/2026-09-21-backlog-direct-commit-reconcile.md, which spends this claim on that reconciliation gap instead — Failure 4 in knowledge/pipeline-claim-lifecycle.md)'
+REAL_SUBSTR='Background tasks still running after 600s; terminating.'
+
+BC_REAL="$WORK/bycommit-real.md"
+write_commit_fixture "$BC_REAL" "[researching]" "$REAL_ITEM"
+backlog_mark_done_by_commit "$BC_REAL" "$REAL_SUBSTR" "$COMMIT_SHA"
+c50_rc=$?
+assert_eq "C50" "0|- [$BACKLOG_DONE_BY_COMMIT_PREFIX$COMMIT_SHA] $REAL_ITEM" \
+  "$c50_rc|$(grep -F -- "$REAL_SUBSTR" "$BC_REAL")" \
+  "the real 702-character line 236 is rewritten intact, matched by its quoted clause"
+
+# --- C51: the marker's on-disk spelling, and the seam it has to fit --------
+# C51a is this section's counterpart to C32b: every case above builds its
+# expectation from $BACKLOG_DONE_BY_COMMIT_PREFIX, so this is the one place
+# that pins the literal — and the '#' it must not grow, which would make a SHA
+# read as a PR number to every human and grep in the repo. C51b is the seam:
+# the dedupe that decides whether a finding may be re-filed has to see the new
+# marker as closed, or a fix reconciled tonight comes back as a fresh item.
+
+assert_eq "C51a" "done " "$BACKLOG_DONE_BY_COMMIT_PREFIX" \
+  "the by-commit marker is spelled '- [done <sha>] ', with no '#'"
+backlog_has_unresolved "$BC_REAL" "$REAL_SUBSTR"
+c51_unres=$?
+assert_eq "C51b" "1" "$c51_unres" \
+  "backlog_has_unresolved reads a '[done <sha>]' item as resolved, so it is never re-filed"
 
 # --- Summary ---------------------------------------------------------------
 

@@ -468,6 +468,155 @@ backlog_mark_done () {
   return 0
 }
 
+# --- Claims resolved by a direct commit ------------------------------------
+#
+# The third variant of the same root failure as the two sections above: a
+# reconciler keyed on how work NORMALLY ships has no coverage for work that
+# ships some other way. reconcile_shipped_claim is keyed on a PR number, so a
+# fix that lands on main as a direct maintenance commit — nothing for
+# `gh pr view` to look up, and no '- [building] <exact item text>' line to
+# match — leaves its BACKLOG.md item open forever. Two dated instances in this
+# repo's own history, same night, same author, neither attached to a PR:
+# 832134b (2026-09-20) fixes the literal cause of the "Background tasks still
+# running after 600s" health finding, and b116b0b fixes most of the
+# "session limit" findings by cutting cycles/night 2 -> 1. Both findings were
+# still unresolved a day later. See knowledge/pipeline-claim-lifecycle.md
+# (failure 4) and research/2026-09-21-backlog-direct-commit-reconcile.md.
+#
+# Same split as the stranded and shipped fixes: the decision lives here and is
+# unit-tested offline; finding the commit and its SHA (git log, commit
+# trailers) is a later increment's job, in run.sh.
+
+# The marker a directly-committed item carries, minus the SHA. Deliberately no
+# '#': this is a git SHA, not a PR number, and must not be misread as one by
+# eye or by any grep keyed on '#'. Named once — the self-test builds its
+# expectations from it rather than restating the literal.
+#
+# It is also, by construction, a prefix of BACKLOG_DONE_MARKER_PREFIX
+# ("done #"), which is what lets the single test '- [<this>' below recognise
+# BOTH done spellings as resolved — the same set of lines
+# backlog_has_unresolved already excludes with `grep -v '^- \[done '`.
+BACKLOG_DONE_BY_COMMIT_PREFIX="done "
+
+# Rewrite the one UNRESOLVED item in <path> whose text contains <substr> to
+# '- [<by-commit marker><sha>] <that item's text, unchanged>'.
+#
+# The direct-commit sibling of backlog_mark_done: same temp-file-and-rename
+# write, same "decide from the file's current contents" posture (calling it
+# twice changes nothing the second time), same promise that a no-op leaves the
+# file's mtime alone so `git status` stays clean.
+#
+# It differs in the one way it has to. backlog_mark_done matches the item's
+# ENTIRE text because its caller wrote that line and still has it byte for
+# byte. This function's caller has only a short phrase from a commit message —
+# a maintenance commit's body is prose about the fix, not a verbatim copy of a
+# ~450-character BACKLOG.md finding — so matching is by substring, which makes
+# UNIQUENESS a question an exact match never has to ask. It is answered by
+# refusing to guess: 2+ unresolved matches is its own failure code, not
+# "first wins".
+#
+# Scope of the match, in three parts, each load-bearing:
+#   - item lines only ('- [<marker>] <text>' at column 0). A continuation line
+#     carries no marker and belongs to the item above, so a match there names
+#     no item this function could rewrite.
+#   - the item's TEXT only, never its marker, so a <substr> of "building"
+#     cannot match every claimed line in the file.
+#   - unresolved items only (any marker except '[done ...]'): '[ ]',
+#     '[researching]', '[building]' and '[stranded <branch>]' all mean the work
+#     is still open. The same split backlog_has_unresolved draws.
+# The test is literal — a `case` pattern whose <substr> is quoted, which is
+# `grep -F` semantics without a subprocess per line. Literal is not optional
+# here: item text routinely carries '[[wikilink]]', backticks, '(' and '*', and
+# any pattern built from it would misfire, the trap backlog_claim_key and
+# backlog_mark_done both document. A <substr> spanning a newline therefore
+# never matches (item text is one line) and reports 2, not a partial match.
+#
+# Failure modes (the same code shape as backlog_mark_done, plus the ambiguous
+# case only a substring match can produce). No temp file is left behind on any
+# path, and <path> is byte-identical to its prior contents on every non-zero
+# return:
+#   0  rewritten: exactly one unresolved item contained <substr>
+#   1  refused at the boundary: <path> is not a readable, writable regular
+#      file; or <sha> is not 7-40 lowercase hex (digits alone would silently
+#      accept a PR number and write '[done 123]' beside '[done #123]', the one
+#      confusion this marker exists to prevent); or <substr> is empty, which
+#      matches every item and so identifies none. Also returned if the rename
+#      itself fails.
+#   2  no item at all, resolved or not, contains <substr> — a stale or
+#      misspelled substring, or an item reworded since the commit; a human has
+#      to look
+#   3  nothing to do: no UNRESOLVED item contains <substr>, but a '[done ...]'
+#      one does — an earlier pass (or a PR, via backlog_mark_done) already
+#      closed it. The idempotent re-run, and the reason a second call is safe
+#   4  ambiguous: 2+ unresolved items contain <substr>. The caller must re-run
+#      with a longer, more specific substring. A silently wrong rewrite is
+#      worse than a loud no-op
+backlog_mark_done_by_commit () {
+  local path="$1" substr="$2" sha="$3"
+  if [ ! -f "$path" ] || [ ! -r "$path" ] || [ ! -w "$path" ]; then
+    echo "backlog_mark_done_by_commit: '$path' is not a readable, writable file" >&2
+    return 1
+  fi
+  # Validated here, once, at this function's boundary; everything below assumes
+  # a well-formed SHA. The character class is spelled out rather than written
+  # 'a-f' because a range's meaning is collation-dependent — under some locales
+  # '[a-f]' also matches 'E', which would let an uppercase SHA through.
+  case "$sha" in
+    *[!0123456789abcdef]*)
+      echo "backlog_mark_done_by_commit: '$sha' is not a commit SHA (7-40 lowercase hex)" >&2
+      return 1
+      ;;
+  esac
+  if [ "${#sha}" -lt 7 ] || [ "${#sha}" -gt 40 ]; then
+    echo "backlog_mark_done_by_commit: '$sha' is not a commit SHA (7-40 lowercase hex)" >&2
+    return 1
+  fi
+  if [ -z "$substr" ]; then
+    echo "backlog_mark_done_by_commit: <substr> is empty; it would match every item" >&2
+    return 1
+  fi
+
+  local tmp line text unresolved=0 resolved=0
+  tmp="$path.markdonebycommit.$$"
+  : > "$tmp" || return 1
+
+  # `|| [ -n "$line" ]` so a final line with no trailing newline is not dropped.
+  while IFS= read -r line || [ -n "$line" ]; do
+    # An item line, or something else entirely (heading, prose, continuation)?
+    case "$line" in
+      "- ["*"] "*) text="${line#*\] }" ;;
+      *) printf '%s\n' "$line" >> "$tmp"; continue ;;
+    esac
+    case "$text" in
+      *"$substr"*) ;;
+      *) printf '%s\n' "$line" >> "$tmp"; continue ;;
+    esac
+    # Matched. Already resolved — by an earlier pass of this function or by
+    # backlog_mark_done's '[done #N]' — means leave it alone: the marker it
+    # carries names the change that actually closed it.
+    case "$line" in
+      "- [$BACKLOG_DONE_BY_COMMIT_PREFIX"*)
+        resolved=$(( resolved + 1 ))
+        printf '%s\n' "$line" >> "$tmp"
+        continue
+        ;;
+    esac
+    unresolved=$(( unresolved + 1 ))
+    printf '%s\n' "- [$BACKLOG_DONE_BY_COMMIT_PREFIX$sha] $text" >> "$tmp"
+  done < "$path"
+
+  # The temp file is complete either way; which return we take decides whether
+  # it becomes the new <path> or is discarded unread.
+  if [ "$unresolved" -eq 1 ]; then
+    mv "$tmp" "$path" || { rm -f "$tmp"; return 1; }
+    return 0
+  fi
+  rm -f "$tmp"
+  if [ "$unresolved" -ge 2 ]; then return 4; fi
+  if [ "$resolved" -ge 1 ]; then return 3; fi
+  return 2
+}
+
 # --- Health findings -------------------------------------------------------
 #
 # The health check reports portfolio rot and is forbidden from fixing it

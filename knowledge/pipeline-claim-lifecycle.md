@@ -160,6 +160,63 @@ could never be fixed by its own code: the one that introduced it, because
 existed on disk — that last one took the same hand-written mark-done commit as
 its four predecessors.
 
+## Failure 4 — a claim resolved by a direct commit is never marked done
+
+Failure 3's fix, `reconcile_shipped_claim <pr_num>`, is keyed on a **PR
+number**: it calls `gh pr view <n> --json mergeCommit` to find what the PR
+added to `BACKLOG.md`. That covers every claim that ships through the
+researcher → builder → reviewer → maintainer cycle, because every one of
+those ends in a PR. It has no answer for a fix that lands on `main` as a
+**direct commit** — a human or an agent editing `.pipeline/` or `.claude/`
+outside the nightly cycle, with no PR to look up and no
+`- [building] <exact item text>` line to match against.
+
+This is not hypothetical. Two direct commits, same night, same author, no PR
+attached to either:
+
+```
+832134b fix(pipeline): wait for background tasks instead of killing them at 600s
+b116b0b chore(pipeline): one cycle per night, and close three resolved claims
+```
+
+`832134b` fixes the literal cause `BACKLOG.md` names in its "Background tasks
+still running after 600s" health finding, word for word — the commit body
+quotes the finding's own diagnosis back. `b116b0b`'s body closes three *other*
+`BACKLOG.md` lines **by hand** (proving its author already knows this needs a
+manual bridge when there's no PR to key off), while leaving its own fix's
+effect — cutting cycles/night 2 → 1, which resolves most of the "shipped 0/2,
+... session-limit" findings in the same section — equally unreconciled. Both
+findings were still `- [ ]` as of 2026-09-21, weeks and a night after their
+causes shipped.
+
+**Why the standard defence misses it, same shape as Failure 1's version of
+this sentence.** `gh pr list --state open` finds nothing (there is no PR).
+`reconcile_shipped_claim` finds nothing (there is no PR number to pass it).
+Reading `git log` by hand is currently the only way to notice — which is how
+this failure mode was found, on 2026-09-21, investigating what looked like a
+stale topmost backlog item.
+
+**Not yet resolved. Proposed 2026-09-21:** `backlog_mark_done_by_commit
+<path> <substr> <sha>` in `backlog.sh`, the direct-commit sibling of
+`backlog_mark_done`. It differs from that function in the one way it has to:
+matching is **substring** (`grep -F`, scoped to unresolved items), not exact
+full-line text, because a commit message trailer cannot reasonably quote a
+multi-sentence `BACKLOG.md` item verbatim — and substring matching makes
+*ambiguity* a real failure mode (2+ unresolved matches) that an exact match
+never has to handle. See research/2026-09-21-backlog-direct-commit-reconcile.md
+for the full design, self-test plan (`C42` on), and why wiring it to real
+`git log`/[`git interpret-trailers`](https://git-scm.com/docs/git-interpret-trailers)
+output is deliberately deferred to a later increment — the same
+decision-stays-pure/plumbing-stays-in-run.sh split Failures 1 and 3 both use.
+
+**Generalization (a third variant of the same root sentence as Failures 1 and
+3):** any reconciliation mechanism keyed on *how work normally ships*
+(a PR, a branch name) has no coverage for work that ships some other way. The
+fix each time has been the same shape: a pure, substring-or-exact matcher in
+`backlog.sh`, tested offline, fed by a thin impure caller in `run.sh` that
+knows how to find the thing being reconciled (a branch, a PR, — next: a
+commit trailer).
+
 ## The counting contract
 
 The literal prefix `- [ ] ` at column 0 is the interface between `BACKLOG.md`
