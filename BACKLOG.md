@@ -72,6 +72,34 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
   CLI, assert on the `stream-json` transcript whether the bundled script ran
   unprompted — then correct the knowledge note with whatever actually happened.
   Costs one small billed run; state that in the README like that example does.
+- [building] Agent Skills through the raw Messages API, not Claude Code. Every
+  `examples/skill-*` example so far is Claude Code's filesystem-based Skills
+  (`~/.claude/skills/`); Anthropic also ships an API-hosted surface — upload a
+  Skill via `/v1/skills`, reference it in a `messages.create()` call through
+  `container: {"skills": [...]}` plus the code execution tool, and Claude reads
+  `SKILL.md` out of a sandboxed container. `knowledge/agent-skills.md` names this
+  surface but has never exercised it, and records a `skills-2025-10-02` beta
+  header that today's docs no longer show anywhere (three independent
+  2026-09-28 fetches agree it graduated to GA; one line inside the `claude-api`
+  skill's own body still contradicts its own drift table). Filed by the
+  researcher on 2026-09-28 because the Coding agents / Skills / MCP sections had
+  no plain `[ ]` item left — every remaining entry is `[done #N]` or a
+  `[stranded cycle/...]` claim whose branch already holds completed research and
+  a build awaiting a human merge decision (re-researching one would duplicate
+  it, the PR #5/#6 mistake). Increment: `examples/skill-api-container/` —
+  upload one minimal custom Skill with a canary string planted in its body,
+  invoke it live, and prove from the response transcript (a
+  `bash_code_execution_tool_result`/`text_editor_code_execution_tool_result`
+  block referencing `SKILL.md`, plus the canary in Claude's reply) that the body
+  was actually read from the sandbox rather than answered from the
+  name/description alone. Offline-testable: a pure frontmatter validator
+  (`name`/`description` constraints, same ones the API enforces server-side)
+  and a pure transcript parser fed hand-built fixture JSON (loaded /
+  not-loaded / tool-used-but-no-canary) — no key, no network. One cheap live
+  call (`skills.create` → `messages.create` → `skills.delete` cleanup) settles
+  the beta-header question empirically and corrects
+  `knowledge/agent-skills.md` with the real answer. See
+  `research/2026-09-28-skill-api-container.md`.
 
 ## MCP
 - [done #8] Hello-world MCP server (stdio) exposing one tool

@@ -5,9 +5,25 @@ body), optionally plus reference files and scripts. Two distinct products
 share the format — don't conflate them:
 
 - **API / claude.ai Skills** run in a sandboxed code-execution container,
-  uploaded via `/v1/skills`, need the `code-execution` tool + the
-  `skills-2025-10-02` beta header. `name`/`description` are server-validated
-  and formally required.
+  uploaded via `/v1/skills`, used in a `messages.create()` call via
+  `container: {"skills": [{"type": "custom"|"anthropic", "skill_id": ...,
+  "version": "latest"|<date>}]}` plus the code execution tool
+  (`code_execution_20250825` or later). `name`/`description` are
+  server-validated and formally required (same constraints as below).
+  **Beta-header status, corrected 2026-09-28** (superseding the prior
+  2026-08-06 claim below, not yet live-verified — see the research note at
+  the bottom of this file and the open `BACKLOG.md` item): three independent
+  docs pages fetched 2026-09-28 (Agent Skills overview, the Using Agent
+  Skills with the API guide, and the code-execution-tool page's explicit
+  *"None of the three tool versions requires an `anthropic-beta` header"*)
+  all show plain `client.messages.create`/`client.skills.create`, no beta
+  header, for what a 2026-01-28 blog post recorded as needing three betas
+  (`skills-2025-10-02`, `code-execution-2025-08-25`, `files-api-2025-04-14`).
+  The `anthropics/skills` `claude-api` skill's own API-drift table agrees
+  these graduated to GA — but a *later paragraph in that same file* still
+  tells the model to send the `code-execution-2025-08-25` beta for Skills
+  specifically, an internal inconsistency, not a confirmed live requirement.
+  Docs-only, not yet proven against a real call — see the open build item.
 - **Claude Code Skills** are pure filesystem objects: `~/.claude/skills/<name>/`
   (personal), `.claude/skills/<name>/` (project, committable), or a plugin's
   `skills/` dir. No upload, no container. All frontmatter is technically
@@ -192,6 +208,6 @@ Full write-up: research note [2026-08-06-skill-reference-files](../research/2026
   question is the `skill-creator` plugin's eval loop (baseline A/B with
   `skillOverrides: "off"`), not a unit test.
 
-Sources: [Agent Skills overview](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview), [Skill authoring best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices), [Extend Claude with skills](https://code.claude.com/docs/en/skills), [anthropics/skills](https://github.com/anthropics/skills) — fetched 2026-08-05 and re-fetched 2026-08-06; [anthropics/claude-code#14956](https://github.com/anthropics/claude-code/issues/14956) — open issue, checked 2026-08-06.
+Sources: [Agent Skills overview](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview), [Skill authoring best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices), [Extend Claude with skills](https://code.claude.com/docs/en/skills), [anthropics/skills](https://github.com/anthropics/skills) — fetched 2026-08-05 and re-fetched 2026-08-06; [anthropics/claude-code#14956](https://github.com/anthropics/claude-code/issues/14956) — open issue, checked 2026-08-06. API-Skills beta-header correction: [Using Agent Skills with the API](https://platform.claude.com/docs/en/build-with-claude/skills-guide), [Code execution tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/code-execution-tool), [`claude-api` SKILL.md raw](https://raw.githubusercontent.com/anthropics/skills/main/skills/claude-api/SKILL.md) — all fetched 2026-09-28; [Spring AI Agent Skills post](https://spring.io/blog/2026/01/28/apring-ai-anthropic-agentic-skills/) — dated 2026-01-28.
 
-Research notes: [2026-08-05-skill-anatomy](../research/2026-08-05-skill-anatomy.md), [2026-08-06-skill-script-execution](../research/2026-08-06-skill-script-execution.md), [2026-08-06-skill-reference-files](../research/2026-08-06-skill-reference-files.md).
+Research notes: [2026-08-05-skill-anatomy](../research/2026-08-05-skill-anatomy.md), [2026-08-06-skill-script-execution](../research/2026-08-06-skill-script-execution.md), [2026-08-06-skill-reference-files](../research/2026-08-06-skill-reference-files.md), [2026-09-28-skill-api-container](../research/2026-09-28-skill-api-container.md) (docs-only; live verification is the open build item on `BACKLOG.md`).

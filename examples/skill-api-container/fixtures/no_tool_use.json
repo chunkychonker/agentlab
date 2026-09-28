@@ -1,0 +1,23 @@
+{
+  "_fixture_note": "SYNTHETIC: hand-built from the anthropic SDK 1.8.0 block types (ServerToolUseBlock, BashCodeExecutionToolResultBlock, BashCodeExecutionResultBlock). Not a recorded live response.",
+  "id": "msg_fixture",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet-5",
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "container": {
+    "id": "container_fixture",
+    "expires_at": "2026-09-28T12:00:00Z"
+  },
+  "usage": {
+    "input_tokens": 1,
+    "output_tokens": 1
+  },
+  "content": [
+    {
+      "type": "text",
+      "text": "Hello Ada! Warm greetings from all of us."
+    }
+  ]
+}

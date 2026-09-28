@@ -1,0 +1,5 @@
+# Needed ONLY for the live run (python3 run_live.py). The offline self-test
+# (python3 -m unittest discover -v) is stdlib-only and needs nothing installed.
+# 1.8.0 is the version this build checked for the non-beta client.skills.* /
+# client.skills.versions.* surface and the container={"skills": [...]} param.
+anthropic>=1.8.0,<2
