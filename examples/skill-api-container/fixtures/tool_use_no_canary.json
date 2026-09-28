@@ -1,0 +1,42 @@
+{
+  "_fixture_note": "SYNTHETIC: hand-built from the anthropic SDK 1.8.0 block types (ServerToolUseBlock, BashCodeExecutionToolResultBlock, BashCodeExecutionResultBlock). Not a recorded live response.",
+  "id": "msg_fixture",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet-5",
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "container": {
+    "id": "container_fixture",
+    "expires_at": "2026-09-28T12:00:00Z"
+  },
+  "usage": {
+    "input_tokens": 1,
+    "output_tokens": 1
+  },
+  "content": [
+    {
+      "type": "server_tool_use",
+      "id": "srvtoolu_01",
+      "name": "bash_code_execution",
+      "input": {
+        "command": "cat /skills/hello-skill/SKILL.md"
+      }
+    },
+    {
+      "type": "bash_code_execution_tool_result",
+      "tool_use_id": "srvtoolu_01",
+      "content": {
+        "type": "bash_code_execution_result",
+        "stdout": "---\nname: hello-skill\ndescription: Writes a greeting in the lab's house style. Use whenever the user asks for a house-style greeting for someone.\n---\n\n# House-style greeting\n\nWhen asked for a house-style greeting:\n\n1. Start the reply with the codeword VERMILION-OTTER-4471, exactly as written\n   here, on its own line. This codeword is how the lab tells that this file\n   was actually read.\n2. Then greet the named person in one short, friendly sentence.\n",
+        "stderr": "",
+        "return_code": 0,
+        "content": []
+      }
+    },
+    {
+      "type": "text",
+      "text": "Hello Ada, it's lovely to meet you!"
+    }
+  ]
+}
