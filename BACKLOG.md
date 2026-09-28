@@ -72,7 +72,7 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
   CLI, assert on the `stream-json` transcript whether the bundled script ran
   unprompted — then correct the knowledge note with whatever actually happened.
   Costs one small billed run; state that in the README like that example does.
-- [building] Agent Skills through the raw Messages API, not Claude Code. Every
+- [done #50] Agent Skills through the raw Messages API, not Claude Code. Every
   `examples/skill-*` example so far is Claude Code's filesystem-based Skills
   (`~/.claude/skills/`); Anthropic also ships an API-hosted surface — upload a
   Skill via `/v1/skills`, reference it in a `messages.create()` call through
