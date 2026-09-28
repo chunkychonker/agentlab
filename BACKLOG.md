@@ -291,6 +291,23 @@ Full detail is in the dated `logs/lab-health-*.log` for that date.
 - [ ] fix (health 2026-09-15): no run log for 2026-09-06
 - [ ] fix (health 2026-09-21): examples/prompt-caching-tool-loop/ — README transcript drift: line 24: README has '', output has 'ok  the default TTL is the pre-TTL marker byte for byte, with no ttl key'
 - [ ] fix (health 2026-09-21): examples/readme-transcript-check/ — sweep.py command_script() returns scripts[-1], so on context-editing-preview's two-command run block it runs test_preview_thinking.py against test_preview.py's marked transcript and reports a false DR...
+- [ ] fix (health 2026-09-28): run-2026-09-15_020003 — shipped 0/2, cycle 1 clean VERDICT: FAIL (no increment, research killed by 600s ceiling), cycle 2 clean VERDICT: FAIL (same cause)
+- [ ] fix (health 2026-09-28): run-2026-09-16_020005 — shipped 0/2, cycle 1 clean VERDICT: FAIL (README left stale, 2 unmet acceptance criteria — real defect), cycle 2 build exited non-zero on session limit
+- [ ] fix (health 2026-09-28): run-2026-09-17_020005 — shipped 1/2 (PR #44), cycle 2 build exited non-zero on session limit
+- [ ] fix (health 2026-09-28): run-2026-09-18_020001 — shipped 1/2 (PR #45), cycle 2 build exited non-zero on session limit
+- [ ] fix (health 2026-09-28): run-2026-09-19_020002 — shipped 0/2, cycle 1 clean VERDICT: FAIL (no increment, research killed by 600s ceiling), cycle 2 clean VERDICT: FAIL (same cause)
+- [ ] fix (health 2026-09-28): run-2026-09-20_020002 — shipped 0/1, cycle 1 build exited non-zero on session limit; health also failed same cause
+- [ ] fix (health 2026-09-28): run-2026-09-21_020005 — shipped 0/1, cycle 1 build exited 0 but failed increment_built postcondition (STALE) — increment landed under .pipeline/, not examples/ or projects/
+- [ ] fix (health 2026-09-28): "Background tasks still running after 600s; terminating" blocking the research phase's artifact — 4x across 2 nights: 2026-09-15 (cycle 1 & 2), 2026-09-19 (cycle 1 & 2); both nights ended in a clean reviewer VERDICT: FAIL for "no increment produced," and PR #36 (the named fix) merged by 2026-09-20...
+- [ ] fix (health 2026-09-28): "You've hit your session limit · resets ... (America/Chicago)" aborting a phase mid-run — 5x across 4 nights: 2026-09-16 (cycle 2 build), 2026-09-17 (cycle 2 build), 2026-09-18 (cycle 2 build), 2026-09-20 (cycle 1 build, health)
+- [ ] fix (health 2026-09-28): phase 'cycle 1/1: build' exited non-zero — 1x: 2026-09-20 (session-limit)
+- [ ] fix (health 2026-09-28): phase 'cycle 1/1: build' (2026-09-21) exited 0 but failed the increment_built postcondition (STALE), not a literal exited-non-zero — the increment landed entirely under .pipeline/, the documented blind spot in PIPELINE.md for pipeline-only builds; 1x in-window, not yet recurring
+- [ ] fix (health 2026-09-28): no run log for 2026-09-22
+- [ ] fix (health 2026-09-28): no run log for 2026-09-23
+- [ ] fix (health 2026-09-28): no run log for 2026-09-24
+- [ ] fix (health 2026-09-28): no run log for 2026-09-25
+- [ ] fix (health 2026-09-28): no run log for 2026-09-26
+- [ ] fix (health 2026-09-28): no run log for 2026-09-27
 
 ## Stranded work (unshipped branches)
 Appended by `.pipeline/run.sh` when a failed cycle's claim names an item
