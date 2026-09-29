@@ -1,0 +1,3 @@
+--- phase: cycle 1/2: research (model: sonnet) ---
+Research note written: research/2026-09-28-skill-api-container.md
+Backlog item claimed: [researching] Agent Skills via the API container.

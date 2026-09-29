@@ -186,6 +186,7 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   silent shape because bash defers a pending trap until the foreground child
   it's blocked on returns — and can never fire against a same-process-group
   `SIGKILL` at all
+- [[print-mode-background-ceiling]] — `claude -p` 600s idle-wait ceiling on background tasks: exits 0 on kill, `=0` override, and why a grep for the `export` line is not proof (`env -i` allowlists and subshell exports drop it)
 - [[network-preflight-retry]] — why `curl --retry`/`--retry-all-errors` don't
   fit the nightly network preflight's actual failure shape (DNS/connection
   failure, not an HTTP error code) and curl's own docs recommend scripting it
