@@ -143,6 +143,87 @@ def test_command_script_refuses_a_block_with_no_script() -> None:
     print("ok  command_script refuses to guess when the README names no script")
 
 
+def _two_script_readme(first: str, second: str, marker_line: str) -> str:
+    """A run block naming two scripts, then one marked transcript."""
+    return f"""# Fixture
+
+```bash
+python {first}
+python {second}
+```
+
+{marker_line}
+
+```
+ok  alpha
+```
+"""
+
+
+def test_command_script_prefers_the_script_the_marker_line_names() -> None:
+    # The regression: the last token is a.py's sibling, but the marker line
+    # says the transcript is a.py's. research/2026-09-30-transcript-sweep-multi-command.md
+    readme = _two_script_readme("a.py", "a_extra.py", "`a.py` \u2014 Expected output:")
+    assert sweep.command_script(readme) == "a.py", sweep.command_script(readme)
+
+    print("ok  the marker line's named script wins over the last .py token")
+
+
+def test_command_script_matches_the_marker_on_token_boundaries() -> None:
+    short, long = "test_preview.py", "test_preview_thinking.py"
+    names_short = _two_script_readme(short, long, f"`{short}` \u2014 Expected output:")
+    names_long = _two_script_readme(short, long, f"`{long}` \u2014 Expected output:")
+    assert sweep.command_script(names_short) == short
+    assert sweep.command_script(names_long) == long
+
+    # `a.py` is a substring of `extra_a.py`; the marker naming the longer one
+    # must not also count as naming the shorter one, or it would be "two named".
+    trap = _two_script_readme("extra_a.py", "a.py", "`extra_a.py` Expected output:")
+    assert sweep.command_script(trap) == "extra_a.py", sweep.command_script(trap)
+
+    print("ok  a marker naming one script never matches inside another's name")
+
+
+def test_command_script_falls_back_when_the_marker_does_not_decide() -> None:
+    # Names both, names neither, or names a script not in the run block: the
+    # run block is the authority on what is runnable, so the old rule applies.
+    both = _two_script_readme("a.py", "b.py", "`a.py` and `b.py` Expected output:")
+    bare = _two_script_readme("a.py", "b.py", "Expected output:")
+    stranger = _two_script_readme("a.py", "b.py", "`c.py` Expected output:")
+    for readme in (both, bare, stranger):
+        assert sweep.command_script(readme) == "b.py", readme
+
+    print("ok  a marker naming zero, two, or a foreign script falls back to the last token")
+
+
+def test_command_script_ignores_scripts_named_in_comments() -> None:
+    readme = """# Fixture
+
+```bash
+python a.py  # see also b.py
+# python c.py
+```
+
+Expected output:
+
+```
+ok  alpha
+```
+"""
+    assert sweep.command_script(readme) == "a.py", sweep.command_script(readme)
+
+    print("ok  a .py name inside a shell comment is not a candidate")
+
+
+def test_command_script_reads_context_editing_preview_correctly() -> None:
+    real = (EXAMPLES_DIR / "context-editing-preview" / "README.md").read_text(
+        encoding="utf-8"
+    )
+    assert sweep.command_script(real) == "test_preview.py", sweep.command_script(real)
+
+    print("ok  context-editing-preview's two-script run block resolves to test_preview.py")
+
+
 # --------------------------------------------------------------------------- #
 # 4-7. Planning what to do with a README (pure)
 # --------------------------------------------------------------------------- #
@@ -416,6 +497,11 @@ def main() -> int:
         test_command_script_reads_the_script_from_the_block_above,
         test_command_script_takes_the_last_py_token,
         test_command_script_refuses_a_block_with_no_script,
+        test_command_script_prefers_the_script_the_marker_line_names,
+        test_command_script_matches_the_marker_on_token_boundaries,
+        test_command_script_falls_back_when_the_marker_does_not_decide,
+        test_command_script_ignores_scripts_named_in_comments,
+        test_command_script_reads_context_editing_preview_correctly,
         test_plan_target_reports_no_transcript,
         test_plan_target_reports_opt_out_with_its_reason,
         test_the_directive_must_sit_above_the_marker,

@@ -127,3 +127,23 @@ and adds one real run over the two stdlib-only examples (`minimal-agent-loop`,
   edited together, and so invisible to diff-scoped nightly review
 - [[health-finding-parsers]] — the same invariant-spans-two-files shape between
   an agent's report-format instructions and the bash parser that reads it
+
+## Known gap: multi-command run blocks (found by health 2026-09-21)
+
+`sweep.command_script()` originally took the last `*.py` token of the block
+above the marked transcript. A README whose run block lists two scripts
+(`context-editing-preview`: `test_preview.py` then `test_preview_thinking.py`)
+and whose marker line names the first (`` `test_preview.py` — Expected output: ``)
+gets the wrong script run against the transcript, producing a false DRIFT.
+The marker line is the only text that binds a transcript to a command, so it
+must be consulted first; "last token" is only a fallback for the (majority)
+single-script case. Lesson: a heuristic verified against N READMEs by hand
+breaks on the N+1th shape; the fix is a test built from the failing real README.
+See `research/2026-09-30-transcript-sweep-multi-command.md`.
+
+Fixed 2026-09-30: `command_script` now prefers the candidate the marker line
+names as a whole file name (so `a.py` is not found inside `extra_a.py`), ignores
+`.py` names inside shell `#` comments, and falls back to the last token when the
+marker names zero, two, or an absent script. Regression tests in
+`examples/readme-transcript-check/test_sweep.py` include one built from the real
+`context-editing-preview/README.md`.

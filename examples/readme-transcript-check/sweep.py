@@ -9,12 +9,15 @@ nineteen commands. This driver supplies both halves:
     what command produces it           -> command_script
     an interpreter that can run it     -> build_interpreter (scratch venv)
 
-The command rule is narrow on purpose: **the last whitespace-delimited `*.py`
-token in the fenced block immediately preceding the marked transcript block.**
-The READMEs' run blocks are not uniform - `python` vs `python3`, an inline
-`pip install`, an inline `python3 -m venv .venv` - but every one of them ends on
-the script, so the sweep takes the script and brings its own interpreter rather
-than trying to execute the README's shell.
+The command rule is narrow on purpose: **the `*.py` tokens (outside `#`
+comments) in the fenced block immediately preceding the marked transcript block
+are the candidates; if the marker line names exactly one of them, that one,
+otherwise the last.** The READMEs' run blocks are not uniform - `python` vs
+`python3`, an inline `pip install`, an inline `python3 -m venv .venv` - but
+every one of them ends on the script, so the sweep takes the script and brings
+its own interpreter rather than trying to execute the README's shell. The
+marker-line tie-break exists for run blocks that list several scripts but
+transcribe one (`context-editing-preview`).
 
 Seven outcomes per example, and only four of them are findings:
 
@@ -47,6 +50,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import re
 import shutil
 import subprocess
 import sys
@@ -66,6 +70,16 @@ FENCE = "```"
 
 # What makes a token in a run block look like the thing to execute.
 SCRIPT_SUFFIX = ".py"
+
+# Starts a shell comment in a run block, at the start of a line or after
+# whitespace. Text after it is prose, never a candidate command.
+SHELL_COMMENT = "#"
+
+# Characters that may appear in a script file name. A marker-line mention of a
+# script only counts when not flanked by one of these, so `a.py` is not found
+# inside `extra_a.py`. A trailing "." is allowed (end of a sentence).
+_NAME_CHAR_CLASS = r"[\w.-]"
+_NAME_TAIL_CLASS = r"[\w-]"
 
 # The interpreter used for examples with no requirements.txt, and to build the
 # virtualenvs of the ones that have it.
@@ -258,18 +272,56 @@ def _marked_blocks(
     ]
 
 
+def _strip_comment(line: str) -> str:
+    """``line`` without its shell comment, if it has one. Pure.
+
+    A comment starts at a ``#`` that opens the line (after indentation) or
+    follows whitespace; a ``#`` glued to other text (``url#frag``) is kept.
+    """
+    if line.lstrip().startswith(SHELL_COMMENT):
+        return ""
+    match = re.search(r"\s" + re.escape(SHELL_COMMENT), line)
+    return line if match is None else line[: match.start()]
+
+
+def _names_script(marker_line: str, script: str) -> bool:
+    """Whether ``marker_line`` mentions ``script``'s file name as a whole token. Pure."""
+    name = re.escape(script.rsplit("/", 1)[-1])
+    pattern = rf"(?<!{_NAME_CHAR_CLASS}){name}(?!{_NAME_TAIL_CLASS})"
+    return re.search(pattern, marker_line) is not None
+
+
+def _choose_script(candidates: Sequence[str], marker_line: str) -> str:
+    """The candidate the marker line singles out, else the last one. Pure.
+
+    ``candidates`` must be non-empty (the caller raises before calling). A
+    marker naming several candidates, none, or only a script absent from the
+    run block does not decide, and the last candidate is returned: the run
+    block, not the prose, is the authority on what is runnable.
+    """
+    named = {script for script in candidates if _names_script(marker_line, script)}
+    if len(named) == 1:
+        return named.pop()
+    return candidates[-1]
+
+
 def command_script(readme_text: str) -> str:
     """The self-test script whose output the README documents.
 
-    The rule, verified by hand against all fifteen transcript-bearing READMEs in
-    this repo: the last whitespace-delimited ``*.py`` token in the fenced block
-    immediately preceding the marked transcript block. That token is the script;
-    everything before it (``python``, ``python3``, ``.venv/bin/python``) is an
-    interpreter the sweep replaces with one it built itself.
+    The rule: the ``*.py`` tokens of the fenced block immediately preceding the
+    marked transcript block, ignoring shell ``#`` comments, are the candidates.
+    If the marker line (the one carrying ``Expected output``) names exactly one
+    candidate's file name as a whole token, that candidate is the script;
+    otherwise the last candidate is. The last-token rule alone was verified by
+    hand against the fifteen single-script READMEs of 2026-09-09; the tie-break
+    was added for ``context-editing-preview``, whose run block lists two scripts
+    and whose marker line names the one it transcribes. Everything before the
+    token (``python``, ``python3``, ``.venv/bin/python``) is an interpreter the
+    sweep replaces with one it built itself.
 
     Pure: a function of the text alone. Failure mode: ``CommandNotFound`` when
     the README does not mark exactly one transcript, when no fenced block
-    precedes it, or when that block holds no ``*.py`` token.
+    precedes it, or when that block holds no ``*.py`` token outside comments.
     """
     lines = readme_text.splitlines()
     blocks = _fenced_blocks(lines)
@@ -290,14 +342,16 @@ def command_script(readme_text: str) -> str:
         )
 
     opening, closing = preceding[-1]
-    tokens = " ".join(lines[opening + 1 : closing]).split()
+    code = [_strip_comment(line) for line in lines[opening + 1 : closing]]
+    tokens = " ".join(code).split()
     scripts = [token for token in tokens if token.endswith(SCRIPT_SUFFIX)]
     if not scripts:
         raise CommandNotFound(
             f"the block above the transcript (lines {opening + 1}-{closing + 1}) "
-            f"contains no {SCRIPT_SUFFIX} token"
+            f"contains no {SCRIPT_SUFFIX} token outside comments"
         )
-    return scripts[-1]
+    marker_line = lines[_nearest_non_blank_above(lines, transcript_open)]
+    return _choose_script(scripts, marker_line)
 
 
 def plan_target(readme_text: str) -> Target:
