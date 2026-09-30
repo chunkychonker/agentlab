@@ -25,7 +25,7 @@ From the research notes:
 | `check_transcript.py` | The checker. Pure core (`extract_transcript`, `compare`, `exit_code`, `format_verdict`) above an imperative shell (`check`, `main`) that owns the filesystem and the subprocess. |
 | `test_check_transcript.py` | Offline self-test: 10 assertions, one per acceptance criterion. Stdlib only, no key, no network. |
 | `sweep.py` | The repo-wide driver. Pure core (`command_script`, `plan_target`, `summarize`) above a shell (`build_interpreter`, `run_sweep`, `main`) that builds a scratch virtualenv per example and runs its self-test. |
-| `test_sweep.py` | Offline self-test for the sweep: 14 assertions, including a real two-example run. Stdlib only, no key, no network. |
+| `test_sweep.py` | Offline self-test for the sweep: 19 assertions, including a real two-example run. Stdlib only, no key, no network. |
 
 No `requirements.txt` — this is stdlib only, on purpose. `phmdoctest`,
 `mktestdocs` and `bashtestmd` all solve a neighbouring problem, but pinning,
@@ -211,10 +211,19 @@ readable as "your README is wrong", nor as "clean".
 
 **How it finds the command.** The run blocks are not uniform (`python` vs
 `python3`, an inline `pip install`, an inline `python3 -m venv .venv`), so the
-rule is narrow: *the last whitespace-delimited `*.py` token in the fenced block
-immediately preceding the marked transcript block.* That yields `test_preview.py`,
+rule is narrow: *the `*.py` tokens in the fenced block immediately preceding the
+marked transcript block (text after a shell `#` comment ignored) are the
+candidates; if the marker line names exactly one of them as a whole file name,
+that one, otherwise the last.* That yields `test_preview.py`,
 `test_placement.py`, `test_server.py`, `test_compaction.py`, `test_agent.py`… for
-all 14 checkable examples. The sweep then supplies the **interpreter** itself
+every checkable example. The marker-line tie-break was added on 2026-09-30 for
+`context-editing-preview`, whose run block lists `test_preview.py` and
+`test_preview_thinking.py` but whose marker line (`` `test_preview.py` — Expected
+output: ``) transcribes the first; the last-token rule alone ran the second and
+reported a false drift ([research note](../../research/2026-09-30-transcript-sweep-multi-command.md)).
+The match is on token boundaries, so `a.py` is never found inside `extra_a.py`.
+A marker naming two candidates, none, or a script not in the run block falls
+back to the last token: the run block is the authority on what is runnable. The sweep then supplies the **interpreter** itself
 rather than executing the README's shell: a scratch virtualenv's `python` when
 the example has a `requirements.txt`, plain `python3` otherwise. A block with no
 `*.py` token is `CommandMissing` — a finding — never a guessed `test_<dirname>.py`.
@@ -234,7 +243,7 @@ for `pip`**, to build ~13 virtualenvs. `--only` a stdlib-only example, or
 
 ```bash
 cd examples/readme-transcript-check
-python3 test_sweep.py     # 14 assertions, no key, no network, no venv
+python3 test_sweep.py     # 19 assertions, no key, no network, no venv
 ```
 
 **Into the nightly health check.** `.pipeline/health.sh` already turns every
@@ -277,10 +286,13 @@ exit 0 to exit 1 with a one-line diff.
   block — so a README whose *last line before a closing fence* contains
   `Expected output` is reported ambiguous. That is why the directive example
   above ends on a `(...)` line. No README in the repo hits this accidentally.
-- **The command rule is one narrow heuristic.** The last `*.py` token in the
-  block above the transcript. It covers all 14 today; a README that documents a
-  non-Python command, or two commands where only one is transcribed, gets
-  `CommandMissing` rather than a guess.
+- **The command rule is one narrow heuristic.** The script the marker line
+  names, else the last `*.py` token in the block above the transcript. A README
+  that documents a non-Python command gets `CommandMissing` rather than a guess.
+  A run block of two scripts whose marker line names neither silently checks
+  the last one; only the marker line can say otherwise. In a multi-script block,
+  the scripts that are not transcribed (`test_preview_thinking.py`) are not
+  checked at all.
 - **The sweep runs, but nothing runs the sweep on a schedule.** The health agent
   is told to (`.claude/agents/agentlab-health.md` §1); `.pipeline/health.sh` is
   unchanged and does not invoke it directly.
