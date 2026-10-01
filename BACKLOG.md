@@ -289,7 +289,7 @@ Full detail is in the dated `logs/lab-health-*.log` for that date.
 - [ ] fix (health 2026-09-15): BACKLOG.md:216 marked [building], shipped in PR #42 (merged 2026-09-10, branch cycle/2026-09-10-backlog-mark-done-reconcile) — never advanced to [done #42]. This line is itself a health finding about PR #37 that its own fix (PR #42) should have closed but couldn't reconcile in its own cycle; the 2026-09-13 health check alread...
 - [ ] fix (health 2026-09-15): no run log for 2026-09-04
 - [ ] fix (health 2026-09-15): no run log for 2026-09-06
-- [building] fix (health 2026-09-21): examples/prompt-caching-tool-loop/ — README transcript drift: line 24: README has '', output has 'ok  the default TTL is the pre-TTL marker byte for byte, with no ttl key'
+- [done #53] fix (health 2026-09-21): examples/prompt-caching-tool-loop/ — README transcript drift: line 24: README has '', output has 'ok  the default TTL is the pre-TTL marker byte for byte, with no ttl key'
 - [done #52] fix (health 2026-09-21): examples/readme-transcript-check/ — sweep.py command_script() returns scripts[-1], so on context-editing-preview's two-command run block it runs test_preview_thinking.py against test_preview.py's marked transcript and reports a false DR...
 - [ ] fix (health 2026-09-28): run-2026-09-15_020003 — shipped 0/2, cycle 1 clean VERDICT: FAIL (no increment, research killed by 600s ceiling), cycle 2 clean VERDICT: FAIL (same cause)
 - [ ] fix (health 2026-09-28): run-2026-09-16_020005 — shipped 0/2, cycle 1 clean VERDICT: FAIL (README left stale, 2 unmet acceptance criteria — real defect), cycle 2 build exited non-zero on session limit
