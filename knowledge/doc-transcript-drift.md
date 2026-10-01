@@ -147,3 +147,13 @@ names as a whole file name (so `a.py` is not found inside `extra_a.py`), ignores
 marker names zero, two, or an absent script. Regression tests in
 `examples/readme-transcript-check/test_sweep.py` include one built from the real
 `context-editing-preview/README.md`.
+
+## Second-block blind spot (found 2026-10-01)
+
+The sweep checks exactly one marked transcript per README. `examples/prompt-caching-tool-loop/README.md`
+pasted two suites' output; only the first carried the marker. When PR #48 grew the suites
+(23 to 30, 17 to 31 assertions) the checked block was flagged DRIFT by health on 2026-09-21,
+but the unmarked second block (`All 17`) had rotted identically and was invisible to the
+tool. A README with N transcripts has N-1 unguarded ones. Lesson: when a change updates a
+count in a file table, grep the README for the old count rather than trusting the checker.
+See `research/2026-10-01-prompt-caching-readme-drift.md`.

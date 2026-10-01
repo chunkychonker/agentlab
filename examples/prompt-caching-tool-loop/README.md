@@ -34,6 +34,10 @@ Background: [`knowledge/prompt-caching.md`](../../knowledge/prompt-caching.md),
 | `test_report.py` | Offline self-test: 31 assertions on the arithmetic, the write multiplier, the `usage` adapter, the two-turn run against a fake client, and the no-key path. |
 | `requirements.txt` | `anthropic==1.2.0` — for the **live run only**. |
 
+The two assertion counts above must equal the `All N self-tests passed` lines
+in the transcripts below (30 and 31 today). Change a suite, then update its
+count here and its transcript below together, or the README drifts.
+
 ## Where the four breakpoints go
 
 The rule the docs give is one sentence: **put `cache_control` on the last block
@@ -148,8 +152,15 @@ ok  the system prefix is one marked block above the minimum prefix size
 ok  the tools breakpoint sits on the last tool, and only there
 ok  system and tools rebuild byte-for-byte identically, in a fixed order
 ok  a full request spends exactly the four breakpoints the API allows
+ok  the default TTL is the pre-TTL marker byte for byte, with no ttl key
+ok  the 1-hour TTL marks every block it places, as a plain JSON string
+ok  an unknown ttl raises ValueError naming both accepted values
+ok  every marker is a fresh dict, so no edit reaches the constants
+ok  a hand-placed marker at another TTL is stripped, not inherited
+ok  all four breakpoints of a 1-hour run carry the same ttl
+ok  the TTL changes the marker and nothing else about the prefix
 
-All 23 self-tests passed with no key and no network.
+All 30 self-tests passed with no key and no network.
 ```
 
 Verifiable, not hand-copied: from
@@ -158,6 +169,10 @@ Verifiable, not hand-copied: from
 to compare that block against the real thing. (The checker takes one marked
 block per README, so only this one carries the marker; the second suite's output
 below is shown for reading.)
+
+That second block is **not** machine-checked. It was last regenerated on
+2026-10-01 by running `python3 test_report.py` and pasting its stdout verbatim;
+re-diff it by hand whenever `test_report.py` changes.
 
 `python3 test_report.py` then prints:
 
@@ -179,8 +194,22 @@ ok  a tool-free reply still produces a longer second request
 ok  the report pairs turn 1's write with turn 2's read
 ok  a run that paid twice and cached nothing raises CacheMiss
 ok  no key: one line on stderr, exit 0, no SDK import and no call
+ok  a 1-hour write costs a 100% premium: 4x the 5-minute one, $0.004000
+ok  a Saving built without a multiplier still prices the write at 1.25x
+ok  break-even is 0.278 reads at 5 minutes and 1.111 at 1 hour
+ok  a write multiplier below 1.0 raises instead of inventing a discount
+ok  render prints the premium multiplier the run actually paid
+ok  summarize prices the write at whatever multiplier it is handed
+ok  a TTL breakdown that contradicts the flat counter cannot be built
+ok  the adapter reads the nested breakdown, and its absence is not an error
+ok  a 1-hour run marks all four breakpoints and prices the write at 2x
+ok  a 1-hour run the server wrote at 5 minutes raises TTLMismatch
+ok  TTLMismatch is its own failure with its own exit code, 3
+ok  parse_ttl accepts '5m' and '1h' and refuses to guess at anything else
+ok  every CacheTTL member has a write multiplier, checked exhaustively
+ok  a bad --ttl exits 64 with the usage line, before any key is read
 
-All 17 self-tests passed with no key and no network.
+All 31 self-tests passed with no key and no network.
 ```
 
 Both suites end by asserting `"anthropic" not in sys.modules` and a sub-second
@@ -244,7 +273,7 @@ report existing at all is the evidence that the experiment worked. The labels,
 the order and the multipliers are fixed by `render()` and are asserted in
 `test_report.py`; only the counts are run-dependent.
 
-Unlike the two self-test transcripts above, this block is **not** machine-checked
+Unlike the `test_placement.py` transcript above, this block is **not** machine-checked
 by [`readme-transcript-check`](../readme-transcript-check/): re-running it costs
 money and returns different counts every time. It is a dated record of one run,
 not a reproducible fixture.
