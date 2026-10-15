@@ -23,7 +23,8 @@ A daily pipeline of four focused agents — a **researcher**, a **builder**, a
 **reviewer**, and a **maintainer** — coordinates through this repo: research
 lands in `research/`, working code lands in `examples/`, an independent reviewer
 runs tests and gates the diff, and the maintainer opens a pull request only when
-review passes. Every increment is real, reviewed, and merged by a human. See
+review passes. The pull request merges automatically when GitHub reports no
+conflicts, so the gate is the reviewer's PASS, not a human click. See
 [`PIPELINE.md`](PIPELINE.md).
 
 ## Topics
