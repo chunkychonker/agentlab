@@ -18,7 +18,7 @@
 # sat misdiagnosed as "VPN off" across several nights before a human read them.
 # This is the parsing half of closing that loop.
 #
-# Sourcing this file defines one function and one constant. It runs nothing,
+# Sourcing this file defines three functions and two constants. It runs nothing,
 # prints nothing, and touches no files. run.sh sources it into a shell with
 # `set -uo pipefail` on, so every expansion below must be safe under -u.
 #
@@ -134,4 +134,81 @@ pipeline_findings () {
     esac
   done < "$path"
   return 0
+}
+
+# --- Declared pauses --------------------------------------------------------
+#
+# The observer's Schedule gaps section lists every date in its window with no
+# run log, and says only that the log is absent — it cannot see why. When the
+# job was taken down on purpose, every one of those dates used to file as a
+# 'fix (health ...)' item: 2026-09-28 filed six for a pause, and the queue they
+# built up sat above nothing else, so the top-down claim would have spent the
+# first night after a resume investigating the pause itself. The fix is the
+# usual split: the observer keeps reporting (its log stays complete), and the
+# filer drops gaps a human declared in advance.
+
+# Where deliberate pauses are declared, named once. Tracked, not under logs/:
+# it is desired state a human edits, and it must survive a fresh clone.
+PIPELINE_PAUSES_FILE=".pipeline/pauses"
+
+# The date of a single-night schedule-gap finding, on stdout.
+#
+# Matches the shape agentlab-pipeline-observer.md specifies, 'no run log for
+# YYYY-MM-DD', alone or followed by ' — <detail>'. Anything else — a run
+# outcome, an abort cause, or the free-form range wording an older report used
+# ('... through YYYY-MM-DD') — is not a single-night gap and is left for the
+# filer to file as before.
+#
+# Failure modes: returns 1 with nothing on stdout when <finding> is not a
+# single-night gap. That is the common case, not an error, so nothing goes to
+# stderr.
+pipeline_gap_date () {
+  local finding="$1" date
+  case "$finding" in
+    'no run log for '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]|\
+    'no run log for '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' — '*)
+      date="${finding#no run log for }"
+      printf '%s\n' "${date:0:10}"
+      return 0 ;;
+  esac
+  return 1
+}
+
+# Return 0 iff <date> (YYYY-MM-DD) falls inside a pause declared in <path>.
+#
+# <path> holds one range per line, 'START END', both YYYY-MM-DD and inclusive,
+# optionally followed by '# note'. Blank lines and whole-line '#' comments are
+# ignored.
+#
+# Failure modes (distinct codes — the caller files the gap on anything but 0,
+# so a broken pauses file costs a noisy backlog, never a silently hidden gap):
+#   0  <date> is inside a declared range
+#   1  it is not — including when <path> does not exist, which is the normal
+#      state of a lab that has never been paused, so nothing goes to stderr
+#   2  <path> has a line that is not a valid range; message on stderr naming it
+pipeline_date_paused () {
+  local path="$1" date="$2"
+  [ -f "$path" ] || return 1
+
+  local line start end extra hit=1 bad=0 ymd='[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+  # `|| [ -n "$line" ]` so a final line with no trailing newline is not dropped.
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%%#*}"
+    # Unquoted on purpose: word splitting trims and separates the fields.
+    read -r start end extra <<< "$line"
+    [ -z "$start" ] && continue
+    # YYYY-MM-DD compares correctly as a string, so no date(1) is needed — and
+    # BSD and GNU date disagree on parsing flags anyway.
+    # shellcheck disable=SC2053
+    if [ -n "$extra" ] || [[ "$start" != $ymd ]] || [[ "$end" != $ymd ]] \
+       || [[ "$end" < "$start" ]]; then
+      echo "pipeline_date_paused: $path: not a 'START END' range: $line" >&2
+      bad=1
+      continue
+    fi
+    [[ ! "$date" < "$start" && ! "$date" > "$end" ]] && hit=0
+  done < "$path"
+  # A bad line wins over a match: a typo must be fixed, not quietly outvoted.
+  [ "$bad" -eq 1 ] && return 2
+  return "$hit"
 }
