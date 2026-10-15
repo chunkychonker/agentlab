@@ -743,12 +743,24 @@ file_pipeline_findings () {
     return 0
   fi
 
-  local finding subject detail date_tag filed=0 dup=0 err=0 rc
+  local finding subject detail date_tag gap_date filed=0 dup=0 err=0 paused=0 rc
   date_tag="${TS%%_*}"
   # A here-string, not a pipeline: `... | while` runs the loop in a subshell and
   # the counters would not survive it. bash 3.2 has <<<.
   while IFS= read -r finding; do
     [ -z "$finding" ] && continue
+    # A gap inside a declared pause is expected silence, not rot. Anything but
+    # a clean "paused" answer files the gap as before — a broken pauses file
+    # must cost a noisy backlog, never a hidden gap.
+    if gap_date="$(pipeline_gap_date "$finding")"; then
+      pipeline_date_paused "$PIPELINE_PAUSES_FILE" "$gap_date" 2>>"$LOG"
+      case $? in
+        0) paused=$(( paused + 1 ))
+           echo "  declared pause, not filed: $finding" | tee -a "$LOG"
+           continue ;;
+        2) echo "  $PIPELINE_PAUSES_FILE is malformed (see $LOG) — filing this gap anyway." | tee -a "$LOG" ;;
+      esac
+    fi
     # health_item_subject, not a local copy: the dedupe key must agree with
     # backlog_has_unresolved, and two definitions would drift apart silently.
     subject="$(health_item_subject "$finding")"
@@ -766,7 +778,7 @@ file_pipeline_findings () {
     esac
   done <<< "$findings"
 
-  echo "pipeline findings: $filed filed, $dup already queued, $err failed." | tee -a "$LOG"
+  echo "pipeline findings: $filed filed, $dup already queued, $err failed, $paused inside a declared pause." | tee -a "$LOG"
   [ "$filed" -eq 0 ] && return 0
 
   if git add "$BACKLOG_FILE" >>"$LOG" 2>&1 \

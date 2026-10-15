@@ -6,7 +6,9 @@
 #   .pipeline/health.sh   — what did the health check find (health_findings,
 #                           health_item_subject)
 #   .pipeline/pipeline_health.sh — what did the pipeline observer find
-#                           (pipeline_findings), the sibling of health.sh
+#                           (pipeline_findings), the sibling of health.sh, and
+#                           which gaps were declared pauses (pipeline_gap_date,
+#                           pipeline_date_paused)
 #   .pipeline/backlog.sh  — the health-filing half (backlog_has_unresolved,
 #                           backlog_file_health_finding), shared by both
 #                           observers
@@ -401,6 +403,68 @@ assert_eq "PH15" "0|" "$?|$none_p" \
 assert_eq "PH16" "(none) of the retries succeeded — investigate" \
   "$(section_findings pipeline_findings '## Phase failures' '- (none) of the retries succeeded — investigate')" \
   "the guard is exact, not a prefix: a finding that merely STARTS with '(none)' still files"
+
+# --- pipeline_health.sh: declared pauses -----------------------------------
+# A deliberate pause filed six 'no run log' items on 2026-09-28 and queued ten
+# more for the night after the 2026-10-11 resume. Gap recognition is pinned
+# first, then the pause predicate's contract, then the repo's own pauses file.
+
+pg="$(pipeline_gap_date 'no run log for 2026-10-05')"
+assert_eq "PH17" "0|2026-10-05" "$?|$pg" \
+  "a bare single-night gap yields its date"
+
+pg="$(pipeline_gap_date 'no run log for 2026-10-05 — the night never started')"
+assert_eq "PH18" "0|2026-10-05" "$?|$pg" \
+  "a gap with a detail after the em dash still yields its date"
+
+pg="$(pipeline_gap_date 'run-2026-09-30_020000 — shipped 0/1')"
+assert_eq "PH19" "1|" "$?|$pg" \
+  "a finding that is not a gap yields nothing and returns 1"
+
+pg="$(pipeline_gap_date 'no run log for 2026-08-17 through 2026-08-28 — 12 nights')"
+assert_eq "PH20" "1|" "$?|$pg" \
+  "the old free-form range wording is not a single-night gap, so it still files"
+
+cat > "$WORK/pauses" <<'EOF'
+# a whole-line comment
+
+2026-09-28 2026-10-02  # crosses a month boundary
+2026-10-20 2026-10-21
+EOF
+
+pipeline_date_paused "$WORK/pauses" 2026-09-30
+assert_eq "PH21" "0" "$?" "a date strictly inside a range is paused"
+
+pipeline_date_paused "$WORK/pauses" 2026-09-28
+assert_eq "PH22" "0" "$?" "the START date is inside (inclusive)"
+
+pipeline_date_paused "$WORK/pauses" 2026-10-02
+assert_eq "PH23" "0" "$?" "the END date is inside (inclusive), across a month boundary"
+
+pipeline_date_paused "$WORK/pauses" 2026-09-27
+assert_eq "PH24" "1" "$?" "the day before START is not paused"
+
+pipeline_date_paused "$WORK/pauses" 2026-10-03
+assert_eq "PH25" "1" "$?" "the day after END is not paused"
+
+pipeline_date_paused "$WORK/pauses" 2026-10-21
+assert_eq "PH26" "0" "$?" "a later range is consulted, not only the first"
+
+pp_err="$(pipeline_date_paused "$WORK/no-such-pauses" 2026-10-05 2>&1)"
+assert_eq "PH27" "1|" "$?|$pp_err" \
+  "no pauses file means nothing is paused — returns 1 and says nothing"
+
+printf '2026-10-01 2026-10-03\nsometime last week\n' > "$WORK/pauses-bad"
+pp_err="$(pipeline_date_paused "$WORK/pauses-bad" 2026-10-09 2>&1 >/dev/null)"
+pp_rc=$?
+assert_eq "PH28" "2|yes" "$pp_rc|$([ -n "$pp_err" ] && echo yes || echo no)" \
+  "a line that is not a range returns 2 and explains itself on stderr"
+
+# The real file, not a fixture: a typo in .pipeline/pauses would otherwise only
+# surface as a pile of filed gaps the morning after a resume.
+pipeline_date_paused "$REPO/$PIPELINE_PAUSES_FILE" 2026-10-05
+assert_eq "PH29" "0" "$?" \
+  ".pipeline/pauses parses and covers the 2026-10-02..11 pause"
 
 # --- backlog.sh: filing ----------------------------------------------------
 
@@ -1105,6 +1169,13 @@ fi
 assert_eq "R10" "1" \
   "$(grep -c 'Never\*\* edit anything under' "$REPO/.claude/agents/agentlab-pipeline-observer.md")" \
   "agentlab-pipeline-observer.md still forbids the agent from editing BACKLOG.md itself"
+
+# PH17-PH29 can all pass while the filer never asks — the same hole W30 closes
+# for the schedule override. Scoped to file_pipeline_findings' own body.
+r17="$(awk '/^file_pipeline_findings \(\) \{/,/^\}/' "$RUN_SH" \
+  | grep -c 'pipeline_date_paused "\$PIPELINE_PAUSES_FILE"')"
+assert_eq "R17" "1" "$r17" \
+  "file_pipeline_findings consults the declared pauses before filing a gap"
 
 # The observer runs at the end of the night, so this run's own log has not had
 # its `=== done ===` line written yet. Handing it to the observer would make

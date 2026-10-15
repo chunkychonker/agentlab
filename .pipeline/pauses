@@ -1,0 +1,15 @@
+# Deliberate pauses of the nightly job, one per line: START END [# note]
+#
+# Both dates are YYYY-MM-DD local and INCLUSIVE. A "no run log for <date>"
+# finding from the pipeline observer whose date falls inside a range here is
+# expected silence, not rot, so file_pipeline_findings in run.sh drops it
+# instead of filing a backlog item. The observer still reports it — the
+# dated logs/lab-pipeline-*.log stays a complete record.
+#
+# Declare a pause when you take the job down (launchctl bootout + disable),
+# and close its END date when you bring it back. Leave a range open-ended
+# by writing a far-future END and tightening it on resume.
+#
+# Parsed by pipeline_date_paused in .pipeline/pipeline_health.sh.
+
+2026-10-02 2026-10-11  # paused "for a few nights" by hand; resumed 2026-10-11
