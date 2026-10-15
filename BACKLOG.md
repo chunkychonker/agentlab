@@ -58,6 +58,25 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
   and a non-strict registry on an input the loose one fumbles. Confirm the exact
   field and beta-header name against the `claude-api` skill before building; do
   not guess it.
+- [ ] Token-budget guard for the hand-written loop. Nothing in the lab stops a
+  tool loop before it gets expensive: `examples/minimal-agent-loop/` runs until
+  `end_turn`, however long the history grows. Increment: call the token-counting
+  endpoint on the pending request before each turn and stop with a typed
+  `BudgetExceeded` result (turn number, counted tokens, limit) instead of
+  sending it. The decision — continue, or stop and why — is a pure function of
+  (counted tokens, limit, turn) under a thin I/O shell. Offline test with an
+  injected fake client whose counts climb past the limit, asserting the loop
+  stops on the right turn and never sends the over-budget request. Confirm the
+  endpoint name and response shape against the `claude-api` skill first.
+- [ ] The minimal agent loop again, on the Claude Agent SDK. Every agent in the
+  lab is a hand-written `messages.create` loop. Increment: rebuild
+  `examples/minimal-agent-loop/`'s one-tool agent on the Agent SDK (custom tool
+  served in-process), and write the README as a side-by-side: what the SDK now
+  owns (the loop, tool dispatch, permissions) and what it hides. Offline test
+  calls the custom tool function directly; the end-to-end run is billed and
+  opted out of the transcript sweep, the way `examples/mcp-connect-claude-code/`
+  is. Confirm the package name and tool-registration API against the
+  `claude-api` skill — do not guess either.
 
 ## Skills
 - [done #7] Anatomy of a skill: a minimal model-invoked skill with a clear trigger
@@ -128,6 +147,14 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
   what actually happened, the docs-vs-reality discipline
   `knowledge/claude-code-mcp-connection.md` already applied. Costs one small
   billed run; state that in the README like `examples/mcp-connect-claude-code/` does.
+- [ ] MCP tool annotations: `readOnlyHint`, `destructiveHint`, `idempotentHint`,
+  `openWorldHint`. No MCP example in the lab declares them, so none says
+  whether a tool is safe to call without asking. Increment: a server with one
+  read-only and one destructive tool, each annotated, and a test through the
+  in-memory `Client` (as in `examples/mcp-hello-world/test_server.py`) asserting
+  the hints arrive in `list_tools`. The README must say what the spec says plainly:
+  the hints are untrusted advice from the server, not enforcement. Confirm field
+  names against the current MCP spec and the installed SDK version.
 
 ## Coding agents (deferred, was next before Skills/MCP got prioritized 2026-07-29)
 - [done #23] Tool-use error handling and retries done well
@@ -223,6 +250,14 @@ Both are small; a builder can reasonably take them in one cycle.
   run captures a second dated transcript next to the existing 2026-08-31 one
   so the README shows both real TTL tradeoffs side by side. See
   `research/2026-09-16-prompt-caching-1h-ttl.md`.
+- [ ] The Message Batches API for an eval run at batch pricing. Every billed
+  run in the lab is synchronous. Increment: submit a small fixed prompt set as
+  one batch, poll until it ends, and join the results back to their inputs by
+  `custom_id`, since results are not guaranteed to come back in submission
+  order. The polling decision and the results join are pure functions
+  tested offline against a recorded results file, including an errored and an
+  expired entry. The live submit is billed and opted out. Confirm the endpoints,
+  result-type names and current discount against the `claude-api` skill.
 
 ## Pipeline & repo hygiene
 - [done #41] Teach the health check to run
@@ -248,6 +283,24 @@ Both are small; a builder can reasonably take them in one cycle.
   hold and surfaces them before the loop claims anything, with an offline test
   in the style of `.pipeline/test_backlog.sh` (injected side effects, bash 3.2,
   no network, no key).
+## Hooks & plugins
+- [ ] A `PreToolUse` hook that guards Bash. Skills and MCP cover what the model
+  *can* do; nothing in the lab shows Claude Code's deterministic veto over what
+  it *does*. Increment: a hook script that reads the hook's JSON on stdin and
+  blocks a short, named deny-list (recursive delete of `/` or `~`, force-push to
+  `main`) while allowing everything else, with the block reason returned to the
+  model. The classifier is a pure function; the offline test pipes recorded
+  hook payloads in and asserts the exit code and output for each. Confirm the
+  payload fields and the block-signalling contract against the current Claude
+  Code hooks docs — do not guess them.
+- [ ] Package lab work as a Claude Code plugin. The skills under `examples/skill-*`
+  and the server in `examples/mcp-hello-world/` are each installed by hand.
+  Increment: one plugin that bundles an existing skill and the hello-world MCP
+  server behind a single manifest, plus an offline check that the manifest
+  parses and every path it names exists. Install once locally and record what
+  Claude Code actually loads, following the docs-vs-reality approach in
+  `knowledge/claude-code-mcp-connection.md`. Confirm the manifest schema
+  against the current plugin docs.
 
 ## Notes
 - Prefer the latest Claude models and the current Anthropic SDK. Check the
