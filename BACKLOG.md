@@ -320,7 +320,7 @@ Full detail is in the dated `logs/lab-health-*.log` for that date.
 - [ ] fix (health 2026-09-02): no run log for 2026-08-17 through 2026-08-28 — 12 consecutive scheduled nights with no logs/run-*.log present. logs/pause-resume.log records a manual pause/resume dated 2026-08-18/19; whether the nightly job ran on any of these dates cannot be det...
 - [stranded cycle/2026-09-15-unshipped-023258-2] fix (health 2026-09-02): .pipeline/strays/2026-08-31-manual/ — 1 file (HANDOFF-2026-08-31.md, ~15 KB), ~2 days old (dir mtime 2026-08-31 03:43). Hand-named, not preflight's bare-timestamp format, so parked here manually; nothing ever revisits .pipeline/strays/.
 - [stranded cycle/2026-09-14-unshipped-021453-1] fix (health 2026-09-13): BACKLOG.md:216 is still marked [building] ("fix (health 2026-09-02): BACKLOG.md:24 ... never advanced to [done #37]") but the work shipped and merged as PR #42 (cycle/2026-09-10-backlog-mark-done-reconcile, merged 2026-09-10) and its subject BACKLOG.md:24 now reads [done #37] — the line should read [done #42]. The reconcile helper that would have caught this shipped inside PR #42 itself, so it could not reconcile its own cycle, and later cycles only reconcile their own claim...
-- [ ] fix (health 2026-09-13): BACKLOG.md:217 is still marked [ ] ("fix (health 2026-09-02): BACKLOG.md:36 ... never advanced to [done #38]") but its subject is already resolved — BACKLOG.md:36 now reads [done #38] and PR #38 is MERGED. The line's own note says "close it on sight" and no cycle has closed it.
+- [done #38] fix (health 2026-09-13): BACKLOG.md:217 is still marked [ ] ("fix (health 2026-09-02): BACKLOG.md:36 ... never advanced to [done #38]") but its subject is already resolved — BACKLOG.md:36 now reads [done #38] and PR #38 is MERGED. The line's own note says "close it on sight" and no cycle has closed it.
 - [ ] fix (health 2026-09-15): run-2026-09-03_134704 — shipped 0/2, cycle 1 & 2 both 'exited non-zero' (review, research) on session limit
 - [ ] fix (health 2026-09-15): run-2026-09-05_130001 — shipped 0/2, cycle 1 clean VERDICT: FAIL (real review), cycle 2 build exited non-zero on session limit
 - [ ] fix (health 2026-09-15): run-2026-09-07_020001 — shipped 0/2, cycle 1 & 2 both exited non-zero (review, research) on session limit
@@ -339,7 +339,7 @@ Full detail is in the dated `logs/lab-health-*.log` for that date.
 - [ ] fix (health 2026-09-15): phase 'health' exited non-zero — 3x: 2026-09-08, 2026-09-09, 2026-09-12 (all session-limit)
 - [ ] fix (health 2026-09-15): phase 'pipeline observer' exited non-zero — 3x: 2026-09-09, 2026-09-12, 2026-09-13 (all session-limit)
 - [ ] fix (health 2026-09-15): phase 'cycle 2/2: build' exited non-zero — 2x: 2026-09-05, 2026-09-12 (both session-limit)
-- [ ] fix (health 2026-09-15): BACKLOG.md:216 marked [building], shipped in PR #42 (merged 2026-09-10, branch cycle/2026-09-10-backlog-mark-done-reconcile) — never advanced to [done #42]. This line is itself a health finding about PR #37 that its own fix (PR #42) should have closed but couldn't reconcile in its own cycle; the 2026-09-13 health check alread...
+- [done #42] fix (health 2026-09-15): BACKLOG.md:216 marked [building], shipped in PR #42 (merged 2026-09-10, branch cycle/2026-09-10-backlog-mark-done-reconcile) — never advanced to [done #42]. This line is itself a health finding about PR #37 that its own fix (PR #42) should have closed but couldn't reconcile in its own cycle; the 2026-09-13 health check alread...
 - [ ] fix (health 2026-09-15): no run log for 2026-09-04
 - [ ] fix (health 2026-09-15): no run log for 2026-09-06
 - [done #53] fix (health 2026-09-21): examples/prompt-caching-tool-loop/ — README transcript drift: line 24: README has '', output has 'ok  the default TTL is the pre-TTL marker byte for byte, with no ttl key'
@@ -361,11 +361,11 @@ Full detail is in the dated `logs/lab-health-*.log` for that date.
 - [ ] fix (health 2026-09-28): no run log for 2026-09-25
 - [ ] fix (health 2026-09-28): no run log for 2026-09-26
 - [ ] fix (health 2026-09-28): no run log for 2026-09-27
-- [ ] fix (health 2026-10-16): run-2026-10-12_020001 — preflight: "main has uncommitted changes to tracked files (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting."
-- [ ] fix (health 2026-10-16): run-2026-10-13_020001 — preflight: "main has uncommitted changes to tracked files (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting."
-- [ ] fix (health 2026-10-16): run-2026-10-14_020001 — preflight: "main has uncommitted changes to tracked files (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting."
-- [ ] fix (health 2026-10-16): run-2026-10-15_020002 — preflight: "main has uncommitted changes to tracked files (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting."
-- [ ] fix (health 2026-10-16): main has uncommitted changes to tracked files at preflight — 4× on 2026-10-12, 2026-10-13, 2026-10-14, 2026-10-15 (consecutive nights; the 2026-10-16 run, excluded as in progress, got past preflight)
+- [done #56] fix (health 2026-10-16): run-2026-10-12_020001 — preflight: "main has uncommitted changes to tracked files (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting."
+- [done #56] fix (health 2026-10-16): run-2026-10-13_020001 — preflight: "main has uncommitted changes to tracked files (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting."
+- [done #56] fix (health 2026-10-16): run-2026-10-14_020001 — preflight: "main has uncommitted changes to tracked files (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting."
+- [done #56] fix (health 2026-10-16): run-2026-10-15_020002 — preflight: "main has uncommitted changes to tracked files (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting."
+- [done #56] fix (health 2026-10-16): main has uncommitted changes to tracked files at preflight — 4× on 2026-10-12, 2026-10-13, 2026-10-14, 2026-10-15 (consecutive nights; the 2026-10-16 run, excluded as in progress, got past preflight)
 
 ## Stranded work (unshipped branches)
 Appended by `.pipeline/run.sh` when a failed cycle's claim names an item
