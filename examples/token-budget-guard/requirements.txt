@@ -1,0 +1,5 @@
+# Only needed for the live run (python agent.py with ANTHROPIC_API_KEY set).
+# The offline self-test (python test_guard.py) needs nothing beyond the stdlib.
+# 1.15.0 is the version the count_tokens signature and MessageTokensCount.input_tokens
+# were verified against on 2026-10-16.
+anthropic>=1.15.0,<2
