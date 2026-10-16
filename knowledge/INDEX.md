@@ -37,6 +37,7 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   retry defaults, which statuses retry, `retry-after` handling and its ≤60s
   clamp, the wrong jitter comment, and the status → exception table
 - [[anthropic-models]] — current model IDs and prices (re-check, don't guess)
+- [[token-counting-gate]] — `count_tokens` as a pre-send budget gate for the tool loop: endpoint/response, estimate caveat, free + separate rate limits, tokenizer and no-cache gotchas
 - [[context-editing]] — keeping a long tool loop inside the context budget
   server-side: the three `context_management` strategies and their two betas,
   the source-verified `clear_tool_uses_20250919` field shapes (including the
