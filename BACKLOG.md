@@ -361,6 +361,11 @@ Full detail is in the dated `logs/lab-health-*.log` for that date.
 - [ ] fix (health 2026-09-28): no run log for 2026-09-25
 - [ ] fix (health 2026-09-28): no run log for 2026-09-26
 - [ ] fix (health 2026-09-28): no run log for 2026-09-27
+- [ ] fix (health 2026-10-16): run-2026-10-12_020001 — preflight: "main has uncommitted changes to tracked files (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting."
+- [ ] fix (health 2026-10-16): run-2026-10-13_020001 — preflight: "main has uncommitted changes to tracked files (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting."
+- [ ] fix (health 2026-10-16): run-2026-10-14_020001 — preflight: "main has uncommitted changes to tracked files (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting."
+- [ ] fix (health 2026-10-16): run-2026-10-15_020002 — preflight: "main has uncommitted changes to tracked files (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting."
+- [ ] fix (health 2026-10-16): main has uncommitted changes to tracked files at preflight — 4× on 2026-10-12, 2026-10-13, 2026-10-14, 2026-10-15 (consecutive nights; the 2026-10-16 run, excluded as in progress, got past preflight)
 
 ## Stranded work (unshipped branches)
 Appended by `.pipeline/run.sh` when a failed cycle's claim names an item
