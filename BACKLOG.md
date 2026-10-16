@@ -58,7 +58,7 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
   and a non-strict registry on an input the loose one fumbles. Confirm the exact
   field and beta-header name against the `claude-api` skill before building; do
   not guess it.
-- [building] Token-budget guard for the hand-written loop. Nothing in the lab stops a
+- [done #57] Token-budget guard for the hand-written loop. Nothing in the lab stops a
   tool loop before it gets expensive: `examples/minimal-agent-loop/` runs until
   `end_turn`, however long the history grows. Increment: call the token-counting
   endpoint on the pending request before each turn and stop with a typed
