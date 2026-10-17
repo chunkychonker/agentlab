@@ -1,0 +1,4 @@
+# Pre-1.0 and released almost daily: pin exactly. Bundles the Claude Code CLI
+# (2.1.301 in this release), so no separate CLI install is needed.
+# Needed for BOTH the offline self-test and the live run.
+claude-agent-sdk==0.2.168
