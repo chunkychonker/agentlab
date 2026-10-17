@@ -68,7 +68,7 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
   injected fake client whose counts climb past the limit, asserting the loop
   stops on the right turn and never sends the over-budget request. Confirm the
   endpoint name and response shape against the `claude-api` skill first.
-- [building] The minimal agent loop again, on the Claude Agent SDK. Every agent in the
+- [done #58] The minimal agent loop again, on the Claude Agent SDK. Every agent in the
   lab is a hand-written `messages.create` loop. Increment: rebuild
   `examples/minimal-agent-loop/`'s one-tool agent on the Agent SDK (custom tool
   served in-process), and write the README as a side-by-side: what the SDK now
