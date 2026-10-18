@@ -1,0 +1,3 @@
+# Needed for both server.py and the offline self-test (in-memory Client).
+# Verified on mcp==2.3.0 (2026-10-18). ToolAnnotations lives in mcp.types.
+mcp>=2.0.0,<3

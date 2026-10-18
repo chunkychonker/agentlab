@@ -102,6 +102,7 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   stream-json --verbose` recipe for a scriptable end-to-end check,
   including the `mcp__<server>__<tool>` naming convention and the
   `stream-json` event shapes to assert on
+- [[mcp-tool-annotations]] — the four behavioral hints, their spec defaults (unannotated = destructive + open-world), untrusted-advice status, and the SDK 2.x `ToolAnnotations` shape (unset = `None`)
 - [[mcp-resources]] — resources vs tools: application-driven vs
   model-driven, separate list/read RPCs + resource templates, "listing never
   executes the function" (verified against SDK source), the opposite
