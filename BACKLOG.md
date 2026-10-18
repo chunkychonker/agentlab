@@ -133,7 +133,7 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
   actually surfaces it rather than trusting the spec — the same discipline as
   `knowledge/claude-code-mcp-connection.md`, which found the host's real
   behaviour differed from the docs.
-- [stranded cycle/2026-09-05-unshipped-133345-1] MCP resources through the real Claude Code host, not the in-memory `Client`.
+- [ ] MCP resources through the real Claude Code host, not the in-memory `Client`.
   `examples/mcp-resources-vs-tools/` proves the protocol-level contract offline
   and explicitly defers the live `@`-mention flow to "PR #19's territory";
   `knowledge/mcp-resources.md` describes how the host surfaces resources
@@ -311,9 +311,9 @@ Both are small; a builder can reasonably take them in one cycle.
 Filed automatically by `.pipeline/run.sh` from `logs/last-health.md`.
 Full detail is in the dated `logs/lab-health-*.log` for that date.
 - [done #44] fix (health 2026-09-02): run-2026-08-29_114701 — no "=== done"; log stops mid "cycle 2/2: review" with no verdict and no "Aborting." line. Cycle 1 was a clean review FAIL (mcp-prompts knowledge note not reconciled with the build); cycle 2 research h...
-- [stranded cycle/2026-09-17-unshipped-024123-1] fix (health 2026-09-02): run-2026-08-30_114704 — "main has uncommitted changes to tracked files (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting." Aborted at preflight; downstream of run-2026-08-29's t...
+- [done by hand 2026-10-18] fix (health 2026-09-02): run-2026-08-30_114704 — "main has uncommitted changes to tracked files (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting." Aborted at preflight; downstream of run-2026-08-29's t...
 - [done #49] fix (health 2026-09-02): run-2026-08-31_114702 — "NETWORK UNREACHABLE (api.anthropic.com / github.com) — check VPN. Aborting." Sole line in the log; first occurrence since the PR #31 probe fix.
-- [stranded cycle/2026-09-19-unshipped-021911-1] fix (health 2026-09-02): run-2026-09-01_134705 — shipped 0/2. Cycle 1 clean VERDICT: FAIL (no increment: researcher killed by the 600s ceiling, builder correctly refused to build). Cycle 2 verdict MISSING (same 600s researcher kill; review phase wro...
+- [done by hand 2026-10-18] fix (health 2026-09-02): run-2026-09-01_134705 — shipped 0/2. Cycle 1 clean VERDICT: FAIL (no increment: researcher killed by the 600s ceiling, builder correctly refused to build). Cycle 2 verdict MISSING (same 600s researcher kill; review phase wro...
 - [done #51] fix (health 2026-09-02): "Background tasks still running after 600s; terminating. Set CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 to wait indefinitely." — 2 nights: 2026-08-29 (cycle 2 research) and 2026-09-01 (cycle 1 research, cycle 2 research, and the pipeline-observer phase — 3 occurrences that night). Direct cause of run-2026-09-01 shipping 0/2 a...
 - [done #42] fix (health 2026-09-02): BACKLOG.md:24 "Parallel specialist execution in the orchestrator" marked [building], shipped in PR #37 (merged 2026-09-02, branch cycle/2026-09-02-parallel-specialist-execution) — never advanced to [done #37]. Both maintain/auto-merge and the post-loop reconcile for that cycle have already run, so no remaining pipeline step will correct it. (researcher 2026-09-10: one increment resolves this and the PR #38 line below — see research/2026-09-10-backlog-mark-done-reconcile.md)
 - [done #42] fix (health 2026-09-02): BACKLOG.md:36 "thinking blocks in the streaming accumulator" marked [building], shipped in PR #38 (merged 2026-09-02, branch cycle/2026-09-02-streaming-thinking-accumulator) — never advanced to [done #38]. Same as PR #37: both of tonight's cycles shipped without a mark-done, the 2026-08-16 PR #33 failure mode recurring on both cycles. (builder 2026-09-10: subject resolved by the increment claimed above — BACKLOG.md:36 now reads [done #38] and `reconcile_shipped_claim` makes the transition automatic. Left unclaimed rather than pre-marked with a PR number that does not exist yet; close it on sight.)
@@ -372,7 +372,7 @@ Appended by `.pipeline/run.sh` when a failed cycle's claim names an item
 that is not on main — the researcher wrote the topic and the claim in one
 edit, so main never had it. The branch holds the work; salvaging it is a
 human's call.
-- [stranded cycle/2026-09-12-unshipped-024106-1] MCP's other transport: Streamable HTTP, not stdio. Every MCP example
+- [ ] MCP's other transport: Streamable HTTP, not stdio. Every MCP example
   in the lab so far (`mcp-hello-world`, and the two stranded `mcp-prompts` /
   `mcp-resources-claude-code` items above) either uses stdio or bypasses the wire
   entirely via the SDK's in-memory `Client`; `mcp-hello-world/README.md` names
@@ -382,7 +382,7 @@ human's call.
   Host-header check — via `httpx2.ASGITransport` wired directly to
   `MCPServer.streamable_http_app()`, no real socket, no live network, no key.
   See `research/2026-09-12-mcp-streamable-http.md`.
-- [stranded cycle/2026-09-16-unshipped-023645-2] Manifest formats beyond `requirements.txt`/`package.json` for the
+- [ ] Manifest formats beyond `requirements.txt`/`package.json` for the
   dependency-pin scanner. `examples/skill-script-execution/README.md` names this
   explicitly out of scope ("Manifest formats beyond requirements.txt/package.json
   (e.g. Cargo.toml, go.mod) — a natural follow-up, not this cycle's scope").
@@ -399,5 +399,5 @@ human's call.
   there. Offline self-test only, extending `test_scan_dependencies.py`'s
   existing pattern — no API key, no network. See
   `research/2026-09-16-cargo-toml-dependency-scan.md`.
-- [stranded cycle/2026-09-20-unshipped-022445-1] fix (health 2026-09-02): run-2026-09-01_134705 — shipped 0/2. Cycle 1 clean VERDICT: FAIL (no increment: researcher killed by the 600s ceiling, builder correctly refused to build). Cycle 2 verdict MISSING (same 600s researcher kill; review phase wro... (builder 2026-09-20: the literal 600s-ceiling cause named here is already fixed on main by commit 832134b, merged earlier tonight; per research/2026-09-20-pipeline-run-log-classifier-wiring.md this claim is being spent on the gap that finding leads to instead — wiring .pipeline/run_log.sh's classifier into the pipeline-observer phase, the phase these health findings keep showing dying on its own token budget.)
-- [stranded cycle/2026-09-21-unshipped-022105-1] fix (health 2026-09-02): "Background tasks still running after 600s; terminating. Set CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 to wait indefinitely." — 2 nights: 2026-08-29 (cycle 2 research) and 2026-09-01 (cycle 1 research, cycle 2 research, and the pipeline-observer phase — 3 occurrences that night). Direct cause of run-2026-09-01 shipping 0/2 a... (researcher 2026-09-21: the named cause is already fixed on main by direct commit 832134b, 2026-09-20 — no PR, so `reconcile_shipped_claim` cannot ever close this line; see research/2026-09-21-backlog-direct-commit-reconcile.md, which spends this claim on that reconciliation gap instead — Failure 4 in knowledge/pipeline-claim-lifecycle.md)
+- [done by hand 2026-10-18] fix (health 2026-09-02): run-2026-09-01_134705 — shipped 0/2. Cycle 1 clean VERDICT: FAIL (no increment: researcher killed by the 600s ceiling, builder correctly refused to build). Cycle 2 verdict MISSING (same 600s researcher kill; review phase wro... (builder 2026-09-20: the literal 600s-ceiling cause named here is already fixed on main by commit 832134b, merged earlier tonight; per research/2026-09-20-pipeline-run-log-classifier-wiring.md this claim is being spent on the gap that finding leads to instead — wiring .pipeline/run_log.sh's classifier into the pipeline-observer phase, the phase these health findings keep showing dying on its own token budget.)
+- [done by hand 2026-10-18] fix (health 2026-09-02): "Background tasks still running after 600s; terminating. Set CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 to wait indefinitely." — 2 nights: 2026-08-29 (cycle 2 research) and 2026-09-01 (cycle 1 research, cycle 2 research, and the pipeline-observer phase — 3 occurrences that night). Direct cause of run-2026-09-01 shipping 0/2 a... (researcher 2026-09-21: the named cause is already fixed on main by direct commit 832134b, 2026-09-20 — no PR, so `reconcile_shipped_claim` cannot ever close this line; see research/2026-09-21-backlog-direct-commit-reconcile.md, which spends this claim on that reconciliation gap instead — Failure 4 in knowledge/pipeline-claim-lifecycle.md)
