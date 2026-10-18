@@ -147,7 +147,7 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
   what actually happened, the docs-vs-reality discipline
   `knowledge/claude-code-mcp-connection.md` already applied. Costs one small
   billed run; state that in the README like `examples/mcp-connect-claude-code/` does.
-- [ ] MCP tool annotations: `readOnlyHint`, `destructiveHint`, `idempotentHint`,
+- [building] MCP tool annotations: `readOnlyHint`, `destructiveHint`, `idempotentHint`,
   `openWorldHint`. No MCP example in the lab declares them, so none says
   whether a tool is safe to call without asking. Increment: a server with one
   read-only and one destructive tool, each annotated, and a test through the
