@@ -74,6 +74,17 @@ ext_sync "$W" "$T/remote.git" main
 check "E23 a recently modified file is hot" bash -c ". .pipeline/external.sh; ext_hot_files '$W' main 2 | grep -qx a.txt"
 check "E24 a recently added (unmodified) file is not hot" bash -c ". .pipeline/external.sh; ! ext_hot_files '$W' main 2 | grep -qx added.txt"
 
+# --- AI attribution --------------------------------------------------------
+msg=$'fix: x\n\nbody line\n\nCo-Authored-By: Claude Opus <noreply@anthropic.com>\nCo-Authored-By: Kush <k@x.com>\n\U0001F916 Generated with [Claude Code](https://claude.com/claude-code)'
+out="$(printf '%s\n' "$msg" | ext_strip_ai_attribution)"
+check "E27 strip drops the Claude trailer and footer" bash -c "! printf '%s' \"\$1\" | grep -qiE 'anthropic|claude code'" _ "$out"
+check "E28 strip keeps human co-authors and body" bash -c "printf '%s' \"\$1\" | grep -q 'Kush' && printf '%s' \"\$1\" | grep -q 'body line'" _ "$out"
+ext_sync "$W" "$T/remote.git" main
+( cd "$W" && git config user.email t@t && git config user.name t && echo h > h.txt && git add h.txt \
+  && git commit --quiet -m "$msg" )
+check "E29 synced checkout's hook strips the trailer from a real commit" \
+  bash -c "! git -C '$W' log -1 --format=%B | grep -qi anthropic && git -C '$W' log -1 --format=%B | grep -q Kush"
+
 # --- ext_commit_bookkeeping ------------------------------------------------
 git init --quiet --bare -b main "$T/lab.git"
 git clone --quiet "$T/lab.git" "$T/lab" 2>/dev/null

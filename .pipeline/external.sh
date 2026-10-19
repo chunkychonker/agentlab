@@ -60,13 +60,42 @@ ext_protected_hits () {
   return 0
 }
 
+# Lines that credit an AI tool rather than the account owner: a Co-Authored-By
+# trailer naming Claude/Anthropic, or Claude Code's "Generated with" footer.
+# Work in someone else's repo ships under the owner's GitHub identity only.
+EXT_AI_ATTRIBUTION_RE='^(co-authored-by:.*(claude|anthropic)|.*generated with \[?claude code)'
+
+# ext_strip_ai_attribution
+# Filter: copies stdin to stdout minus lines matching EXT_AI_ATTRIBUTION_RE
+# (case-insensitive). Never fails; empty input gives empty output.
+ext_strip_ai_attribution () {
+  grep -viE "$EXT_AI_ATTRIBUTION_RE" || true
+}
+
+# ext_install_commit_hook <workdir>
+# Writes <workdir>/.git/hooks/commit-msg so every commit made in the checkout,
+# by any agent, has AI attribution lines stripped before it is recorded.
+# Idempotent (overwrites). Returns non-zero if the hook cannot be written.
+ext_install_commit_hook () {
+  local hook="$1/.git/hooks/commit-msg"
+  mkdir -p "$(dirname "$hook")" || return 1
+  cat > "$hook" <<HOOK || return 1
+#!/bin/sh
+# Installed by agentlab (.pipeline/external.sh): no AI attribution in commits.
+grep -viE '$EXT_AI_ATTRIBUTION_RE' "\$1" > "\$1.agentlab" || true
+mv "\$1.agentlab" "\$1"
+HOOK
+  chmod +x "$hook"
+}
+
 # ext_sync <workdir> <remote-url> <base>
 # Leaves <workdir> as a pristine checkout of origin/<base>: cloned if absent,
 # otherwise fetched, hard-reset and cleaned (ignored files included, so a stale
 # build output can never satisfy the verify gate). Idempotent.
 # Returns non-zero if the clone/fetch fails or <base> does not exist on the
 # remote; the checkout is then in an unspecified state and must not be used.
-# Local branches (including unshipped snapshots) are kept.
+# Local branches (including unshipped snapshots) are kept. Also (re)installs
+# the commit-msg hook from ext_install_commit_hook.
 ext_sync () {
   local work="$1" url="$2" base="$3"
   if [ ! -d "$work/.git" ]; then
@@ -78,6 +107,7 @@ ext_sync () {
   git -C "$work" checkout --quiet -B "$base" "origin/$base" || return 1
   git -C "$work" reset --quiet --hard "origin/$base" || return 1
   git -C "$work" clean -fdxq || return 1
+  ext_install_commit_hook "$work"
 }
 
 # ext_hot_files <workdir> <base> <hours>

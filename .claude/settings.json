@@ -26,5 +26,10 @@
       "WebSearch",
       "WebFetch"
     ]
+  },
+  "includeCoAuthoredBy": false,
+  "attribution": {
+    "commit": "",
+    "pr": ""
   }
 }

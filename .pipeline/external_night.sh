@@ -51,6 +51,23 @@ ext_commit_bookkeeping () {
   fi
 }
 
+# ext_scrub_pr_body <repo> <pr>
+# Removes AI attribution lines from the PR description, so the PR reads as the
+# account owner's. A failed read/edit is logged loudly but does not unship a
+# PR that is already open — the human sees the warning in the run log.
+ext_scrub_pr_body () {
+  local repo="$1" pr="$2" body clean
+  body="$(gh pr view "$pr" -R "$repo" --json body -q .body 2>>"$LOG")" \
+    || { echo "WARNING: could not read $repo#$pr body to scrub AI attribution." | tee -a "$LOG"; return 1; }
+  clean="$(printf '%s\n' "$body" | ext_strip_ai_attribution)"
+  [ "$clean" == "$body" ] && return 0
+  if gh pr edit "$pr" -R "$repo" --body "$clean" >>"$LOG" 2>&1; then
+    echo "scrubbed AI attribution from $repo#$pr description." | tee -a "$LOG"
+  else
+    echo "WARNING: failed to scrub AI attribution from $repo#$pr — edit it by hand." | tee -a "$LOG"; return 1
+  fi
+}
+
 # One cycle. Returns 0 if a PR was opened on the target, non-zero otherwise.
 run_external_cycle () {
   local k="$1" slug="$2" repo="$3" verify="$4" protected="$5" hot_hours="$6"
@@ -129,6 +146,7 @@ run_external_cycle () {
     return 1
   fi
   echo "PR $repo#$pr opened for human review (not merged, by design)." | tee -a "$LOG"
+  ext_scrub_pr_body "$repo" "$pr"
   ext_commit_bookkeeping "$slug" "chore($slug): cycle shipped as $repo#$pr"
   return 0
 }
