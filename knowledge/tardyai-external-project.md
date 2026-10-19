@@ -5,3 +5,7 @@ An external-mode target (`kushsarora/TardyAI`, a C3 AI Studio app) worked by PR 
 ## Router tests (milestone 2)
 
 `NavRouter.js` has no exports, so tests load it with `vm.runInContext` and stub `MapNode`, `NavEdge` and `Filter`. The stub must join `Floor` onto each node, because C3's `include` does that and the seed rows carry only `floor: {id}`. Gotcha: on Node 24, `node --test <directory>` fails (the directory is treated as a module), so pass a glob such as `dir/*.test.js`. See research/2026-10-19-tardyai-router-unit-tests.md and [[npm-ci-peer-dep-lock-drift]].
+
+## Directions (milestone 3)
+
+Image y grows downward, so for headings h1, h2 the cross product `dx1*dy2 - dy1*dx2` is positive for a visual **right** turn. Seed stairs are spur nodes, so the demo route doubles back ~5 m and needs a "Turn around". Hot files can force new files: the TS `RouteStep` type goes in `pages/Navigate/routeStepTypes.ts`, not `Interfaces.tsx`. The repo has no jest tests yet and `jest.config.ts` has no `@/` alias. See research/2026-10-19-tardyai-turn-by-turn-directions.md.

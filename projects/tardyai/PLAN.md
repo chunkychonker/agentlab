@@ -36,7 +36,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    assert the README's demo claims: West Entrance (L1) → 3335 is ~3 min in 2
    legs; step-free swaps West Stairs for Elevator C; an unreachable or unknown
    room yields a failed route, not a throw.
-3. [not-started] Turn-by-turn directions (core). Today each leg gets one
+3. [done kushsarora/TardyAI#3] Turn-by-turn directions (core). Today each leg gets one
    sentence ("Walk to West Stairs"). A late student needs directions they can
    follow without reading the map. Add `steps` to every `RouteLeg`, computed
    server-side in `NavRouter.js` from the leg's polyline. This is additive:
@@ -134,4 +134,15 @@ contradict an entry here without adding one.
 
 ## Current state
 
-2026-10-19 (after build, cycle 2): milestone 2 (router unit tests) in-progress, built and awaiting review. Milestone 1 is done as kushsarora/TardyAI#1; this work stacks on its branch. In the checkout (untracked, uncommitted): `pkgbc231600/test/node/harness.js` (`seed()`, `loadRouter(data?)`, which evaluates the unmodified `src/NavRouter.js` in a fresh `vm` context with `MapNode`/`NavEdge`/`Filter` stubs that throw on unknown filter paths) and `pkgbc231600/test/node/router.test.js` (10 tests, all passing on node v24.5.0). They cover: West Entrance to 3335 in 150-210 s, 2 legs and 2 floors via West Stairs; step-free goes via Elevator C with no stairs and a different ETA; unknown start, unknown destination and unmatched `routeToRoom` fail without throwing; an isolated synthetic room fails with "No walkable route"; with elevators out of service, step-free fails with "No step-free route" while the default route still works; and the same-node and blank-arg paths fail. Mutation check: with `ELEVATOR_WAIT_SECONDS = 0` in a scratch copy, 2 tests fail, so the suite is not vacuous. In agentlab, `verify.sh` `node_tests` now passes `"$dir"/*.test.js`, not the directory (which fails on Node 24), and fails if the directory has no tests. `bash projects/tardyai/verify.sh <checkout>` gives `VERIFY: PASS` with the router step running 10 tests. Fixture note: elevator nodes sit inline in hallway chains, so the "stairs only" fixture removes the elevators' `connectorKey`, not their edges. Next: review, then PR (no UI change, so the PR checklist only needs "Studio build still passes after pulling").
+2026-10-19 (build, cycle 3): milestone 3 (turn-by-turn directions) is built in the checkout and passes `VERIFY: PASS` (node 24/24, jest 2/2). It is still `in-progress` until the PR ships. Every acceptance criterion in the research note is met. Changes in `/Users/steeb/agentlab-work/tardyai`:
+- Backend: new `src/RouteStep.c3typ`, plus an optional `steps: [RouteStep]` on `RouteLeg.c3typ`. In `NavRouter.js`, the new `turnDirection` and `buildSteps` are called from `assembleLegs`, which now records per-leg hops without adding them to the result. `instruction` strings are unchanged (a test checks this).
+- Tests: `test/node/steps.test.js` covers the seed demo and step-free routes, every routable seed room, a one-point leg, the L fixture walked both ways plus its mirror, a reversal and a collinear merge. Flipping the cross-product sign fails 7 of these tests.
+- UI: `RouteSteps.tsx` shows a numbered step list with distances under each leg, and falls back to `instruction` when `steps` is absent. `tardyApi.normalizeRoute` turns `steps` into an array the same way it does for `points`. `RouteSteps.test.tsx` is the repo's first jest test. `jest.config.ts` did not need the `@/` alias.
+Departures from the proposal:
+- The step types live in `src/lib/routeStepTypes.ts`, not `pages/Navigate/`, because `lib/tardyApi.ts` imports them and lib should not depend on pages.
+- When the last hop bends off the hallway into the room, there is no separate turn step. The `arrive` step carries that hop's meters and names the landmark: "3335 (Class Room 3335) is on your left at Elevator C (east)", shown with 45 m. The proposal had `arrive` at 0 m. The bend's meters would otherwise fold into "walk 119 m", which overstates the 74 m hallway walk.
+Known quirks, left alone on purpose:
+- The demo route says "Turn around" at the West Stairs spur.
+- The L1 entrance turn is 31.6 degrees, just over the threshold.
+- Curve drift is accepted.
+The PR checklist must add "Re-provision in Studio (new type RouteStep, new field RouteLeg.steps)".
