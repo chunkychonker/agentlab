@@ -110,16 +110,20 @@ ext_sync () {
   ext_install_commit_hook "$work"
 }
 
-# ext_hot_files <workdir> <base> <hours>
+# ext_hot_files <workdir> <base> <hours> [self_email]
 # Paths MODIFIED or renamed on origin/<base> in the last <hours> hours, one per
 # line, deduped. Another agent (the target's own IDE agent) may be mid-flight on
 # these. Additions alone do not count: a repo created today adds every file in
 # its first commit, and treating that as "in flight" would put the whole tree
 # off limits. Iterating on a file is what shows up as M.
+# Commits authored by [self_email] (agentlab's own identity) are ignored: our
+# merged or stacked PRs are not another agent's in-flight work, and counting
+# them would lock agentlab out of the files it just improved.
 ext_hot_files () {
-  local work="$1" base="$2" hours="$3"
-  git -C "$work" log "origin/$base" --since="$hours hours ago" --diff-filter=MR --name-only --format= 2>/dev/null \
-    | sed '/^$/d' | sort -u
+  local work="$1" base="$2" hours="$3" self="${4:-}"
+  git -C "$work" log "origin/$base" --since="$hours hours ago" --diff-filter=MR --name-only --format='@%ae' 2>/dev/null \
+    | awk -v self="$self" '/^@/ { skip = (self != "" && substr($0, 2) == self); next } NF && !skip' \
+    | sort -u
 }
 
 # ext_changed_files <workdir> <base>

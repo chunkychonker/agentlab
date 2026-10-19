@@ -68,7 +68,43 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    steps list in a new component that needs no wiring in those files, or
    ship backend plus tests and leave the UI half `blocked: hot`. Never edit a
    hot file.
-4. [not-started] Room entry finds the right room. The student types a
+4. [not-started] AI directions panel beside the map (user request). The
+   Navigate page gets a "Directions" panel next to the map (to its right on
+   desktop, under it on phones). It shows the route as a few plain, friendly
+   sentences an AI writes, e.g. "Go in through the West Entrance and take the
+   stairs on your right up to Level 3. Turn left, and 3335 is the third door
+   on your left — about 3 minutes." The numbered steps from #3 stay visible
+   under the panel as the exact reference.
+   - Backend: a new `@py(env='server')` type `RouteNarrator` with
+     `narrate(route: NavRoute): RouteNarration`. It uses the same
+     `c3.GenaiCore.Llm.Completion.Client.forConfigKey("default-completions")`
+     client as `RoomFinder.py`.
+   - Grounded, not free-form: the model gets only the route's structured
+     `steps`, the floor names and the destination. It does not get the map
+     image.
+   - The reply is validated before it is shown. Every connector and floor it
+     names, and the destination room, must appear in the steps, in step order.
+     It must not name any room or connector the steps lack.
+   - On a failed check, a model error or a timeout, it returns
+     `source: "steps"` with the deterministic step sentences joined, so the
+     panel is never empty and never wrong.
+   - Results are cached per route signature (start, destination, step-free),
+     so re-renders and repeat demos don't re-call the model.
+   - UI: the panel has loading, AI and fallback states, a small "AI" label
+     when `source` is the model, and it re-narrates when the route changes.
+     Put any new UI types under `src/lib/` (`Interfaces.tsx` is the Studio
+     agent's hot file).
+   - Acceptance:
+     - `c3_parity` covers `narrate`.
+     - Python unittest with a fake client: prompt contents, a valid reply
+       passes, a reply that invents a room or misorders floors falls back,
+       and a raising client falls back.
+     - jest: the panel's three states, and a new route triggers a new
+       narration.
+     - PR checklist: re-provision `RouteNarrator`, confirm the
+       `default-completions` config exists in Studio, and read the narration
+       for West Entrance → 3335 in both modes.
+5. [not-started] Room entry finds the right room, and fix the two step-wording issues #3's review found. The student types a
    destination, and today `routeToRoom` silently routes to `searchRooms(…,
    1)[0]`, even on a weak substring match. Fix this:
    - Normalize what people actually type: "rm 3335", "Room 3335", "#3335",
@@ -82,15 +118,47 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    default and step-free. It runs inside `verify.sh`'s node step, so a seed
    gap fails before Studio sees it. Fix whatever gaps it exposes, in data or
    router. Acceptance: one table-driven test of typed inputs → expected room
-   or candidate list, plus the all-rooms test.
-5. [not-started] Mobile Navigate with directions. At phone width (≤ 640px)
+   or candidate list, plus the all-rooms test. Wording: (a) a final leg with
+   no known heading (the step-free single hop from Elevator C to 3335) must
+   not guess "straight ahead". Say "You have arrived at 3335" or work out
+   the side from the doorway edge. (b) Cut the frequent "Turn around" steps
+   (25 of 295 across West-Entrance routes, caused by spur stair/connector
+   nodes) by not emitting a turn when the path just steps into and out of a
+   spur. Test both on seed data.
+6. [not-started] The route starts where the student actually is. The "I'm
+   here" pin (tap or GPS) goes through `nearestNode`, which picks the closest
+   node of any kind by straight-line pixel distance. It can snap to a room or
+   a stair node across a wall, or to a node behind the student, so the route
+   starts with a needless backtrack. Fix it without breaking anything that
+   calls `nearestNode`:
+   - Add `NavRouter.snapToGraph(floorId, x, y)`. It projects the pin onto the
+     nearest walkable edge segment (hallway or connector edges on that floor)
+     and returns the edge, the projected point and the fraction along the
+     edge.
+   - Add `findRouteFromPoint(floorId, x, y, destNodeId, stepFree)`. It starts
+     A* from both ends of that edge, with costs prorated by the fraction, and
+     the first leg's polyline begins at the projected point.
+   - Room nodes are snap targets only when the pin is closer to them than
+     to any edge.
+   - Keep `nearestNode` and `findRoute` unchanged. Navigate switches to the
+     new path.
+   - GPS: when the accuracy radius covers more than one corridor, the UI
+     asks the student to confirm the pin instead of routing silently.
+   Acceptance (`node --test` on seed data plus a jest test):
+   - A pin at the midpoint of a hallway edge routes with an ETA between the
+     ETAs from its two endpoints.
+   - A pin just outside a room's wall snaps to the hallway, not the room.
+   - A pin's route never revisits the snapped edge.
+   - `c3_parity` passes for both new methods.
+   - The PR checklist says to re-provision `NavRouter` in Studio.
+7. [not-started] Mobile Navigate with directions. At phone width (≤ 640px)
    the sidebar collapses and the form stacks above the map. The step list
    becomes a bottom sheet over the map. The map auto-switches to the floor of
    the current leg. Every control is at least a 44px touch target, and the
    desktop layout is unchanged. Acceptance: jest + testing-library tests of
    the responsive layout and the floor auto-switch. The Studio Mobile preview
    check goes on the PR.
-6. [not-started] Arrival-time correctness and demo hardening:
+8. [not-started] Arrival-time correctness and demo hardening:
    - jest tests for `src/lib/geoTransform.ts` (GPS ↔ pixel round trip
      against `Floor.calibration`) and the pure parts of `src/lib/tardyApi.ts`.
    - "Arrive N min late / N min to spare" across midnight, an unset time and
@@ -131,6 +199,17 @@ contradict an entry here without adding one.
 - 2026-10-19: #1 merged. Milestone 3 is stacked on PR #2's branch (`target`
   base = `agentlab/2026-10-19-router-unit-tests`), because the directions tests
   reuse #2's `vm` harness. Set `base=main` right after #2 merges.
+- 2026-10-19: Stop stacking PRs. TardyAI doesn't auto-delete merged branches,
+  so GitHub never retargeted the stacked PRs: #2 merged into the leftover
+  `lock-file-sync` branch, and its tests never reached `main`. #3 (stacked on
+  #2) is being retargeted to `main` to land both. From now on `base=main`, and
+  a milestone that needs an open PR's code waits for that merge. Hot files now
+  ignore commits by `self_email` (agentlab's identity), so our own merged
+  work doesn't lock us out of `NavRouter.js`.
+- 2026-10-19: Added milestone 4, the AI directions panel (user request). It
+  stays grounded in #3's computed steps and falls back to them, because a
+  model that invents a turn is worse than no AI. Old 4–6 become 5, 7 and 8,
+  and the start-point fix is 6.
 
 ## Current state
 

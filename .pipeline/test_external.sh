@@ -73,6 +73,11 @@ check "E22 ...and creates no branch" bash -c "! git -C '$W' rev-parse --verify -
 ext_sync "$W" "$T/remote.git" main
 check "E23 a recently modified file is hot" bash -c ". .pipeline/external.sh; ext_hot_files '$W' main 2 | grep -qx a.txt"
 check "E24 a recently added (unmodified) file is not hot" bash -c ". .pipeline/external.sh; ! ext_hot_files '$W' main 2 | grep -qx added.txt"
+( cd "$T/seed" && echo mine >> added.txt && git add -A && git -c user.email=me@lab -c user.name=lab commit --quiet -m mine && git push --quiet origin main )
+ext_sync "$W" "$T/remote.git" main
+check "E30 a file modified only by self_email is not hot" bash -c ". .pipeline/external.sh; ! ext_hot_files '$W' main 2 me@lab | grep -qx added.txt"
+check "E31 ...but is hot when no self_email is given" bash -c ". .pipeline/external.sh; ext_hot_files '$W' main 2 | grep -qx added.txt"
+check "E32 another author's edit stays hot despite self_email" bash -c ". .pipeline/external.sh; ext_hot_files '$W' main 2 me@lab | grep -qx a.txt"
 
 # --- AI attribution --------------------------------------------------------
 msg=$'fix: x\n\nbody line\n\nCo-Authored-By: Claude Opus <noreply@anthropic.com>\nCo-Authored-By: Kush <k@x.com>\n\U0001F916 Generated with [Claude Code](https://claude.com/claude-code)'

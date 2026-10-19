@@ -20,6 +20,7 @@
 # Read by the postcondition below; set once per night by run_external_night.
 EXT_WORK=""
 EXT_BASE=""
+EXT_SELF_EMAIL=""   # target's self_email: agentlab's commit identity there
 
 # ext_increment_built <floor_epoch>
 # Build-phase postcondition for external mode: the checkout differs from
@@ -81,7 +82,7 @@ run_external_cycle () {
     return 1
   fi
   local hot head
-  hot="$(ext_hot_files "$EXT_WORK" "$EXT_BASE" "$hot_hours")"
+  hot="$(ext_hot_files "$EXT_WORK" "$EXT_BASE" "$hot_hours" "$EXT_SELF_EMAIL")"
   head="$(git -C "$EXT_WORK" rev-parse --short HEAD)"
 
   # The one file every phase reads for "where is the target and what may I
@@ -162,6 +163,7 @@ run_external_night () {
     || { echo "$target must define repo, base and verify — see projects/EXTERNAL_MODE.md. Aborting." | tee -a "$LOG"; return 1; }
   protected="$(ext_target_field "$target" protect)"
   hot_hours="$(ext_target_field "$target" hot_hours)" || hot_hours=2
+  EXT_SELF_EMAIL="$(ext_target_field "$target" self_email)" || EXT_SELF_EMAIL=""
   if ! [[ "$hot_hours" =~ ^[0-9]+$ ]] || [ ! -r "$verify" ]; then
     echo "$target: hot_hours must be an integer and verify must be a readable script. Aborting." | tee -a "$LOG"
     return 1

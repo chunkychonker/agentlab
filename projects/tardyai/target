@@ -1,9 +1,11 @@
 # TardyAI — external target (see projects/EXTERNAL_MODE.md)
 repo=kushsarora/TardyAI
-base=agentlab/2026-10-19-router-unit-tests
+base=main
 verify=projects/tardyai/verify.sh
 # The C3 Studio agent's own memory file; it maintains it, we never edit it.
 protect=pkgbc231600/src/WORKSPACE_SUMMARY.md
 protect=pkgbc231600/pkgbc231600.c3pkg.json
 # The Studio agent pushes straight to main during the day.
 hot_hours=2
+# agentlab commits as this identity; its own commits never count as hot.
+self_email=steveylingy@gmail.com
