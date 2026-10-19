@@ -127,7 +127,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
      don't stack and 1270 arrives with milestone 4. An unknown room returns
      suggestions, not an error. A message with no start asks for one.
      Verify passes. 1310 -> 1270 works once milestone 4 merges.
-6. [not-started] Room routes go through doorways (user report after #4: "the
+6. [in-progress] Room routes go through doorways (user report after #4: "the
    map routes are still going through rooms and walls"). #4 put the hallway
    network in the corridors, but 61 room links and 1 hallway link (n-f3-n1250
    -- n-f3-d3210) still cross a drawn wall. Every route ends on a room link,
@@ -342,12 +342,4 @@ contradict an entry here without adding one.
 
 ## Current state
 
-2026-10-19 (build, cycle 2026-10-19_154354): milestone 5 (Room Finder routes through NavRouter) is built in the checkout, not yet reviewed or shipped (`in-progress` until the PR exists). Every acceptance criterion is met offline, and `VERIFY: PASS` with the new step "room finder tests (python)" (23 tests).
-- `RoomFinder.findRoute` now makes one small text-only model call that extracts `{start, destination, stepFree}` as validated JSON, with one retry. Plain Python resolves each end to a Waypoint and then its MapNode: exact room number ignoring case, spaces and an "rm"/"room"/"#" prefix, then the number without a trailing letter, then a place name, alias or label. A place on several floors is narrowed by the floor the user gave, else by the other end's floor. Then it calls `c3.NavRouter.findRoute`. Each NavRoute leg becomes a segment with the router's pixel coordinates untouched (plans are 1980x1530; the 1500x1159 annotated images are never drawn on). Steps are the router's, with exact per-step floor keys.
-- An unknown room returns `clarify` with "I can't find room X on these plans. Did you mean …?" and up to three real rooms in `suggestions` ("1207" suggests 1270 first), and no router call. A missing start or destination asks for it. A place on several floors with no floor given asks which floor. When the router itself finds no route, the result is `error` with the router's reason, not `ok`+not drawable, because the UI titles that case "Directions only". The note suggested `ok`; this deviates from it on purpose.
-- Model down, or two unusable answers: replay a pinned answer when `allowFallback`, else `error`. A router answer logs only its Waypoint-labelled points as `routeLabels`, so pinning it replays through the old `_resolveRoute`. Limitation: door nodes are skipped in a replay, so the line goes straight from the corridor node to the room.
-- The vision path is kept unchanged as `_findRouteByVision`. It runs only for a building whose waypoints have no `sourceNode`, i.e. no graph to route on.
-- Additive type fields: `VisionRoute.suggestions/totalSeconds/totalMeters`, `RouteWaypoint.nodeId`, and `source: "router"`. Docs updated in `RoomFinder.c3typ`.
-- Tests: `pkgbc231600/test/py/test_room_finder.py` with a fake `c3` that serves seed data and projects each fetch to its `include`, plus `router_oracle.js`, which runs the real `NavRouter.js` through the node harness. `verify.sh` gained the Python step, with the same vacuous-pass guard as the node step.
-- PR checklist must add: re-provision `VisionRoute` and `RouteWaypoint` (new fields) in Studio; confirm `default-completions` exists; in Room Finder try "I'm on floor one in 1310, how do i get to 1270" (line drawn on Level 1, same steps as Navigate) and "get to 1207" (suggestions), on desktop and mobile.
-- Not done (not required by the milestone): the Room Finder provenance badge still reads "Live model" for `router` answers. The client's `normalizeRoute` maps any source other than `cache` to `llm`, and the `source` union lives in `Interfaces.tsx` (the Studio agent's file). Suggestions are shown inside the question text only, not as tappable chips. Real-model extraction quality ("floor one" -> "1") is untested offline.
+2026-10-19 (research, external cycle 1): milestone 6 (room routes go through doorways) is `in-progress`. Research note: `research/2026-10-19-tardyai-doorway-links.md`. Main (3c086d5, #1-#5 merged) fails the walkability gate with 62 wall crossings (61 room links, n-f3-n1250 -- n-f3-d3210). Plan: add `RoomRow.doors` explicit doorway points and a stub-edge mechanism to `tools/build_graph.py`, set doors per room in `tools/grainger_corridors.py`, regenerate data. README.md is hot, so leave its counts for the PR body. Milestones 7-11 are `not-started`.
