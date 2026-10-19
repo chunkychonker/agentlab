@@ -79,3 +79,9 @@ Failure mode: `build_floor` raises `ValueError` naming the room when its door-to
 - Exact entrance doorway coordinates and where the plenary 1310 is entered; both need a zoomed look at the plan.
 - Whether the annotated PNGs stay legible to the vision model with several hundred room labels; milestone 5 reduces the dependence, but until then the builder should check the L3 image (about 190 labels at 1500x1159).
 - Plan dates: the PDFs are printed 2021-09-15; room numbers may differ from the building today.
+
+## Resume addendum (cycle 2026-10-19_151057)
+
+Milestone 4 was resumed, not re-researched: the earlier cycle's work did not ship (no open PR on kushsarora/TardyAI, `origin/main` still 3cbe22e, checkout pristine). The proposal above stands unchanged. Hot files this cycle (`.gitignore`, `WORKSPACE_SUMMARY.md`, `App.tsx`, `FloorPlanMap.tsx`, `navigation.ts`, `Interfaces.tsx`) are still not needed; `tools/`, `data/`, `test/node/`, `README.md` and `public/plans/annotated/` are free. The hn-search MCP server failed to connect this cycle; no HN lookup was needed (local geometry work).
+
+Scoping advice to the builder: if the L3 room long tail cannot be finished, ship L1 and L2 complete only if `walkability.py` passes on all three floors, since the gate is all-or-nothing. A partial L3 must still be a valid corridor graph with the rooms it does cover, and the PR body must list the printed numbers not mapped.
