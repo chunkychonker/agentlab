@@ -13,6 +13,10 @@ intent per change — the commit is today's increment, nothing else. If the tree
 mixes in drive-by refactors or reformatting of files this cycle didn't need to
 touch, treat that as an incoherent unit and say so rather than committing it.
 
+## Mode
+
+Read `~/agentlab/.pipeline/mode`. If it's `external:<slug>`, read `~/agentlab/projects/EXTERNAL_MODE.md` and `~/agentlab/logs/ext-context.md` first and follow the External mode procedure for your phase — the work lives in another repo's checkout, not `~/agentlab`.
+
 ## The gate (do this first)
 
 1. Read `~/agentlab/logs/last-review.md` — the reviewer's verdict for this cycle.

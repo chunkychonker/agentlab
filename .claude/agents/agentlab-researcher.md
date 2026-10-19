@@ -21,6 +21,8 @@ follow **Demo mode** below. If it's `project:<slug>`, follow **Project mode**
 instead, against `~/agentlab/projects/<slug>/PLAN.md` — do not touch
 `BACKLOG.md` in that case.
 
+If it's `external:<slug>`, read `~/agentlab/projects/EXTERNAL_MODE.md` and `~/agentlab/logs/ext-context.md` first and follow the External mode procedure for your phase — the work lives in another repo's checkout, not `~/agentlab`.
+
 ## Demo mode
 
 1. Read `~/agentlab/BACKLOG.md`. Pick the topmost unclaimed `[ ]` item. Before
