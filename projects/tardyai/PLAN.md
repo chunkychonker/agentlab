@@ -123,9 +123,58 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    - Acceptance: Python tests with the LLM client stubbed. "1310 → 1270",
      "from the west entrance to 3335" and a cross-floor request each return
      a placed route whose node sequence equals `NavRouter.findRoute` for the
-     same ends. An unknown room returns suggestions, not an error. A message
-     with no start asks for one. Verify passes.
-6. [not-started] AI directions panel beside the map (user request). The
+     same ends, using rooms already on main (e.g. 1310 -> 1170), since PRs
+     don't stack and 1270 arrives with milestone 4. An unknown room returns
+     suggestions, not an error. A message with no start asks for one.
+     Verify passes. 1310 -> 1270 works once milestone 4 merges.
+6. [not-started] Room entry finds the right room, and fix the two step-wording issues #3's review found. The student types a
+   destination, and today `routeToRoom` silently routes to `searchRooms(…,
+   1)[0]`, even on a weak substring match. Fix this:
+   - Normalize what people actually type: "rm 3335", "Room 3335", "#3335",
+     "3335a"/"3335A", stray whitespace, and case.
+   - An exact room-number or name match routes directly.
+   - Several weak matches return a failed route listing the candidates
+     ("Did you mean 3335 or 3350?"), and the UI shows them as tappable
+     choices.
+   - An unknown room returns the closest suggestions instead of a dead end.
+   Add an all-rooms test: every room node is routable from every entrance,
+   default and step-free. It runs inside `verify.sh`'s node step, so a seed
+   gap fails before Studio sees it. Fix whatever gaps it exposes, in data or
+   router. Acceptance: one table-driven test of typed inputs → expected room
+   or candidate list, plus the all-rooms test. Wording: (a) a final leg with
+   no known heading (the step-free single hop from Elevator C to 3335) must
+   not guess "straight ahead". Say "You have arrived at 3335" or work out
+   the side from the doorway edge. (b) Cut the frequent "Turn around" steps
+   (25 of 295 across West-Entrance routes, caused by spur stair/connector
+   nodes) by not emitting a turn when the path just steps into and out of a
+   spur. Test both on seed data.
+7. [not-started] The route starts where the student actually is. The "I'm
+   here" pin (tap or GPS) goes through `nearestNode`, which picks the closest
+   node of any kind by straight-line pixel distance. It can snap to a room or
+   a stair node across a wall, or to a node behind the student, so the route
+   starts with a needless backtrack. Fix it without breaking anything that
+   calls `nearestNode`:
+   - Add `NavRouter.snapToGraph(floorId, x, y)`. It projects the pin onto the
+     nearest walkable edge segment (hallway or connector edges on that floor)
+     and returns the edge, the projected point and the fraction along the
+     edge.
+   - Add `findRouteFromPoint(floorId, x, y, destNodeId, stepFree)`. It starts
+     A* from both ends of that edge, with costs prorated by the fraction, and
+     the first leg's polyline begins at the projected point.
+   - Room nodes are snap targets only when the pin is closer to them than
+     to any edge.
+   - Keep `nearestNode` and `findRoute` unchanged. Navigate switches to the
+     new path.
+   - GPS: when the accuracy radius covers more than one corridor, the UI
+     asks the student to confirm the pin instead of routing silently.
+   Acceptance (`node --test` on seed data plus a jest test):
+   - A pin at the midpoint of a hallway edge routes with an ETA between the
+     ETAs from its two endpoints.
+   - A pin just outside a room's wall snaps to the hallway, not the room.
+   - A pin's route never revisits the snapped edge.
+   - `c3_parity` passes for both new methods.
+   - The PR checklist says to re-provision `NavRouter` in Studio.
+8. [not-started] AI directions panel beside the map (user request). The
    Navigate page gets a "Directions" panel next to the map (to its right on
    desktop, under it on phones). It shows the route as a few plain, friendly
    sentences an AI writes, e.g. "Go in through the West Entrance and take the
@@ -161,53 +210,6 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
      - PR checklist: re-provision `RouteNarrator`, confirm the
        `default-completions` config exists in Studio, and read the narration
        for West Entrance → 3335 in both modes.
-7. [not-started] Room entry finds the right room, and fix the two step-wording issues #3's review found. The student types a
-   destination, and today `routeToRoom` silently routes to `searchRooms(…,
-   1)[0]`, even on a weak substring match. Fix this:
-   - Normalize what people actually type: "rm 3335", "Room 3335", "#3335",
-     "3335a"/"3335A", stray whitespace, and case.
-   - An exact room-number or name match routes directly.
-   - Several weak matches return a failed route listing the candidates
-     ("Did you mean 3335 or 3350?"), and the UI shows them as tappable
-     choices.
-   - An unknown room returns the closest suggestions instead of a dead end.
-   Add an all-rooms test: every room node is routable from every entrance,
-   default and step-free. It runs inside `verify.sh`'s node step, so a seed
-   gap fails before Studio sees it. Fix whatever gaps it exposes, in data or
-   router. Acceptance: one table-driven test of typed inputs → expected room
-   or candidate list, plus the all-rooms test. Wording: (a) a final leg with
-   no known heading (the step-free single hop from Elevator C to 3335) must
-   not guess "straight ahead". Say "You have arrived at 3335" or work out
-   the side from the doorway edge. (b) Cut the frequent "Turn around" steps
-   (25 of 295 across West-Entrance routes, caused by spur stair/connector
-   nodes) by not emitting a turn when the path just steps into and out of a
-   spur. Test both on seed data.
-8. [not-started] The route starts where the student actually is. The "I'm
-   here" pin (tap or GPS) goes through `nearestNode`, which picks the closest
-   node of any kind by straight-line pixel distance. It can snap to a room or
-   a stair node across a wall, or to a node behind the student, so the route
-   starts with a needless backtrack. Fix it without breaking anything that
-   calls `nearestNode`:
-   - Add `NavRouter.snapToGraph(floorId, x, y)`. It projects the pin onto the
-     nearest walkable edge segment (hallway or connector edges on that floor)
-     and returns the edge, the projected point and the fraction along the
-     edge.
-   - Add `findRouteFromPoint(floorId, x, y, destNodeId, stepFree)`. It starts
-     A* from both ends of that edge, with costs prorated by the fraction, and
-     the first leg's polyline begins at the projected point.
-   - Room nodes are snap targets only when the pin is closer to them than
-     to any edge.
-   - Keep `nearestNode` and `findRoute` unchanged. Navigate switches to the
-     new path.
-   - GPS: when the accuracy radius covers more than one corridor, the UI
-     asks the student to confirm the pin instead of routing silently.
-   Acceptance (`node --test` on seed data plus a jest test):
-   - A pin at the midpoint of a hallway edge routes with an ETA between the
-     ETAs from its two endpoints.
-   - A pin just outside a room's wall snaps to the hallway, not the room.
-   - A pin's route never revisits the snapped edge.
-   - `c3_parity` passes for both new methods.
-   - The PR checklist says to re-provision `NavRouter` in Studio.
 9. [not-started] Mobile Navigate with directions. At phone width (≤ 640px)
    the sidebar collapses and the form stacks above the map. The step list
    becomes a bottom sheet over the map. The map auto-switches to the floor of
@@ -276,6 +278,9 @@ contradict an entry here without adding one.
   lands. Corridor edges must be at least 90% open plan pixels, ignoring 2 m at
   each end. Room edges are capped at 15 m. Measured on main: good corridor
   edges block at most 6%, bad ones 40-100%.
+- 2026-10-19: Core fixes first (user decision). Room entry (now 6) and start
+  point (now 7) move ahead of the AI panel (now 8). Milestone 5 tests use
+  rooms on main, so it doesn't depend on milestone 4's unmerged PR.
 
 ## Current state
 
