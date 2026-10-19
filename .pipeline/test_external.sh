@@ -74,6 +74,20 @@ ext_sync "$W" "$T/remote.git" main
 check "E23 a recently modified file is hot" bash -c ". .pipeline/external.sh; ext_hot_files '$W' main 2 | grep -qx a.txt"
 check "E24 a recently added (unmodified) file is not hot" bash -c ". .pipeline/external.sh; ! ext_hot_files '$W' main 2 | grep -qx added.txt"
 
+# --- ext_commit_bookkeeping ------------------------------------------------
+git init --quiet --bare -b main "$T/lab.git"
+git clone --quiet "$T/lab.git" "$T/lab" 2>/dev/null
+( cd "$T/lab" && git config user.email t@t && git config user.name t \
+  && mkdir -p research knowledge projects/p .pipeline && cp "$OLDPWD"/.pipeline/external{,_night}.sh .pipeline/ \
+  && echo plan > projects/p/PLAN.md && echo v1 > projects/p/verify.sh && echo repo=a > projects/p/target \
+  && touch research/.k knowledge/.k && git add -A && git commit --quiet -m init && git push --quiet origin main )
+( cd "$T/lab" && echo v2 > projects/p/verify.sh && echo repo=evil > projects/p/target && echo n > research/note.md \
+  && REPO="$T/lab" LOG="$T/lab.log" bash -c '. .pipeline/external_night.sh; ext_commit_bookkeeping p "chore: t"' ) >/dev/null 2>&1
+check "E25 bookkeeping pushes the reviewed verify script" \
+  bash -c "git -C '$T/lab.git' show main:projects/p/verify.sh | grep -qx v2"
+check "E26 bookkeeping never commits target" \
+  bash -c "git -C '$T/lab.git' show main:projects/p/target | grep -qx repo=a && git -C '$T/lab' status --short | grep -q target"
+
 echo ""
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

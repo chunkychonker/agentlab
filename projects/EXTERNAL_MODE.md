@@ -21,6 +21,28 @@ anything in your own definition that assumes the work lives in `~/agentlab`.
 
 **Never copy the target's code into `~/agentlab`.** It is not ours to publish.
 
+## PR size
+
+External PRs are **feature-sized**: one complete, user-visible capability
+with its tests. Typically 300–1000 changed lines across backend, UI and tests.
+Not a one-line fix or a test file on its own. This overrides "small and
+working beats big and broken" in the builder and researcher definitions. It
+does not override "working": verify must still pass.
+
+- The researcher proposes the **whole milestone**, and may bundle the next
+  consecutive milestone when both share one theme (for example backend and
+  the UI that shows it). The proposal says which milestones it covers.
+- The builder finishes every acceptance criterion it was given. A milestone
+  left half done is reported as `in-progress` with exactly what remains. It
+  is never shipped as if done.
+- The reviewer judges the PR by **one purpose**, not by size. A large diff
+  serving one milestone (or one bundled theme) is fine. Unrelated changes in
+  the same PR (drive-by refactors, reformatting, a second unrelated feature)
+  are still a FAIL.
+- Prefer behavior that fixes the product's core flow over polish. When a
+  milestone touches routing or directions, test it against the real seed data,
+  not only fixtures.
+
 ## Per phase
 
 - **Researcher** — Follow your *Project mode* steps against `PLAN.md`, but

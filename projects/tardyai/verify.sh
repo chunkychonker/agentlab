@@ -54,7 +54,14 @@ ui_tests ()   { (cd "$UI" && CI=1 npm test -- --watchAll=false); }
 node_tests () {
   local dir="$ROOT/$PKG/test/node"
   if [ ! -d "$dir" ]; then echo "(no $PKG/test/node yet — skipped)"; return 0; fi
-  node --test "$dir"
+  # Pass files, not the directory: on Node 24 `node --test <dir>` treats the
+  # directory as a module path and fails. An empty dir is a failure, not a pass.
+  local files=("$dir"/*.test.js)
+  if [ ! -e "${files[0]}" ]; then
+    echo "$PKG/test/node exists but has no *.test.js — refusing a vacuous pass"
+    return 1
+  fi
+  node --test "${files[@]}"
 }
 
 step "package name unchanged"        package_name_unchanged

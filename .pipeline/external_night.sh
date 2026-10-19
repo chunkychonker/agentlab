@@ -32,12 +32,14 @@ ext_increment_built () {
   echo "MISSING"; return 3
 }
 
-# Bookkeeping in ~/agentlab itself: this cycle's research note, knowledge notes
-# and PLAN.md. Pushed straight to main, the same precedent as the backlog
+# Bookkeeping in ~/agentlab itself: this cycle's research note, knowledge notes,
+# and projects/<slug>/ (PLAN.md plus the reviewed verify script and checks) —
+# except `target`, which sets the base and the protected list and so stays a
+# human-only edit. Pushed straight to main, the same precedent as the backlog
 # chore commits in run.sh. Anything else dirty is left for snapshot_dirty_main.
 ext_commit_bookkeeping () {
   local slug="$1" msg="$2"
-  git add research knowledge "projects/$slug/PLAN.md" >>"$LOG" 2>&1
+  git add research knowledge "projects/$slug" ":(exclude)projects/$slug/target" >>"$LOG" 2>&1
   if git diff --cached --quiet; then
     echo "no agentlab bookkeeping to commit." | tee -a "$LOG"
     return 0
