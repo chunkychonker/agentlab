@@ -24,7 +24,7 @@ skip ahead of an unfinished predecessor without saying why in the decisions
 log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
 `done <repo>#<PR>`.
 
-1. [not-started] Lock file in sync: `npm ci` in `pkgbc231600/ui/react` fails
+1. [done kushsarora/TardyAI#1] Lock file in sync: `npm ci` in `pkgbc231600/ui/react` fails
    (`package-lock.json` is missing `@mui/*`, `@testing-library/dom`, …).
    Regenerate it from `package.json` with the same major versions and make
    `verify.sh` pass end to end on a fresh checkout.
@@ -66,9 +66,4 @@ contradict an entry here without adding one.
 
 ## Current state
 
-Baseline 2026-10-19 at `main` = ed7c81c: `verify.sh` passes every step except
-`npm ci` (lock file drift). The UI builds after a plain `npm install`; there
-are zero tests (`jest --passWithNoTests`). The C3 Studio agent is actively
-pushing to `main` (corridor-grid work in flight: `data/CorridorGrid/`,
-`tools/build_corridors.py`, `data/Waypoint/Waypoint.json`), so expect hot
-files. Next: milestone 1.
+2026-10-19 (after build): milestone 1 built in the checkout and PR kushsarora/TardyAI#1 open (not merged); research note `research/2026-10-19-tardyai-lock-file-sync.md`. The only change is `pkgbc231600/ui/react/package-lock.json`, regenerated with `npm install --package-lock-only` (node v24.5.0, npm 11.5.1). `package.json` is byte-identical to `main` = ed7c81c. Lock diff: 24 entries added, 0 removed, 0 version or `resolved` changes on existing entries; the only metadata churn is `libc` (6), `dev` (3) and `devOptional` (2). The added entries are the `@mui/*` peers of `mui-chips-input`, `@testing-library/dom` and its deps, `react-is`, `@popperjs/core`, and 6 bundled deps under `@tailwindcss/oxide-wasm32-wasi` (the latter is npm 11 recording an optional wasm fallback; it is not installed on darwin/linux). All resolve to registry.npmjs.org. `verify.sh` reports `VERIFY: PASS` on all 8 steps (`npm ci` adds 1335 packages). Findings: jest still runs zero tests (`--passWithNoTests`), and the router tests step is skipped because `test/node/` does not exist yet. Milestones 2 and 4 address both. Not yet verified: whether Studio's npm reproduces this lock without churn (open question in the note). Next: PR for milestone 1, then milestone 2.
