@@ -64,6 +64,20 @@ node_tests () {
   node --test "${files[@]}"
 }
 
+py_tests () {
+  local dir="$ROOT/$PKG/test/py"
+  if [ ! -d "$dir" ]; then echo "(no $PKG/test/py yet — skipped)"; return 0; fi
+  # Same vacuous-pass guard as the node step: a test dir with no tests fails.
+  local files=("$dir"/test_*.py)
+  if [ ! -e "${files[0]}" ]; then
+    echo "$PKG/test/py exists but has no test_*.py — refusing a vacuous pass"
+    return 1
+  fi
+  # -I: isolated mode, so nothing from the cwd or PYTHON* env leaks in; the
+  # tests find src/ from their own path.
+  python3 -I -m unittest discover -v -s "$dir" -t "$dir" -p 'test_*.py'
+}
+
 step "package name unchanged"        package_name_unchanged
 step "c3typ methods implemented"     python3 -I "$HERE/checks/c3_parity.py" "$ROOT/$PKG/src"
 step "seed data integrity"           python3 -I "$HERE/checks/seed_integrity.py" "$ROOT/$PKG"
@@ -73,6 +87,7 @@ step "ui build (lint + tsc + vite)"  ui_build
 step "bundle at ui/content/$PKG"     bundle_served
 step "ui tests (jest)"               ui_tests
 step "router tests (node --test)"    node_tests
+step "room finder tests (python)"    py_tests
 
 echo ""
 if [ "${#FAILED[@]}" -eq 0 ]; then

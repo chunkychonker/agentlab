@@ -202,3 +202,4 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   text); and a second confirmed instance of "a log line can be about a
   different night" grepping `logs/run-*.log` directly
 - [[npm-ci-peer-dep-lock-drift]] - why `npm ci` fails when a lock lacks peer deps, and the safe fix
+- [[tardyai-external-project]] - TardyAI external target: router tests, directions, corridor graph, and (m5) Room Finder via NavRouter facts (injected `c3` global, coordinate spaces)
