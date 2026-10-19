@@ -137,6 +137,11 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
      ("Did you mean 3335 or 3350?"), and the UI shows them as tappable
      choices.
    - An unknown room returns the closest suggestions instead of a dead end.
+   - Names match loosely: "restroom" finds "Restrooms", and "2nd floor
+     restroom" is a named place on floor 2, not a room number.
+   - Stay out of `RoomFinder.py`, `RoomFinder.c3typ`, `VisionRoute.c3typ` and
+     `RouteWaypoint.c3typ` while PR #5 is open. Room Finder picks up the
+     better matching through `searchRooms` once both merge.
    Add an all-rooms test: every room node is routable from every entrance,
    default and step-free. It runs inside `verify.sh`'s node step, so a seed
    gap fails before Studio sees it. Fix whatever gaps it exposes, in data or
@@ -224,6 +229,11 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
      a past time: tests first, then fix what they expose.
    - Explicit loading, empty and error states for no route, an unknown room
      and a failed backend call, so the live demo never shows a blank screen.
+
+Room Finder follow-ups from #5's review (do after #5 merges, before
+milestone 8): the provenance badge says "Live model" for `source: "router"`;
+a pinned replay of a router answer skips door nodes and cuts corners; check
+whether the per-door ticks clutter the map in Studio.
 
 ## Decisions log
 
