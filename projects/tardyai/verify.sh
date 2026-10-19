@@ -67,6 +67,7 @@ node_tests () {
 step "package name unchanged"        package_name_unchanged
 step "c3typ methods implemented"     python3 -I "$HERE/checks/c3_parity.py" "$ROOT/$PKG/src"
 step "seed data integrity"           python3 -I "$HERE/checks/seed_integrity.py" "$ROOT/$PKG"
+step "routes stay in corridors"      python3 -I "$HERE/checks/walkability.py" "$ROOT/$PKG"
 step "npm ci (lock file in sync)"    npm_ci
 step "ui build (lint + tsc + vite)"  ui_build
 step "bundle at ui/content/$PKG"     bundle_served

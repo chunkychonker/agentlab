@@ -68,7 +68,64 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    steps list in a new component that needs no wiring in those files, or
    ship backend plus tests and leave the UI half `blocked: hot`. Never edit a
    hot file.
-4. [not-started] AI directions panel beside the map (user request). The
+4. [not-started] Routes follow the corridors (user report: "the map is
+   making routes that walk through rooms"). The nav graph in
+   `pkgbc231600/data/MapNode` and `data/NavEdge` was drawn by eye. Corridor
+   edges cut across classrooms and restrooms. The entrance edge crosses the
+   building diagonally. Rooms hang off 25-50 m diagonal spurs instead of a door
+   on their corridor. The verify step "routes stay in corridors"
+   (`checks/walkability.py`) samples the plan pixels under every edge, and it
+   fails on main today (31 corridor edges, 15 room spurs). Make it pass:
+   - Rebuild the graph on all three floors along the corridors as drawn on
+     `ui/react/public/plans/floor_p{1,2,3}.png`. Look at each plan image
+     before placing nodes. Put hallway nodes on corridor centrelines and at
+     every junction and bend, so each corridor edge stays at least 90% on
+     open floor.
+   - Every room gets a `door` node on its corridor and a short room edge
+     (15 m or less) from the door to the room node. No room connects to
+     anything except its door.
+   - Map every room number printed on the three plans, not just today's 24.
+     1270 on floor 1 is the user's failing case. Each mapped room gets a
+     `MapNode` (kind `room`, `roomNumber`) and the matching `Waypoint` label
+     Room Finder uses. List the printed numbers per floor in a test fixture
+     and assert each one is a room node that `findRoute` reaches from the
+     entrance. Rooms you cannot read clearly go in the PR body, not guessed.
+   - Keep stair and elevator nodes and their `connectorKey`s. Keep existing
+     node ids wherever the node survives, so Waypoints and tests stay valid.
+     Compute `seconds` from pixel length with the convention already in the
+     data (about 0.77 s per metre at 12 px/m).
+   - Acceptance: `VERIFY: PASS`, including "routes stay in corridors" and
+     "seed data integrity". The 1310 → 1270 route on floor 1 walks only
+     corridors (attach a screenshot or an overlay image to the PR). The
+     #3 step tests still pass, with fixture expectations updated where the
+     geometry changed, and a note in the PR body for each changed expectation.
+   - The PR checklist says: "Re-provision in Studio to reload seed data".
+5. [not-started] Room Finder routes through NavRouter (user report: "I'm on
+   floor one in 1310, how do i get to 1270" fails with "Directions only — I
+   could not place this route on the plans"). Today the vision LLM picks every
+   waypoint label on the path, and `_resolveRoute` rejects the whole route if
+   any label is unknown. That is fragile even with a perfect graph. Change
+   the division of labour:
+   - The LLM only extracts the start (a room, entrance or landmark, plus a
+     floor if given) and the destination from the message, as validated JSON.
+     It no longer chooses the path.
+   - `RoomFinder.findRoute` resolves both ends to `MapNode`s (exact room
+     number first, ignoring case, spaces and a "rm"/"room"/"#" prefix) and calls
+     `c3.NavRouter.findRoute(start, dest, stepFree)`. Steps and legs come
+     from the same router as Navigate, so the two pages always agree.
+   - Return the existing `VisionRoute` shape, so the UI keeps working
+     (expand/contract: add fields, don't remove any). Put the router's points
+     on the annotated plans. Check the coordinate scale: the annotated images
+     are 1500x1159 and the floor plans are 1980x1530.
+   - An unknown room never produces "Directions only". The user gets "I can't
+     find room X on these plans. Did you mean …?" with up to three nearby
+     room numbers. If the start is missing, ask for it.
+   - Acceptance: Python tests with the LLM client stubbed. "1310 → 1270",
+     "from the west entrance to 3335" and a cross-floor request each return
+     a placed route whose node sequence equals `NavRouter.findRoute` for the
+     same ends. An unknown room returns suggestions, not an error. A message
+     with no start asks for one. Verify passes.
+6. [not-started] AI directions panel beside the map (user request). The
    Navigate page gets a "Directions" panel next to the map (to its right on
    desktop, under it on phones). It shows the route as a few plain, friendly
    sentences an AI writes, e.g. "Go in through the West Entrance and take the
@@ -104,7 +161,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
      - PR checklist: re-provision `RouteNarrator`, confirm the
        `default-completions` config exists in Studio, and read the narration
        for West Entrance → 3335 in both modes.
-5. [not-started] Room entry finds the right room, and fix the two step-wording issues #3's review found. The student types a
+7. [not-started] Room entry finds the right room, and fix the two step-wording issues #3's review found. The student types a
    destination, and today `routeToRoom` silently routes to `searchRooms(…,
    1)[0]`, even on a weak substring match. Fix this:
    - Normalize what people actually type: "rm 3335", "Room 3335", "#3335",
@@ -125,7 +182,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    (25 of 295 across West-Entrance routes, caused by spur stair/connector
    nodes) by not emitting a turn when the path just steps into and out of a
    spur. Test both on seed data.
-6. [not-started] The route starts where the student actually is. The "I'm
+8. [not-started] The route starts where the student actually is. The "I'm
    here" pin (tap or GPS) goes through `nearestNode`, which picks the closest
    node of any kind by straight-line pixel distance. It can snap to a room or
    a stair node across a wall, or to a node behind the student, so the route
@@ -151,14 +208,14 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    - A pin's route never revisits the snapped edge.
    - `c3_parity` passes for both new methods.
    - The PR checklist says to re-provision `NavRouter` in Studio.
-7. [not-started] Mobile Navigate with directions. At phone width (≤ 640px)
+9. [not-started] Mobile Navigate with directions. At phone width (≤ 640px)
    the sidebar collapses and the form stacks above the map. The step list
    becomes a bottom sheet over the map. The map auto-switches to the floor of
    the current leg. Every control is at least a 44px touch target, and the
    desktop layout is unchanged. Acceptance: jest + testing-library tests of
    the responsive layout and the floor auto-switch. The Studio Mobile preview
    check goes on the PR.
-8. [not-started] Arrival-time correctness and demo hardening:
+10. [not-started] Arrival-time correctness and demo hardening:
    - jest tests for `src/lib/geoTransform.ts` (GPS ↔ pixel round trip
      against `Floor.calibration`) and the pure parts of `src/lib/tardyApi.ts`.
    - "Arrive N min late / N min to spare" across midnight, an unset time and
@@ -210,6 +267,15 @@ contradict an entry here without adding one.
   stays grounded in #3's computed steps and falls back to them, because a
   model that invents a turn is worse than no AI. Old 4–6 become 5, 7 and 8,
   and the start-point fix is 6.
+- 2026-10-19: Core flow before features (user report: Room Finder fails on
+  1310 → 1270, and Navigate draws routes through rooms). Added milestones 4
+  (graph follows corridors) and 5 (Room Finder parses with the LLM and routes
+  with NavRouter) ahead of everything else. The AI panel moves to 6, and the
+  rest move down two. Added the verify step "routes stay in corridors"
+  (`checks/walkability.py`). It fails on main by design until milestone 4
+  lands. Corridor edges must be at least 90% open plan pixels, ignoring 2 m at
+  each end. Room edges are capped at 15 m. Measured on main: good corridor
+  edges block at most 6%, bad ones 40-100%.
 
 ## Current state
 

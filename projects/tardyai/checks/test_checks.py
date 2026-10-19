@@ -1,13 +1,17 @@
 """Acceptance tests for the TardyAI platform-parity checks. Run: python3 -I projects/tardyai/checks/test_checks.py"""
 
+import struct
 import sys
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 import c3_parity  # noqa: E402
+import png_rgb  # noqa: E402
+import walkability  # noqa: E402
 import seed_integrity  # noqa: E402
 
 NAVROUTER_TYP = """
@@ -80,6 +84,80 @@ class SeedIntegrity(unittest.TestCase):
     def test_non_positive_seconds_fails(self):
         out = seed_integrity.violations(FLOORS, [_node("a", "f1"), _node("b", "f1")], [_edge("e", "a", "b", 0)])
         self.assertTrue(any("seconds" in p for p in out))
+
+
+# A 200x100 plan at 10 px/m: open corridor everywhere except a room fill at x 80..120, y 0..60.
+PLAN = [{"id": "f1", "imageWidth": 200, "imageHeight": 100, "pixelsPerMeter": 10.0}]
+
+
+def _plan_pixel(floor_id, x, y):
+    return "fill" if 80 <= x < 120 and y < 60 else "open"
+
+
+def _at(nid, x, y, kind="hallway"):
+    return {"id": nid, "floor": {"id": "f1"}, "kind": kind, "imageX": x, "imageY": y}
+
+
+class Walkability(unittest.TestCase):
+    def _check(self, nodes, pairs):
+        edges = [_edge(f"e{i}", a, b) for i, (a, b) in enumerate(pairs)]
+        return walkability.violations(PLAN, nodes, edges, _plan_pixel)
+
+    def test_corridor_edge_in_open_floor_passes(self):
+        self.assertEqual(self._check([_at("a", 10, 80), _at("b", 190, 80)], [("a", "b")]), [])
+
+    def test_corridor_edge_through_a_room_fails(self):
+        out = self._check([_at("a", 10, 30), _at("b", 190, 30)], [("a", "b")])
+        self.assertEqual(len(out), 1)
+        self.assertIn("corridor edge a -- b", out[0])
+
+    def test_both_directions_reported_once(self):
+        out = self._check([_at("a", 10, 30), _at("b", 190, 30)], [("a", "b"), ("b", "a")])
+        self.assertEqual(len(out), 1)
+
+    def test_crossing_only_near_an_endpoint_passes(self):
+        # The node sits inside the fill (an elevator box); only its first metre is blocked.
+        self.assertEqual(self._check([_at("a", 115, 55, "elevator"), _at("b", 115, 95)], [("a", "b")]), [])
+
+    def test_short_room_edge_through_its_own_fill_passes(self):
+        self.assertEqual(self._check([_at("r", 100, 30, "room"), _at("d", 100, 70)], [("r", "d")]), [])
+
+    def test_long_room_edge_fails_even_over_open_floor(self):
+        out = self._check([_at("r", 10, 80, "room"), _at("h", 190, 80)], [("r", "h")])
+        self.assertEqual(len(out), 1)
+        self.assertIn("door node", out[0])
+
+    def test_node_outside_the_plan_fails(self):
+        out = self._check([_at("a", 250, 50)], [])
+        self.assertTrue(any("outside the plan" in p for p in out))
+
+    def test_classifies_plan_colours(self):
+        self.assertEqual(walkability.classify(255, 255, 255), "open")
+        self.assertEqual(walkability.classify(200, 200, 200), "open")
+        self.assertEqual(walkability.classify(30, 30, 30), "wall")
+        self.assertEqual(walkability.classify(250, 220, 150), "fill")
+
+
+def _png(width, height, rows, filt=0):
+    raw = b"".join(bytes([filt]) + r for r in rows)
+    chunk = lambda k, d: struct.pack(">I", len(d)) + k + d + struct.pack(">I", zlib.crc32(k + d))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+class PngDecode(unittest.TestCase):
+    def test_decodes_unfiltered_rgb(self):
+        rows = [bytes([1, 2, 3, 4, 5, 6]), bytes([7, 8, 9, 10, 11, 12])]
+        self.assertEqual(png_rgb.decode(_png(2, 2, rows)), (2, 2, b"".join(rows)))
+
+    def test_decodes_sub_filter(self):
+        # Sub stores each byte minus the pixel to its left: decoded row is 10,20,30 then 15,25,35.
+        self.assertEqual(png_rgb.decode(_png(2, 1, [bytes([10, 20, 30, 5, 5, 5])], filt=1))[2],
+                         bytes([10, 20, 30, 15, 25, 35]))
+
+    def test_rejects_non_png(self):
+        with self.assertRaises(ValueError):
+            png_rgb.decode(b"GIF89a....")
 
 
 if __name__ == "__main__":
