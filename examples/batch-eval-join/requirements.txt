@@ -1,0 +1,5 @@
+# Only needed for the live run (python batch_cli.py --live) and check_sdk_shape.py.
+# The offline self-test (python test_batch.py) and the dry run need nothing beyond the stdlib.
+# Batch type names (MessageBatchIndividualResponse, ErrorResponse.request_id) verified
+# against 1.15.0 on 2026-10-19.
+anthropic>=1.15.0,<2

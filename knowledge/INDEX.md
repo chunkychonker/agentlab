@@ -33,6 +33,7 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   does *not* override (`refusal` / `max_tokens`), and the SDK path
   (`beta_tool(strict=True)` → `.to_dict()` → `tool_runner`, verified in
   `anthropic==1.3.0`)
+- [[message-batches]] — Batches API: endpoints, status values, four result types, any-order results (join on `custom_id`), deferred validation, 50% pricing, unsupported params
 - [[anthropic-python-sdk]] — SDK basics: client, `messages.create`, response shape
 - [[sdk-retry-behavior]] — the *other* retry layer: source-verified SDK transport
   retry defaults, which statuses retry, `retry-after` handling and its ≤60s

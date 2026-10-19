@@ -250,7 +250,7 @@ Both are small; a builder can reasonably take them in one cycle.
   run captures a second dated transcript next to the existing 2026-08-31 one
   so the README shows both real TTL tradeoffs side by side. See
   `research/2026-09-16-prompt-caching-1h-ttl.md`.
-- [ ] The Message Batches API for an eval run at batch pricing. Every billed
+- [building] The Message Batches API for an eval run at batch pricing. Every billed
   run in the lab is synchronous. Increment: submit a small fixed prompt set as
   one batch, poll until it ends, and join the results back to their inputs by
   `custom_id`, since results are not guaranteed to come back in submission
