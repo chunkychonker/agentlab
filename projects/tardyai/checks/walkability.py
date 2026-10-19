@@ -10,6 +10,11 @@ from room:
 - A room edge is the last few steps through a door, so it may cross the room's
   fill but must be short (at most 15 m). A long one is a diagonal across other
   rooms, standing in for a missing door node on the corridor.
+- No edge may cross a wall. Fill percentages miss thin walls (a 4 px wall is 2%
+  of a 200 px edge) and rooms drawn white, so walls are counted as crossings:
+  runs of dark pixels along the edge. The ends are skipped (2 m at a door or
+  corridor node, 4 m at a room node, whose label box is outlined in ink), so a
+  room edge passes only if it goes through the doorway gap.
 
 Usage: python3 -I walkability.py <package-dir>
 Exit 0 when every edge is walkable; exit 1 listing each violation; exit 2 when
@@ -32,6 +37,8 @@ ROOM_KINDS = frozenset({"room", "restroom"})
 MAX_BLOCKED_FRACTION = 0.10
 MAX_ROOM_EDGE_METERS = 15.0
 ENDPOINT_MARGIN_METERS = 2.0
+ROOM_END_MARGIN_METERS = 4.0
+MIN_WALL_RUN_PX = 3       # dark runs thinner than this are door swings or hatching, not walls
 _WALL_MAX_CHANNEL = 110   # every channel this dark or darker: a wall line or text
 _FILL_MIN_SPREAD = 40     # channel spread this wide or wider: a room's colour fill
 _PUBLIC_DIR = "ui/react/public"
@@ -70,6 +77,12 @@ def violations(floors: list[dict], nodes: list[dict], edges: list[dict], pixel: 
         seen.add(pair)
         f = floor_by_id[a["floor"]["id"]]
         length = math.dist((a["imageX"], a["imageY"]), (b["imageX"], b["imageY"]))
+        walls = _wall_crossings(f, a, b, length, pixel)
+        if walls:
+            problems.append(
+                f"edge {a['id']} -- {b['id']}: crosses {walls} wall(s); "
+                "move the door node into the doorway gap, or route around the wall"
+            )
         if a["kind"] in ROOM_KINDS or b["kind"] in ROOM_KINDS:
             meters = length / f["pixelsPerMeter"]
             if meters > MAX_ROOM_EDGE_METERS:
@@ -85,6 +98,27 @@ def violations(floors: list[dict], nodes: list[dict], edges: list[dict], pixel: 
                 f"(max {MAX_BLOCKED_FRACTION:.0%}); route it along the corridor"
             )
     return problems
+
+
+def _wall_crossings(floor: dict, a: dict, b: dict, length: float, pixel: PixelClass) -> int:
+    def margin(n: dict) -> float:
+        meters = ROOM_END_MARGIN_METERS if n["kind"] in ROOM_KINDS else ENDPOINT_MARGIN_METERS
+        return meters * floor["pixelsPerMeter"]
+
+    start, end = margin(a), length - margin(b)
+    steps = max(int(length), 1)
+    crossings = run = 0
+    for k in range(steps + 1):
+        d = length * k / steps
+        x = a["imageX"] + (b["imageX"] - a["imageX"]) * k / steps
+        y = a["imageY"] + (b["imageY"] - a["imageY"]) * k / steps
+        inside = 0 <= x < floor["imageWidth"] and 0 <= y < floor["imageHeight"]
+        if start <= d <= end and inside and pixel(floor["id"], x, y) == "wall":
+            run += 1
+            continue
+        crossings += run >= MIN_WALL_RUN_PX
+        run = 0
+    return crossings + (run >= MIN_WALL_RUN_PX)
 
 
 def _blocked_fraction(floor: dict, a: dict, b: dict, length: float, pixel: PixelClass) -> float | None:

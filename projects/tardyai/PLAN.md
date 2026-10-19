@@ -127,7 +127,30 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
      don't stack and 1270 arrives with milestone 4. An unknown room returns
      suggestions, not an error. A message with no start asks for one.
      Verify passes. 1310 -> 1270 works once milestone 4 merges.
-6. [not-started] Room entry finds the right room, and fix the two step-wording issues #3's review found. The student types a
+6. [not-started] Room routes go through doorways (user report after #4: "the
+   map routes are still going through rooms and walls"). #4 put the hallway
+   network in the corridors, but 61 room links and 1 hallway link (n-f3-n1250
+   -- n-f3-d3210) still cross a drawn wall. Every route ends on a room link,
+   so nearly every route visibly goes through a wall at the end. Examples:
+   1280's link enters through its west wall instead of the angled corner
+   doors, and 1140's goes up through its bottom wall from a corridor junction.
+   The "routes stay in corridors" verify step now counts wall crossings, and
+   it fails on main by design. Make it pass:
+   - Look at the plan around each failing room. Put its door node in the
+     corridor directly in front of the real door opening (the gap in the
+     wall, often an angled door at a classroom corner), so the room link
+     passes through the gap. A room with two doors may get two door nodes.
+   - Connect each door node to the nearest hallway node with a link that
+     stays in the corridor and crosses no wall.
+   - Fix the generator (`tools/build_graph.py` / `tools/grainger_corridors.py`)
+     and regenerate. Don't hand-edit the JSON, so the next regeneration
+     doesn't undo the fix.
+   - Acceptance: `VERIFY: PASS`, with no wall crossings. The rooms test from #4
+     still passes (every printed room reachable). Attach overlay crops of
+     1280, 1140 and 1270 to the PR showing the last segment entering through
+     the door. The PR checklist says "Re-provision in Studio to reload seed
+     data".
+7. [not-started] Room entry finds the right room, and fix the two step-wording issues #3's review found. The student types a
    destination, and today `routeToRoom` silently routes to `searchRooms(…,
    1)[0]`, even on a weak substring match. Fix this:
    - Normalize what people actually type: "rm 3335", "Room 3335", "#3335",
@@ -153,7 +176,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    (25 of 295 across West-Entrance routes, caused by spur stair/connector
    nodes) by not emitting a turn when the path just steps into and out of a
    spur. Test both on seed data.
-7. [not-started] The route starts where the student actually is. The "I'm
+8. [not-started] The route starts where the student actually is. The "I'm
    here" pin (tap or GPS) goes through `nearestNode`, which picks the closest
    node of any kind by straight-line pixel distance. It can snap to a room or
    a stair node across a wall, or to a node behind the student, so the route
@@ -179,7 +202,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    - A pin's route never revisits the snapped edge.
    - `c3_parity` passes for both new methods.
    - The PR checklist says to re-provision `NavRouter` in Studio.
-8. [not-started] AI directions panel beside the map (user request). The
+9. [not-started] AI directions panel beside the map (user request). The
    Navigate page gets a "Directions" panel next to the map (to its right on
    desktop, under it on phones). It shows the route as a few plain, friendly
    sentences an AI writes, e.g. "Go in through the West Entrance and take the
@@ -215,14 +238,14 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
      - PR checklist: re-provision `RouteNarrator`, confirm the
        `default-completions` config exists in Studio, and read the narration
        for West Entrance → 3335 in both modes.
-9. [not-started] Mobile Navigate with directions. At phone width (≤ 640px)
+10. [not-started] Mobile Navigate with directions. At phone width (≤ 640px)
    the sidebar collapses and the form stacks above the map. The step list
    becomes a bottom sheet over the map. The map auto-switches to the floor of
    the current leg. Every control is at least a 44px touch target, and the
    desktop layout is unchanged. Acceptance: jest + testing-library tests of
    the responsive layout and the floor auto-switch. The Studio Mobile preview
    check goes on the PR.
-10. [not-started] Arrival-time correctness and demo hardening:
+11. [not-started] Arrival-time correctness and demo hardening:
    - jest tests for `src/lib/geoTransform.ts` (GPS ↔ pixel round trip
      against `Floor.calibration`) and the pure parts of `src/lib/tardyApi.ts`.
    - "Arrive N min late / N min to spare" across midnight, an unset time and
@@ -231,7 +254,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
      and a failed backend call, so the live demo never shows a blank screen.
 
 Room Finder follow-ups from #5's review (do after #5 merges, before
-milestone 8): the provenance badge says "Live model" for `source: "router"`;
+milestone 9): the provenance badge says "Live model" for `source: "router"`;
 a pinned replay of a router answer skips door nodes and cuts corners; check
 whether the per-door ticks clutter the map in Studio.
 
@@ -306,6 +329,16 @@ contradict an entry here without adding one.
   for those rooms only. Mapping them needs either suite-interior corridors the
   gate accepts or a gate rule for filled rooms; that is a follow-up, not this
   milestone.
+- 2026-10-19: Routes still cut through walls after #4 (user report).
+  `walkability.py` missed it in three ways. Room links were never
+  pixel-checked, only capped at 15 m. Thin walls are a tiny fraction of a
+  long edge. Rooms drawn white count as open floor. It now also counts wall
+  crossings (dark runs of 3 px or more, skipping 2 m at door/corridor ends and
+  4 m at room ends, where the label box is outlined). Main fails: 61 room
+  links, 1 hallway link. Crops of 1280 and 1140 confirm the crossings are
+  real. New milestone 6 fixes them; room entry and the rest move down one.
+  The milestone 6 (room entry) cycle was stopped during research to put this
+  first.
 
 ## Current state
 

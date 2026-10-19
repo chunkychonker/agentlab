@@ -86,11 +86,16 @@ class SeedIntegrity(unittest.TestCase):
         self.assertTrue(any("seconds" in p for p in out))
 
 
-# A 200x100 plan at 10 px/m: open corridor everywhere except a room fill at x 80..120, y 0..60.
+# A 200x100 plan at 10 px/m: open floor, a room fill at x 80..120 y 0..60, a 4 px wall at
+# x 60..64 for y < 70 with a doorway gap at y 40..50, and a 2 px door-swing line at y 75..77.
 PLAN = [{"id": "f1", "imageWidth": 200, "imageHeight": 100, "pixelsPerMeter": 10.0}]
 
 
 def _plan_pixel(floor_id, x, y):
+    if 60 <= x < 64 and y < 70 and not 40 <= y < 50:
+        return "wall"
+    if 130 <= x and 75 <= y < 77:
+        return "wall"
     return "fill" if 80 <= x < 120 and y < 60 else "open"
 
 
@@ -107,12 +112,12 @@ class Walkability(unittest.TestCase):
         self.assertEqual(self._check([_at("a", 10, 80), _at("b", 190, 80)], [("a", "b")]), [])
 
     def test_corridor_edge_through_a_room_fails(self):
-        out = self._check([_at("a", 10, 30), _at("b", 190, 30)], [("a", "b")])
+        out = self._check([_at("a", 70, 30), _at("b", 190, 30)], [("a", "b")])
         self.assertEqual(len(out), 1)
         self.assertIn("corridor edge a -- b", out[0])
 
     def test_both_directions_reported_once(self):
-        out = self._check([_at("a", 10, 30), _at("b", 190, 30)], [("a", "b"), ("b", "a")])
+        out = self._check([_at("a", 70, 30), _at("b", 190, 30)], [("a", "b"), ("b", "a")])
         self.assertEqual(len(out), 1)
 
     def test_crossing_only_near_an_endpoint_passes(self):
@@ -126,6 +131,27 @@ class Walkability(unittest.TestCase):
         out = self._check([_at("r", 10, 80, "room"), _at("h", 190, 80)], [("r", "h")])
         self.assertEqual(len(out), 1)
         self.assertIn("door node", out[0])
+
+    def test_corridor_edge_through_a_thin_wall_fails(self):
+        # The wall is only 6% of this edge, under the fill limit; it still may not be crossed.
+        out = self._check([_at("a", 10, 65), _at("b", 110, 65)], [("a", "b")])
+        self.assertEqual(len(out), 1)
+        self.assertIn("crosses 1 wall", out[0])
+
+    def test_room_edge_through_the_doorway_gap_passes(self):
+        self.assertEqual(self._check([_at("r", 20, 45, "room"), _at("d", 100, 45, "door")], [("r", "d")]), [])
+
+    def test_room_edge_through_a_wall_fails(self):
+        out = self._check([_at("r", 20, 30, "room"), _at("d", 100, 30, "door")], [("r", "d")])
+        self.assertEqual(len(out), 1)
+        self.assertIn("doorway gap", out[0])
+
+    def test_wall_beside_the_room_node_is_ignored(self):
+        # Within 4 m of the room node: the outline of the room's label box, not a wall to cross.
+        self.assertEqual(self._check([_at("r", 40, 30, "room"), _at("d", 100, 30, "door")], [("r", "d")]), [])
+
+    def test_line_thinner_than_a_wall_is_not_a_crossing(self):
+        self.assertEqual(self._check([_at("a", 160, 10), _at("b", 160, 99)], [("a", "b")]), [])
 
     def test_node_outside_the_plan_fails(self):
         out = self._check([_at("a", 250, 50)], [])
