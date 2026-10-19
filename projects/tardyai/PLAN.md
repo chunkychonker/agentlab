@@ -64,6 +64,12 @@ contradict an entry here without adding one.
   NavRouter.js's only platform coupling is `MapNode.fetch` / `NavEdge.fetch`,
   so stubbing those two globals tests the real file unmodified.
 
+- 2026-10-19: Milestone 2 is stacked on PR #1's branch (`target` base =
+  `agentlab/2026-10-19-lock-file-sync`), because `npm ci` fails on `main` until
+  #1 merges, which would fail every cycle at the verify gate. GitHub retargets
+  the stacked PR to `main` when #1 merges. Set `base=main` back right after
+  that merge: if the branch is deleted, `ext_sync` aborts the night.
+
 ## Current state
 
 2026-10-19 (after build): milestone 1 built in the checkout and PR kushsarora/TardyAI#1 open (not merged); research note `research/2026-10-19-tardyai-lock-file-sync.md`. The only change is `pkgbc231600/ui/react/package-lock.json`, regenerated with `npm install --package-lock-only` (node v24.5.0, npm 11.5.1). `package.json` is byte-identical to `main` = ed7c81c. Lock diff: 24 entries added, 0 removed, 0 version or `resolved` changes on existing entries; the only metadata churn is `libc` (6), `dev` (3) and `devOptional` (2). The added entries are the `@mui/*` peers of `mui-chips-input`, `@testing-library/dom` and its deps, `react-is`, `@popperjs/core`, and 6 bundled deps under `@tailwindcss/oxide-wasm32-wasi` (the latter is npm 11 recording an optional wasm fallback; it is not installed on darwin/linux). All resolve to registry.npmjs.org. `verify.sh` reports `VERIFY: PASS` on all 8 steps (`npm ci` adds 1335 packages). Findings: jest still runs zero tests (`--passWithNoTests`), and the router tests step is skipped because `test/node/` does not exist yet. Milestones 2 and 4 address both. Not yet verified: whether Studio's npm reproduces this lock without churn (open question in the note). Next: PR for milestone 1, then milestone 2.

@@ -1,6 +1,6 @@
 # TardyAI — external target (see projects/EXTERNAL_MODE.md)
 repo=kushsarora/TardyAI
-base=main
+base=agentlab/2026-10-19-lock-file-sync
 verify=projects/tardyai/verify.sh
 # The C3 Studio agent's own memory file; it maintains it, we never edit it.
 protect=pkgbc231600/src/WORKSPACE_SUMMARY.md
