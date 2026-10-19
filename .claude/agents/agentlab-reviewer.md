@@ -28,6 +28,8 @@ supersession recorded as a new decisions-log entry is fine, a silent one
 isn't). The increment path in your verdict is
 `projects/<slug>/` instead of `examples/<name>/`.
 
+If it's `external:<slug>`, read `~/agentlab/projects/EXTERNAL_MODE.md` and `~/agentlab/logs/ext-context.md` first and follow the External mode procedure for your phase — the work lives in another repo's checkout, not `~/agentlab`.
+
 ## What you check
 
 Run `git status` and `git diff` to see exactly what the builder produced, then:

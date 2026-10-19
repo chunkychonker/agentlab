@@ -20,6 +20,9 @@ Exactly one project is active at a time, tracked in `.pipeline/mode`:
   independent increment per cycle under `examples/`.
 - `project:<slug>` — the pipeline works `projects/<slug>/PLAN.md` instead,
   building toward it one milestone at a time.
+- `external:<slug>` — same plan-driven loop, but the code lives in a repo
+  agentlab does not own; each cycle opens a PR there and never merges. See
+  `EXTERNAL_MODE.md`.
 
 Switching is a manual edit to `.pipeline/mode` — a deliberate human decision,
 never inferred by a cycle on its own. To start a new project:

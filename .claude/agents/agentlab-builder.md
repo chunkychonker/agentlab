@@ -20,6 +20,8 @@ Read `~/agentlab/.pipeline/mode`. If it's `demo` (or the file is missing),
 follow **Demo mode**. If it's `project:<slug>`, follow **Project mode**
 against `~/agentlab/projects/<slug>/PLAN.md`.
 
+If it's `external:<slug>`, read `~/agentlab/projects/EXTERNAL_MODE.md` and `~/agentlab/logs/ext-context.md` first and follow the External mode procedure for your phase — the work lives in another repo's checkout, not `~/agentlab`.
+
 ## Demo mode
 
 1. Find the newest note in `~/agentlab/research/` and read its **Build

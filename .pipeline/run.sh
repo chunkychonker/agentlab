@@ -285,10 +285,21 @@ if [[ "$MODE" == project:* ]]; then
     exit 1
   fi
   echo "mode: project:$SLUG (projects/$SLUG/PLAN.md)" | tee -a "$LOG"
+elif [[ "$MODE" == external:* ]]; then
+  # A repo agentlab does not own, worked by PR only. The night itself is
+  # .pipeline/external_night.sh, dispatched below once run_phase exists.
+  SLUG="${MODE#external:}"
+  for f in PLAN.md target; do
+    if [ ! -f "projects/$SLUG/$f" ]; then
+      echo "MODE is 'external:$SLUG' but projects/$SLUG/$f is missing — see projects/EXTERNAL_MODE.md. Aborting." | tee -a "$LOG"
+      exit 1
+    fi
+  done
+  echo "mode: external:$SLUG (projects/$SLUG/target, PRs only — never merged)" | tee -a "$LOG"
 elif [ "$MODE" == "demo" ]; then
   echo "mode: demo (BACKLOG.md)" | tee -a "$LOG"
 else
-  echo "MODE '$MODE' in .pipeline/mode is neither 'demo' nor 'project:<slug>' — fix it. Aborting." | tee -a "$LOG"
+  echo "MODE '$MODE' in .pipeline/mode is neither 'demo', 'project:<slug>' nor 'external:<slug>' — fix it. Aborting." | tee -a "$LOG"
   exit 1
 fi
 
@@ -905,6 +916,17 @@ stock_backlog () {
 # unclaimed count (a stranded item stops reading '- [ ] '), so counting first
 # would let the night draw work that is already built and about to disappear
 # from the queue.
+# External mode has no BACKLOG.md claims, no agentlab auto-merge and no lab
+# health pass: it works someone else's repo, so the whole night is delegated.
+# Here because it needs run_phase and the preflights above, like the
+# reconcile below.
+if [[ "$MODE" == external:* ]]; then
+  # shellcheck source=external_night.sh
+  . .pipeline/external_night.sh
+  run_external_night "$SLUG"
+  exit $?
+fi
+
 reconcile_stranded_claims "pre-loop"
 stock_backlog "pre-loop"
 
