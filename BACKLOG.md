@@ -133,7 +133,7 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
   actually surfaces it rather than trusting the spec — the same discipline as
   `knowledge/claude-code-mcp-connection.md`, which found the host's real
   behaviour differed from the docs.
-- [ ] MCP resources through the real Claude Code host, not the in-memory `Client`.
+- [stranded cycle/2026-09-05-unshipped-133345-1] MCP resources through the real Claude Code host, not the in-memory `Client`.
   `examples/mcp-resources-vs-tools/` proves the protocol-level contract offline
   and explicitly defers the live `@`-mention flow to "PR #19's territory";
   `knowledge/mcp-resources.md` describes how the host surfaces resources
@@ -372,7 +372,7 @@ Appended by `.pipeline/run.sh` when a failed cycle's claim names an item
 that is not on main — the researcher wrote the topic and the claim in one
 edit, so main never had it. The branch holds the work; salvaging it is a
 human's call.
-- [ ] MCP's other transport: Streamable HTTP, not stdio. Every MCP example
+- [stranded cycle/2026-09-12-unshipped-024106-1] MCP's other transport: Streamable HTTP, not stdio. Every MCP example
   in the lab so far (`mcp-hello-world`, and the two stranded `mcp-prompts` /
   `mcp-resources-claude-code` items above) either uses stdio or bypasses the wire
   entirely via the SDK's in-memory `Client`; `mcp-hello-world/README.md` names
@@ -382,7 +382,7 @@ human's call.
   Host-header check — via `httpx2.ASGITransport` wired directly to
   `MCPServer.streamable_http_app()`, no real socket, no live network, no key.
   See `research/2026-09-12-mcp-streamable-http.md`.
-- [ ] Manifest formats beyond `requirements.txt`/`package.json` for the
+- [stranded cycle/2026-09-16-unshipped-023645-2] Manifest formats beyond `requirements.txt`/`package.json` for the
   dependency-pin scanner. `examples/skill-script-execution/README.md` names this
   explicitly out of scope ("Manifest formats beyond requirements.txt/package.json
   (e.g. Cargo.toml, go.mod) — a natural follow-up, not this cycle's scope").
