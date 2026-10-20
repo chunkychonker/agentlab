@@ -127,7 +127,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
      don't stack and 1270 arrives with milestone 4. An unknown room returns
      suggestions, not an error. A message with no start asks for one.
      Verify passes. 1310 -> 1270 works once milestone 4 merges.
-6. [in-progress] Room routes go through doorways (user report after #4: "the
+6. [done kushsarora/TardyAI#6] Room routes go through doorways (user report after #4: "the
    map routes are still going through rooms and walls"). #4 put the hallway
    network in the corridors, but 61 room links and 1 hallway link (n-f3-n1250
    -- n-f3-d3210) still cross a drawn wall. Every route ends on a room link,
@@ -150,6 +150,11 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
      1280, 1140 and 1270 to the PR showing the last segment entering through
      the door. The PR checklist says "Re-provision in Studio to reload seed
      data".
+   - Rescoped 2026-10-20 (supersedes the bullets above; see the decisions
+     log and `research/2026-10-20-tardyai-doorway-links-rescoped.md`): room
+     links are zero-length on main, so the work is (a) the gate treats the
+     Learning Commons floor tint as open, in agentlab, and (b) the generator
+     fixes the remaining genuine wall crossings. Crops: 2210S, 2313, 3303.
 7. [not-started] Room entry finds the right room, and fix the two step-wording issues #3's review found. The student types a
    destination, and today `routeToRoom` silently routes to `searchRooms(…,
    1)[0]`, even on a weak substring match. Fix this:
@@ -339,7 +344,43 @@ contradict an entry here without adding one.
   real. New milestone 6 fixes them; room entry and the rest move down one.
   The milestone 6 (room entry) cycle was stopped during research to put this
   first.
+- 2026-10-20: Milestone 6 is rescoped (supersedes its original bullets and the
+  2026-10-19 doorway-links note). Kush rewrote routing on main (2373c9b): room
+  nodes now sit at their door with a zero-length door edge, so room links can no
+  longer cross walls, and he added Learning Commons circulation. The gate's
+  remaining failures are 31 false positives (the floor's solid tint, purple on
+  L1 and pink on L2/L3, counts as "fill") plus 5 real edges (n-f2-commons-south
+  -- elev-commons, d2210S x2, d2313, d3303). Fix: the gate treats the floor tint
+  as open (walls still counted; lives in agentlab, not in the PR), and the 5
+  edges are fixed in the generator. Supersedes the 2026-10-19 "unmapped suites
+  need a gate rule" follow-up for the Commons/lab suites. See
+  `research/2026-10-20-tardyai-doorway-links-rescoped.md`.
+- 2026-10-20 (build): Milestone 6 deviates from its research note in three
+  places. (1) The floor tint is open only on its own plan and inside the
+  Commons rectangle (x 580-1190, y 170-700), not everywhere. The same colours
+  fill enclosed rooms elsewhere: the L1 purple fills the L3 offices 3301-3307,
+  and the L2/L3 pink fills the L2 offices 2111-2135. A global rule would have
+  counted those rooms as floor. The global and scoped rules clear the same 31
+  edges on today's data, so nothing that passes now depends on the scoping.
+  (2) The L3 skylit corridor (`n660`, `n1250`) is removed, which goes against
+  "keep every node id". `n1250` sat inside office 3303, its only link to the
+  hall ran through office 3301, the plan shows glazing on the Commons side
+  and a solid wall to the south, and no room hangs off it once 3303 follows
+  3305-3311 onto the walkway. Nothing in the target references either id.
+  (3) The five reported edges were symptoms. The real crossings were the L2
+  south lane on the 2210M/N wall line and through pillars, the L2 north lane
+  along the 2210E-L office walls (moved to y=278), and 2313's door on the
+  wrong side of the stairwell (now on the atrium walkway like 2311/2312).
+  `ROUTING_REVISION` is not bumped. Bundled-map hosting (the default) reads
+  `data/` directly. In server mode, C3 upserts keep removed edges (NavRouter's
+  own comment), so the 24 removed edge ids stay live there until the revision
+  is bumped or the rows are cleared. The PR body must say so.
 
 ## Current state
 
-2026-10-19 (research, external cycle 1): milestone 6 (room routes go through doorways) is `in-progress`. Research note: `research/2026-10-19-tardyai-doorway-links.md`. Main (3c086d5, #1-#5 merged) fails the walkability gate with 62 wall crossings (61 room links, n-f3-n1250 -- n-f3-d3210). Plan: add `RoomRow.doors` explicit doorway points and a stub-edge mechanism to `tools/build_graph.py`, set doors per room in `tools/grainger_corridors.py`, regenerate data. README.md is hot, so leave its counts for the PR body. Milestones 7-11 are `not-started`.
+2026-10-20 (build, external cycle 1): milestone 6 is done, shipped as kushsarora/TardyAI#6 (`VERIFY: PASS`); awaiting human merge.
+- Part A (agentlab, not in the PR): `checks/walkability.py` treats the Commons floor tint as open floor per plan and per area (`OpenTint`, `OPEN_FLOOR_TINTS`, `tint_at`, `classify(r, g, b, open_tint)`). Walls are still decided first. `checks/test_checks.py` has 32 tests (was 25), all passing.
+- Part B (checkout `/Users/steeb/agentlab-work/tardyai`, uncommitted): `tools/grainger_corridors.py` moves the L2 Commons lanes (south y=545 and y=600, north y=278), adds `commons-elev-s` and `commons-office-e` on L2, sets door hints for 2210N/R/S and 2313, and drops the sealed L3 skylit corridor. Regenerated `data/{MapNode,NavEdge,Waypoint,AnnotatedPlan}` and `annotated/{2,3}.png`. `annotated/1.png` was restored to main because only renderer noise changed it.
+- Gate: 0 violations (was 35). Demo route West Entrance to 3335: 186.3 s, 2 legs (main 186.2). 2313 is 164.8 s (main 132), because it no longer cuts through the stairwell.
+- Route crops for the PR: `logs/tardyai-m6-crops/{2210S,2313,3303}.png` (gitignored).
+- Open: stale edges in server mode (see the decisions log). 2313 and 3301-3311 end on the walkway outside their suite or office row, not at an interior door. Milestones 7-11 are `not-started`.

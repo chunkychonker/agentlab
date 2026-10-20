@@ -163,6 +163,54 @@ class Walkability(unittest.TestCase):
         self.assertEqual(walkability.classify(30, 30, 30), "wall")
         self.assertEqual(walkability.classify(250, 220, 150), "fill")
 
+    def test_floor_tint_is_open_where_it_applies(self):
+        self.assertEqual(walkability.classify(*PINK, open_tint=PINK), "open")
+        self.assertEqual(walkability.classify(*PURPLE, open_tint=PURPLE), "open")
+        self.assertEqual(walkability.classify(255, 170, 212, open_tint=PINK), "open")  # antialiased edge
+
+    def test_same_colour_outside_a_tinted_area_is_a_room(self):
+        # L3 offices 3301-3307 are filled with the L1 Commons purple.
+        self.assertEqual(walkability.classify(*PURPLE), "fill")
+        self.assertEqual(walkability.classify(*PURPLE, open_tint=PINK), "fill")
+
+    def test_room_fills_stay_blocked_inside_a_tinted_area(self):
+        self.assertEqual(walkability.classify(179, 255, 155, open_tint=PINK), "fill")  # classroom green
+        self.assertEqual(walkability.classify(0, 191, 255, open_tint=PINK), "fill")    # elevator cyan
+        self.assertEqual(walkability.classify(255, 59, 59, open_tint=PINK), "fill")    # restroom red
+
+    def test_ink_inside_a_tinted_area_is_still_wall(self):
+        self.assertEqual(walkability.classify(*BLACK, open_tint=PINK), "wall")
+
+    def test_tint_applies_only_on_its_plan_inside_the_commons(self):
+        self.assertEqual(walkability.tint_at("floor_p1.png", 800, 450), PURPLE)
+        self.assertEqual(walkability.tint_at("floor_p2.png", 800, 450), PINK)
+        self.assertEqual(walkability.tint_at("floor_p3.png", 800, 450), PINK)
+        self.assertIsNone(walkability.tint_at("floor_p3.png", 1310, 650))  # office 3301
+        self.assertIsNone(walkability.tint_at("floor_p2.png", 180, 400))   # offices 2111-2117
+        self.assertIsNone(walkability.tint_at("floor_p4.png", 800, 450))   # no tint on an unknown plan
+
+
+PINK, PURPLE, BLACK = (255, 159, 207), (159, 126, 255), (0, 0, 0)
+
+
+# A 200x100 plan at 10 px/m tinted pink, with a 4 px black wall at x 100..104 for y < 50.
+def _tinted_pixel(floor_id, x, y):
+    rgb = BLACK if 100 <= x < 104 and y < 50 else PINK
+    return walkability.classify(*rgb, open_tint=PINK)
+
+
+class WalkabilityOverFloorTint(unittest.TestCase):
+    def _check(self, nodes):
+        return walkability.violations(PLAN, nodes, [_edge("e", "a", "b")], _tinted_pixel)
+
+    def test_corridor_edge_across_the_tint_passes(self):
+        self.assertEqual(self._check([_at("a", 10, 80), _at("b", 190, 80)]), [])
+
+    def test_wall_inside_the_tint_is_still_a_crossing(self):
+        out = self._check([_at("a", 10, 30), _at("b", 190, 30)])
+        self.assertEqual(len(out), 1)
+        self.assertIn("crosses 1 wall", out[0])
+
 
 def _png(width, height, rows, filt=0):
     raw = b"".join(bytes([filt]) + r for r in rows)

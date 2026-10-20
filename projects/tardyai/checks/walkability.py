@@ -7,6 +7,15 @@ from room:
 
 - Corridor edges (no room endpoint) must be at least 90% open pixels, ignoring
   the 2 m at each end where a node sits inside an elevator or stair box.
+  Room fills block; the Learning Commons tint does not. Each plan shades the
+  open Commons floor in one solid colour (purple on L1, pink on L2/L3), and an
+  edge across it is walking, not cutting through a room. The same colours also
+  fill enclosed rooms elsewhere (the L3 offices 3301-3307, the L2 offices
+  2111-2135), so a tint counts as open only on its own plan and inside the
+  Commons rectangle (OPEN_FLOOR_TINTS). The colours and rectangles were sampled
+  from the rendered plans (`tools/render_plans.py` in the target renders them
+  from the Grainger wayfinding PDF), not guessed. Walls are tested before
+  tints, so a tinted area never hides a wall crossing.
 - A room edge is the last few steps through a door, so it may cross the room's
   fill but must be short (at most 15 m). A long one is a diagonal across other
   rooms, standing in for a missing door node on the corridor.
@@ -25,12 +34,13 @@ import json
 import math
 import sys
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Callable, Literal, NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # -I drops the script dir
 import png_rgb  # noqa: E402
 
 Pixel = Literal["open", "fill", "wall"]
+RGB = tuple[int, int, int]
 PixelClass = Callable[[str, float, float], Pixel]
 
 ROOM_KINDS = frozenset({"room", "restroom"})
@@ -41,16 +51,48 @@ ROOM_END_MARGIN_METERS = 4.0
 MIN_WALL_RUN_PX = 3       # dark runs thinner than this are door swings or hatching, not walls
 _WALL_MAX_CHANNEL = 110   # every channel this dark or darker: a wall line or text
 _FILL_MIN_SPREAD = 40     # channel spread this wide or wider: a room's colour fill
+TINT_TOLERANCE = 40       # max per-channel distance from a tint (antialiased edges drift ~25)
 _PUBLIC_DIR = "ui/react/public"
 
 
-def classify(r: int, g: int, b: int) -> Pixel:
-    """What a plan pixel shows: dark wall/ink, a coloured room fill, or open floor."""
+class OpenTint(NamedTuple):
+    """A solid colour that means open floor on one plan image, inside one rectangle."""
+    plan: str                          # plan image file name, as in Floor.planImageUrl
+    rgb: RGB
+    bounds: tuple[int, int, int, int]  # x0, y0, x1, y1 in plan pixels; x1 and y1 exclusive
+
+
+_COMMONS_BOUNDS = (580, 170, 1190, 700)  # the Learning Commons / Huber lab block, same on every floor
+OPEN_FLOOR_TINTS: tuple[OpenTint, ...] = (
+    OpenTint("floor_p1.png", (159, 126, 255), _COMMONS_BOUNDS),
+    OpenTint("floor_p2.png", (255, 159, 207), _COMMONS_BOUNDS),
+    OpenTint("floor_p3.png", (255, 159, 207), _COMMONS_BOUNDS),
+)
+
+
+def classify(r: int, g: int, b: int, open_tint: RGB | None = None) -> Pixel:
+    """What a plan pixel shows: dark wall/ink, a coloured room fill, or open floor.
+
+    `open_tint` is the floor tint in effect where the pixel sits (see tint_at),
+    or None outside every tinted area. Wall is decided first, so no tint can
+    turn ink into floor. A colour within TINT_TOLERANCE (per channel) of
+    `open_tint` is open; any other wide-spread colour is a room fill.
+    """
     if max(r, g, b) < _WALL_MAX_CHANNEL:
         return "wall"
     if max(r, g, b) - min(r, g, b) >= _FILL_MIN_SPREAD:
-        return "fill"
+        near = open_tint is not None and all(abs(c - t) <= TINT_TOLERANCE for c, t in zip((r, g, b), open_tint))
+        return "open" if near else "fill"
     return "open"
+
+
+def tint_at(plan: str, x: float, y: float) -> RGB | None:
+    """The open-floor tint for pixel (x, y) of plan image `plan`, or None if there is none."""
+    for t in OPEN_FLOOR_TINTS:
+        x0, y0, x1, y1 = t.bounds
+        if t.plan == plan and x0 <= x < x1 and y0 <= y < y1:
+            return t.rgb
+    return None
 
 
 def violations(floors: list[dict], nodes: list[dict], edges: list[dict], pixel: PixelClass) -> list[str]:
@@ -144,12 +186,12 @@ def _plan_pixels(root: Path, floors: list[dict]) -> PixelClass:
         width, height, px = png_rgb.decode(path.read_bytes())
         if (width, height) != (f["imageWidth"], f["imageHeight"]):
             raise ValueError(f"{path.name} is {width}x{height} but Floor {f['id']} says {f['imageWidth']}x{f['imageHeight']}")
-        planes[f["id"]] = (width, px)
+        planes[f["id"]] = (path.name, width, px)
 
     def pixel(floor_id: str, x: float, y: float) -> Pixel:
-        width, px = planes[floor_id]
+        plan, width, px = planes[floor_id]
         i = (int(y) * width + int(x)) * 3
-        return classify(px[i], px[i + 1], px[i + 2])
+        return classify(px[i], px[i + 1], px[i + 2], tint_at(plan, x, y))
 
     return pixel
 
