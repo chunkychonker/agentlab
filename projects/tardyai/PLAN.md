@@ -155,7 +155,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
      links are zero-length on main, so the work is (a) the gate treats the
      Learning Commons floor tint as open, in agentlab, and (b) the generator
      fixes the remaining genuine wall crossings. Crops: 2210S, 2313, 3303.
-7. [not-started] Room entry finds the right room, and fix the two step-wording issues #3's review found. The student types a
+7. [in-progress] Room entry finds the right room, and fix the two step-wording issues #3's review found. The student types a
    destination, and today `routeToRoom` silently routes to `searchRooms(…,
    1)[0]`, even on a weak substring match. Fix this:
    - Normalize what people actually type: "rm 3335", "Room 3335", "#3335",
@@ -378,9 +378,9 @@ contradict an entry here without adding one.
 
 ## Current state
 
-2026-10-20 (build, external cycle 1): milestone 6 is done, shipped as kushsarora/TardyAI#6 (`VERIFY: PASS`); awaiting human merge.
-- Part A (agentlab, not in the PR): `checks/walkability.py` treats the Commons floor tint as open floor per plan and per area (`OpenTint`, `OPEN_FLOOR_TINTS`, `tint_at`, `classify(r, g, b, open_tint)`). Walls are still decided first. `checks/test_checks.py` has 32 tests (was 25), all passing.
-- Part B (checkout `/Users/steeb/agentlab-work/tardyai`, uncommitted): `tools/grainger_corridors.py` moves the L2 Commons lanes (south y=545 and y=600, north y=278), adds `commons-elev-s` and `commons-office-e` on L2, sets door hints for 2210N/R/S and 2313, and drops the sealed L3 skylit corridor. Regenerated `data/{MapNode,NavEdge,Waypoint,AnnotatedPlan}` and `annotated/{2,3}.png`. `annotated/1.png` was restored to main because only renderer noise changed it.
-- Gate: 0 violations (was 35). Demo route West Entrance to 3335: 186.3 s, 2 legs (main 186.2). 2313 is 164.8 s (main 132), because it no longer cuts through the stairwell.
-- Route crops for the PR: `logs/tardyai-m6-crops/{2210S,2313,3303}.png` (gitignored).
-- Open: stale edges in server mode (see the decisions log). 2313 and 3301-3311 end on the walkway outside their suite or office row, not at an interior door. Milestones 7-11 are `not-started`.
+2026-10-21 (build, external cycle 1): milestone 7 (room entry matching) is `in-progress`. The code is complete in the checkout (`/Users/steeb/agentlab-work/tardyai`, uncommitted), but verify does not pass yet: research note `research/2026-10-21-tardyai-room-entry-matching.md`.
+- Router (`NavRouter.js`): pure `normalizeRoomQuery` / `rankRooms` / `resolveRoomQuery` (exact | candidates | none). `searchRooms` keeps its signature and score ladder, and gains normalisation, word-wise singular-tolerant name matching and the floor filter. New `suggestRooms` (declared in `NavRouter.c3typ`, in the bundled `actions` map in `vite.config.mts`, wrapped in `tardyApi.ts`). `routeToRoom` routes only on a unique match. Otherwise it returns a failed route with "Did you mean ...?" and a new optional `NavRoute.candidates`. The arrive step says "You have arrived at X" when no hop had length, instead of "straight ahead" (reproduced first with a failing fixture test).
+- UI: `RoomSearch.tsx` shows "Did you mean" rows, the same buttons as normal results and keyboard-selectable, when `searchRooms` finds nothing. It keeps "No rooms match" when there are no suggestions.
+- Tests: `test/node/room-entry.test.js` (26-row table plus routeToRoom/searchRooms/suggestRooms cases), `test/node/all-rooms.test.js` (1 entrance x 264 rooms/restrooms x 2 modes: all found, arrive last, no "Turn around"/"straight ahead", step meters = leg meters +-1; it found no data gaps), one new fixture test in `steps.test.js`, and 5 new jest cases in `RoomSearch.test.tsx`. 73 node tests pass. Jest, build, c3_parity and the python tests pass.
+- Blocker: `VERIFY: FAIL (1): routes stay in corridors`. It fails on main as it stands, because of the 5 edges PR #6 fixes in `data/` (n-f2-commons-south--elev-commons, d2210S x2, d2313, d3303). This change touches no data. Ship it once #6 merges and verify is re-run, rather than duplicating #6's generator fix here.
+- Deliberately not changed: `RoomFinder.*` (separate resolution rules), the "mapped access point" arrive copy (needs Kush's say-so), and `Interfaces.tsx` (the UI does not call `routeToRoom`, so it needs no `candidates` type). The room prefix ("rm", "room", "no.", "#") is stripped only before a digit, so names starting with "Room" are untouched. Milestones 8-11 are `not-started`.
