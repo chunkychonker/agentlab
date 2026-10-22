@@ -9,6 +9,21 @@ the checkout path, the target repo, the verify command, and the files you may
 not touch. **Every phase reads that file first.** Its path and rules override
 anything in your own definition that assumes the work lives in `~/agentlab`.
 
+## Gates the script runs before any phase
+
+- **Baseline.** Before research, the verify command runs on the untouched
+  checkout (output in `logs/baseline-verify.txt`, summarised under
+  `## Baseline` in `logs/ext-context.md`). If the base fails while one of our
+  `agentlab/*` PRs is open, the whole night stops: that PR is most likely the
+  fix, and nothing built on this base can pass until it merges. If the base
+  fails with none of our PRs open, the cycle runs and its increment must make
+  verify pass.
+- **Usage limit.** A phase that stops on a Claude usage limit stops the night
+  (`run.sh` exits 75). If research had already passed, `logs/ext-resume-<slug>`
+  records the note and base SHA; the next run skips research and builds from
+  that note, provided the base has not moved. `ext-context.md` then has a
+  `## Resumed cycle` section naming the note.
+
 ## What lives where
 
 | Thing | Where |
