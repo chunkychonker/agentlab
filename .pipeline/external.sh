@@ -149,3 +149,90 @@ ext_snapshot () {
   git -C "$work" add -A || return 1
   git -C "$work" commit --quiet -m "wip: unshipped agentlab cycle (local only)" || return 1
 }
+
+# --- baseline gate ---------------------------------------------------------
+#
+# Why: on 2026-10-21 milestone 7 was researched and built on opus against a
+# main that could not pass verify — the corridor fix it needed was still in
+# open PR #6. Verify on the pristine checkout is a model-free way to know that
+# before any tokens are spent.
+
+# Branch prefix the maintainer gives every PR it opens on a target (see
+# projects/EXTERNAL_MODE.md, maintainer step 2). The two must agree.
+EXT_BRANCH_PREFIX="agentlab/"
+
+# Words ext_baseline_decision prints. Defined once; callers compare to these.
+EXT_BASELINE_PROCEED="PROCEED"                  # base passes verify
+EXT_BASELINE_MUST_FIX="PROCEED_MUST_FIX"        # base fails, none of our PRs open: this cycle must fix it
+EXT_BASELINE_STOP_OPEN_PR="STOP_OPEN_PR"        # base fails while one of our PRs is open: wait for the merge
+EXT_BASELINE_STOP_UNKNOWN="STOP_PR_UNKNOWN"     # base fails and the PR list could not be read
+
+# ext_baseline_decision <verify_rc> <open_prs_rc> <open_prs>
+# Pure. <open_prs> is a newline-separated list of PR numbers; <open_prs_rc> is
+# the exit status of the call that produced it (ignored when verify passed).
+# Prints exactly one EXT_BASELINE_* word. Always returns 0.
+ext_baseline_decision () {
+  local verify_rc="$1" prs_rc="$2" prs="$3"
+  if [ "$verify_rc" -eq 0 ]; then echo "$EXT_BASELINE_PROCEED"
+  elif [ "$prs_rc" -ne 0 ]; then echo "$EXT_BASELINE_STOP_UNKNOWN"
+  elif [ -n "$(printf '%s' "$prs" | tr -d '[:space:]')" ]; then echo "$EXT_BASELINE_STOP_OPEN_PR"
+  else echo "$EXT_BASELINE_MUST_FIX"
+  fi
+  return 0
+}
+
+# ext_prs_with_prefix <prefix>
+# Filter. Reads "<number> <head-branch>" lines on stdin and prints the number
+# of each one whose branch starts with <prefix>. Never fails.
+ext_prs_with_prefix () {
+  awk -v p="$1" 'NF >= 2 && index($2, p) == 1 { print $1 }'
+}
+
+# ext_open_agentlab_prs <repo>
+# Prints the open PRs on <repo> whose head branch starts with EXT_BRANCH_PREFIX,
+# one number per line. Returns 1, printing nothing, if gh fails (network, auth).
+ext_open_agentlab_prs () {
+  local repo="$1" rows
+  rows="$(gh pr list -R "$repo" --state open --limit 100 \
+    --json number,headRefName --jq '.[] | "\(.number) \(.headRefName)"')" || return 1
+  printf '%s\n' "$rows" | ext_prs_with_prefix "$EXT_BRANCH_PREFIX"
+}
+
+# ext_reset_pristine <workdir> <base>
+# Puts <workdir> back to origin/<base> exactly — no fetch, so the commit the
+# baseline verified is the commit the cycle builds on. Removes build output
+# (ignored files included). Returns non-zero if either git step fails.
+ext_reset_pristine () {
+  local work="$1" base="$2"
+  git -C "$work" reset --quiet --hard "origin/$base" || return 1
+  git -C "$work" clean -fdxq
+}
+
+# --- resume after a usage limit --------------------------------------------
+#
+# A marker that exists only while the most recent cycle stopped on a usage
+# limit AFTER its research note passed the gate. Two lines:
+#   note=<path to the research note>
+#   base=<full SHA of origin/<base> the note was written against>
+
+# ext_resume_write <marker> <note_path> <base_sha>
+# Overwrites <marker>. Returns non-zero if it cannot be written.
+ext_resume_write () {
+  printf 'note=%s\nbase=%s\n' "$2" "$3" > "$1"
+}
+
+# ext_resume_read <marker> <current_base_sha>
+# Consumes the marker: it is deleted whatever the outcome, so a resume is
+# offered at most once. Prints the note path and returns 0 only if the marker
+# was readable, names an existing note, and its base SHA equals
+# <current_base_sha>. Returns 1 if it was missing, malformed, named a missing
+# note, or the base has moved since (the research may no longer hold).
+ext_resume_read () {
+  local marker="$1" current="$2" note base
+  [ -r "$marker" ] || return 1
+  note="$(sed -n 's/^note=//p' "$marker" | head -1)"
+  base="$(sed -n 's/^base=//p' "$marker" | head -1)"
+  rm -f "$marker"
+  [ -n "$note" ] && [ -n "$base" ] && [ -f "$note" ] && [ "$base" == "$current" ] || return 1
+  echo "$note"
+}
