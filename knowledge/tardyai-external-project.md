@@ -27,3 +27,6 @@ When the target's owner changes the generator under us, re-measure before buildi
 
 ## Re-probe the premise before building a milestone (2026-10-21)
 Milestone 7 was written from a review that saw 25 "Turn around" steps and a heading-less "straight ahead" arrive. A 20-line `vm`-harness probe (West Entrance to every room, default and step-free, 528 routes) showed both are gone since the owner's access-point rewrite, and every room is routable. Cheap probes through `test/node/harness.js` (`/tmp` script, `node probe.js <test/node dir>`) turn stale milestone bullets into regression tests instead of phantom fixes. Also: the Navigate UI never calls `routeToRoom` (`RoomSearch` calls `searchRooms`, then `findRoute` by id), so matching changes need a shared pure matcher plus a UI path. See `research/2026-10-21-tardyai-room-entry-matching.md`.
+
+## Unshipped cycles live on local branches (2026-10-22)
+When verify is red for a reason outside the change (here: an open earlier PR whose data the gate needs), the pipeline commits the built work to `cycle/<run>-unshipped-N` in the checkout instead of dropping it. A resume cycle should `git checkout <branch> -- <pkg>` rather than rebuild, and can pre-validate compatibility with a throwaway `git worktree` merge of the blocking PR's branch (remove it afterwards). See `research/2026-10-22-tardyai-room-entry-matching-resume.md`.
