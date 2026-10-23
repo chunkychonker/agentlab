@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "args": ["${CLAUDE_PROJECT_DIR}/examples/pretooluse-bash-guard/hook.py"],
+            "onFailure": "block"
+          }
+        ]
+      }
+    ]
+  }
+}
