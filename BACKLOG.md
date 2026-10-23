@@ -284,7 +284,7 @@ Both are small; a builder can reasonably take them in one cycle.
   in the style of `.pipeline/test_backlog.sh` (injected side effects, bash 3.2,
   no network, no key).
 ## Hooks & plugins
-- [building] A `PreToolUse` hook that guards Bash. Skills and MCP cover what the model
+- [done #63] A `PreToolUse` hook that guards Bash. Skills and MCP cover what the model
   *can* do; nothing in the lab shows Claude Code's deterministic veto over what
   it *does*. Increment: a hook script that reads the hook's JSON on stdin and
   blocks a short, named deny-list (recursive delete of `/` or `~`, force-push to
