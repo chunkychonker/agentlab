@@ -203,3 +203,6 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   different night" grepping `logs/run-*.log` directly
 - [[npm-ci-peer-dep-lock-drift]] - why `npm ci` fails when a lock lacks peer deps, and the safe fix
 - [[tardyai-external-project]] - TardyAI external target: router tests, directions, corridor graph, and (m5) Room Finder via NavRouter facts, (m6) doorway placement (injected `c3` global, coordinate spaces), (m7) re-probe stale premises, routeToRoom vs UI search path, resuming from unshipped cycle branches
+
+## Hooks
+- [[claude-code-hooks]] — PreToolUse contract: payload fields, exit 2 vs JSON deny, exit 1 fails open, silence is not approval
