@@ -366,6 +366,15 @@ Full detail is in the dated `logs/lab-health-*.log` for that date.
 - [done #56] fix (health 2026-10-16): run-2026-10-14_020001 — preflight: "main has uncommitted changes to tracked files (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting."
 - [done #56] fix (health 2026-10-16): run-2026-10-15_020002 — preflight: "main has uncommitted changes to tracked files (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting."
 - [done #56] fix (health 2026-10-16): main has uncommitted changes to tracked files at preflight — 4× on 2026-10-12, 2026-10-13, 2026-10-14, 2026-10-15 (consecutive nights; the 2026-10-16 run, excluded as in progress, got past preflight)
+- [ ] fix (health 2026-10-23): run-2026-10-19_145923 — external:tardyai opened 0/1, build phase hit "You've hit your session limit · resets 4:10pm (America/Chicago)" (not a reviewer FAIL)
+- [ ] fix (health 2026-10-23): run-2026-10-19_160319 — log ends at "--- phase: cycle 1/1: research (model: sonnet) ---" (13 lines), no abort message, no final line
+- [ ] fix (health 2026-10-23): run-2026-10-19_161057 — external:tardyai opened 0/1, build phase hit "You've hit your session limit · resets 8:10pm (America/Chicago)" (not a reviewer FAIL)
+- [ ] fix (health 2026-10-23): run-2026-10-21_020002 — external:tardyai opened 0/1, "VERIFY: FAIL (1): routes stay in corridors — cycle 1 does not ship" (gate working; reviewer not run)
+- [ ] fix (health 2026-10-23): run-2026-10-22_020001 — external:tardyai opened 0/1, "VERIFY: FAIL (1): routes stay in corridors — cycle 1 does not ship" (gate working; log says it is blocked on open TardyAI PR #6)
+- [ ] fix (health 2026-10-23): "You've hit your session limit" in build phase — 2× on 2026-10-19 (run-2026-10-19_145923, run-2026-10-19_161057)
+- [ ] fix (health 2026-10-23): "VERIFY: FAIL (1): routes stay in corridors" — 2× on 2026-10-21, 2026-10-22 (consecutive nights; the 10-22 log attributes it to a failure already present on TardyAI main and a fix in open TardyAI PR #6)
+- [ ] fix (health 2026-10-23): run-2026-10-19_145923 phase 'cycle 1/1: build' — exited non-zero (session limit)
+- [ ] fix (health 2026-10-23): run-2026-10-19_161057 phase 'cycle 1/1: build' — exited non-zero (session limit); same phase failed twice
 
 ## Stranded work (unshipped branches)
 Appended by `.pipeline/run.sh` when a failed cycle's claim names an item
