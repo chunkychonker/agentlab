@@ -293,7 +293,7 @@ Both are small; a builder can reasonably take them in one cycle.
   hook payloads in and asserts the exit code and output for each. Confirm the
   payload fields and the block-signalling contract against the current Claude
   Code hooks docs — do not guess them.
-- [building] Package lab work as a Claude Code plugin. The skills under `examples/skill-*`
+- [done #64] Package lab work as a Claude Code plugin. The skills under `examples/skill-*`
   and the server in `examples/mcp-hello-world/` are each installed by hand.
   Increment: one plugin that bundles an existing skill and the hello-world MCP
   server behind a single manifest, plus an offline check that the manifest
