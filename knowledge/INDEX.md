@@ -206,3 +206,4 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
 
 ## Hooks
 - [[claude-code-hooks]] — PreToolUse contract: payload fields, exit 2 vs JSON deny, exit 1 fails open, silence is not approval
+- [[claude-code-plugins]] — plugin manifest contract, path rules, validate command, cache-copy caveat
