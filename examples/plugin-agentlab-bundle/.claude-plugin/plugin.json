@@ -1,0 +1,8 @@
+{
+  "name": "agentlab-bundle",
+  "version": "0.1.0",
+  "description": "The agentlab commit-message skill and hello-world MCP server, installable as one plugin.",
+  "author": {
+    "name": "Steve Ling"
+  }
+}
