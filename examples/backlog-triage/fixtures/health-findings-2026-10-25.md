@@ -1,0 +1,69 @@
+## Health-check findings
+Filed automatically by `.pipeline/run.sh` from `logs/last-health.md`.
+Full detail is in the dated `logs/lab-health-*.log` for that date.
+- [done #44] fix (health 2026-09-02): run-2026-08-29_114701 — no "=== done"; log stops mid "cycle 2/2: review" with no verdict and no "Aborting." line. Cycle 1 was a clean review FAIL (mcp-prompts knowledge note not reconciled with the build); cycle 2 research h...
+- [done by hand 2026-10-18] fix (health 2026-09-02): run-2026-08-30_114704 — "main has uncommitted changes to tracked files (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting." Aborted at preflight; downstream of run-2026-08-29's t...
+- [done #49] fix (health 2026-09-02): run-2026-08-31_114702 — "NETWORK UNREACHABLE (api.anthropic.com / github.com) — check VPN. Aborting." Sole line in the log; first occurrence since the PR #31 probe fix.
+- [done by hand 2026-10-18] fix (health 2026-09-02): run-2026-09-01_134705 — shipped 0/2. Cycle 1 clean VERDICT: FAIL (no increment: researcher killed by the 600s ceiling, builder correctly refused to build). Cycle 2 verdict MISSING (same 600s researcher kill; review phase wro...
+- [done #51] fix (health 2026-09-02): "Background tasks still running after 600s; terminating. Set CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 to wait indefinitely." — 2 nights: 2026-08-29 (cycle 2 research) and 2026-09-01 (cycle 1 research, cycle 2 research, and the pipeline-observer phase — 3 occurrences that night). Direct cause of run-2026-09-01 shipping 0/2 a...
+- [done #42] fix (health 2026-09-02): BACKLOG.md:24 "Parallel specialist execution in the orchestrator" marked [building], shipped in PR #37 (merged 2026-09-02, branch cycle/2026-09-02-parallel-specialist-execution) — never advanced to [done #37]. Both maintain/auto-merge and the post-loop reconcile for that cycle have already run, so no remaining pipeline step will correct it. (researcher 2026-09-10: one increment resolves this and the PR #38 line below — see research/2026-09-10-backlog-mark-done-reconcile.md)
+- [done #42] fix (health 2026-09-02): BACKLOG.md:36 "thinking blocks in the streaming accumulator" marked [building], shipped in PR #38 (merged 2026-09-02, branch cycle/2026-09-02-streaming-thinking-accumulator) — never advanced to [done #38]. Same as PR #37: both of tonight's cycles shipped without a mark-done, the 2026-08-16 PR #33 failure mode recurring on both cycles. (builder 2026-09-10: subject resolved by the increment claimed above — BACKLOG.md:36 now reads [done #38] and `reconcile_shipped_claim` makes the transition automatic. Left unclaimed rather than pre-marked with a PR number that does not exist yet; close it on sight.)
+- [ ] fix (health 2026-09-02): no run log for 2026-08-17 through 2026-08-28 — 12 consecutive scheduled nights with no logs/run-*.log present. logs/pause-resume.log records a manual pause/resume dated 2026-08-18/19; whether the nightly job ran on any of these dates cannot be det...
+- [done by hand 2026-10-16] fix (health 2026-09-02): .pipeline/strays/2026-08-31-manual/ — 1 file (HANDOFF-2026-08-31.md, ~15 KB), ~2 days old (dir mtime 2026-08-31 03:43). Hand-named, not preflight's bare-timestamp format, so parked here manually; nothing ever revisits .pipeline/strays/.
+- [done #42] fix (health 2026-09-13): BACKLOG.md:216 is still marked [building] ("fix (health 2026-09-02): BACKLOG.md:24 ... never advanced to [done #37]") but the work shipped and merged as PR #42 (cycle/2026-09-10-backlog-mark-done-reconcile, merged 2026-09-10) and its subject BACKLOG.md:24 now reads [done #37] — the line should read [done #42]. The reconcile helper that would have caught this shipped inside PR #42 itself, so it could not reconcile its own cycle, and later cycles only reconcile their own claim...
+- [done #38] fix (health 2026-09-13): BACKLOG.md:217 is still marked [ ] ("fix (health 2026-09-02): BACKLOG.md:36 ... never advanced to [done #38]") but its subject is already resolved — BACKLOG.md:36 now reads [done #38] and PR #38 is MERGED. The line's own note says "close it on sight" and no cycle has closed it.
+- [ ] fix (health 2026-09-15): run-2026-09-03_134704 — shipped 0/2, cycle 1 & 2 both 'exited non-zero' (review, research) on session limit
+- [ ] fix (health 2026-09-15): run-2026-09-05_130001 — shipped 0/2, cycle 1 clean VERDICT: FAIL (real review), cycle 2 build exited non-zero on session limit
+- [ ] fix (health 2026-09-15): run-2026-09-07_020001 — shipped 0/2, cycle 1 & 2 both exited non-zero (review, research) on session limit
+- [ ] fix (health 2026-09-15): run-2026-09-08_020001 — shipped 0/2, cycle 1 & 2 both exited non-zero (review, research) on session limit; health also failed same cause
+- [ ] fix (health 2026-09-15): run-2026-09-09_020001 — shipped 1/2, cycle 2 research exited non-zero on session limit; health and pipeline observer also failed same cause
+- [ ] fix (health 2026-09-15): run-2026-09-10_020005 — cycle 1 shipped PR #42, cycle 2 research exited non-zero on session limit, then log silently stops mid post-cycle-2 reconcile with no "=== done" and no "Aborting." line
+- [ ] fix (health 2026-09-15): run-2026-09-11_020004 — NETWORK UNREACHABLE (api.anthropic.com / github.com) — check VPN. Aborting.
+- [ ] fix (health 2026-09-15): run-2026-09-12_020005 — shipped 1/2, cycle 2 build exited non-zero on session limit; health and pipeline observer also failed same cause
+- [ ] fix (health 2026-09-15): run-2026-09-13_020004 — shipped 0/2, cycle 1 & 2 both "review verdict is MISSING" — research killed by the 600s background-task ceiling both times; pipeline observer also failed on session limit
+- [ ] fix (health 2026-09-15): run-2026-09-14_020002 — shipped 0/2, cycle 1 & 2 both clean VERDICT: FAIL, root-caused both times to research killed by the 600s background-task ceiling; pipeline observer hit the same 600s ceiling and never wrote its report
+- [ ] fix (health 2026-09-15): "You've hit your session limit" — 8x on 2026-09-03, 2026-09-05, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-12, 2026-09-13 — hit every phase type at least once (cycle review, cycle research, cycle build, health, pipeline...
+- [ ] fix (health 2026-09-15): "Background tasks still running after 600s; terminating" blocking a phase's artifact (not just printing) — 2x on 2026-09-13 (both cycles, review verdict MISSING) and 2026-09-14 (both cycles, clean VERDICT: FAIL; also hit pipeline observer same night) — named in the 09-13 log itself as "the fourth night t...
+- [ ] fix (health 2026-09-15): "its item is no longer in BACKLOG.md (reworded or removed) — a human needs to look" for cycle/2026-09-12-unshipped-024106-1 — 3x on 2026-09-12, 2026-09-13, 2026-09-14, printed by every reconcile-stranded-claims pass since, never acted on
+- [ ] fix (health 2026-09-15): phase 'cycle 2/2: research' exited non-zero — 5x: 2026-09-03, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10 (all session-limit)
+- [ ] fix (health 2026-09-15): phase 'cycle 1/2: review' exited non-zero — 3x: 2026-09-03, 2026-09-07, 2026-09-08 (all session-limit)
+- [ ] fix (health 2026-09-15): phase 'health' exited non-zero — 3x: 2026-09-08, 2026-09-09, 2026-09-12 (all session-limit)
+- [ ] fix (health 2026-09-15): phase 'pipeline observer' exited non-zero — 3x: 2026-09-09, 2026-09-12, 2026-09-13 (all session-limit)
+- [ ] fix (health 2026-09-15): phase 'cycle 2/2: build' exited non-zero — 2x: 2026-09-05, 2026-09-12 (both session-limit)
+- [done #42] fix (health 2026-09-15): BACKLOG.md:216 marked [building], shipped in PR #42 (merged 2026-09-10, branch cycle/2026-09-10-backlog-mark-done-reconcile) — never advanced to [done #42]. This line is itself a health finding about PR #37 that its own fix (PR #42) should have closed but couldn't reconcile in its own cycle; the 2026-09-13 health check alread...
+- [ ] fix (health 2026-09-15): no run log for 2026-09-04
+- [ ] fix (health 2026-09-15): no run log for 2026-09-06
+- [done #53] fix (health 2026-09-21): examples/prompt-caching-tool-loop/ — README transcript drift: line 24: README has '', output has 'ok  the default TTL is the pre-TTL marker byte for byte, with no ttl key'
+- [done #52] fix (health 2026-09-21): examples/readme-transcript-check/ — sweep.py command_script() returns scripts[-1], so on context-editing-preview's two-command run block it runs test_preview_thinking.py against test_preview.py's marked transcript and reports a false DR...
+- [ ] fix (health 2026-09-28): run-2026-09-15_020003 — shipped 0/2, cycle 1 clean VERDICT: FAIL (no increment, research killed by 600s ceiling), cycle 2 clean VERDICT: FAIL (same cause)
+- [ ] fix (health 2026-09-28): run-2026-09-16_020005 — shipped 0/2, cycle 1 clean VERDICT: FAIL (README left stale, 2 unmet acceptance criteria — real defect), cycle 2 build exited non-zero on session limit
+- [ ] fix (health 2026-09-28): run-2026-09-17_020005 — shipped 1/2 (PR #44), cycle 2 build exited non-zero on session limit
+- [ ] fix (health 2026-09-28): run-2026-09-18_020001 — shipped 1/2 (PR #45), cycle 2 build exited non-zero on session limit
+- [ ] fix (health 2026-09-28): run-2026-09-19_020002 — shipped 0/2, cycle 1 clean VERDICT: FAIL (no increment, research killed by 600s ceiling), cycle 2 clean VERDICT: FAIL (same cause)
+- [ ] fix (health 2026-09-28): run-2026-09-20_020002 — shipped 0/1, cycle 1 build exited non-zero on session limit; health also failed same cause
+- [ ] fix (health 2026-09-28): run-2026-09-21_020005 — shipped 0/1, cycle 1 build exited 0 but failed increment_built postcondition (STALE) — increment landed under .pipeline/, not examples/ or projects/
+- [ ] fix (health 2026-09-28): "Background tasks still running after 600s; terminating" blocking the research phase's artifact — 4x across 2 nights: 2026-09-15 (cycle 1 & 2), 2026-09-19 (cycle 1 & 2); both nights ended in a clean reviewer VERDICT: FAIL for "no increment produced," and PR #36 (the named fix) merged by 2026-09-20...
+- [ ] fix (health 2026-09-28): "You've hit your session limit · resets ... (America/Chicago)" aborting a phase mid-run — 5x across 4 nights: 2026-09-16 (cycle 2 build), 2026-09-17 (cycle 2 build), 2026-09-18 (cycle 2 build), 2026-09-20 (cycle 1 build, health)
+- [ ] fix (health 2026-09-28): phase 'cycle 1/1: build' exited non-zero — 1x: 2026-09-20 (session-limit)
+- [ ] fix (health 2026-09-28): phase 'cycle 1/1: build' (2026-09-21) exited 0 but failed the increment_built postcondition (STALE), not a literal exited-non-zero — the increment landed entirely under .pipeline/, the documented blind spot in PIPELINE.md for pipeline-only builds; 1x in-window, not yet recurring
+- [ ] fix (health 2026-09-28): no run log for 2026-09-22
+- [ ] fix (health 2026-09-28): no run log for 2026-09-23
+- [ ] fix (health 2026-09-28): no run log for 2026-09-24
+- [ ] fix (health 2026-09-28): no run log for 2026-09-25
+- [ ] fix (health 2026-09-28): no run log for 2026-09-26
+- [ ] fix (health 2026-09-28): no run log for 2026-09-27
+- [done #56] fix (health 2026-10-16): run-2026-10-12_020001 — preflight: "main has uncommitted changes to tracked files (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting."
+- [done #56] fix (health 2026-10-16): run-2026-10-13_020001 — preflight: "main has uncommitted changes to tracked files (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting."
+- [done #56] fix (health 2026-10-16): run-2026-10-14_020001 — preflight: "main has uncommitted changes to tracked files (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting."
+- [done #56] fix (health 2026-10-16): run-2026-10-15_020002 — preflight: "main has uncommitted changes to tracked files (likely a FAILed cycle awaiting a manual fix) — resolve manually before the next run. Aborting."
+- [done #56] fix (health 2026-10-16): main has uncommitted changes to tracked files at preflight — 4× on 2026-10-12, 2026-10-13, 2026-10-14, 2026-10-15 (consecutive nights; the 2026-10-16 run, excluded as in progress, got past preflight)
+- [ ] fix (health 2026-10-23): run-2026-10-19_145923 — external:tardyai opened 0/1, build phase hit "You've hit your session limit · resets 4:10pm (America/Chicago)" (not a reviewer FAIL)
+- [ ] fix (health 2026-10-23): run-2026-10-19_160319 — log ends at "--- phase: cycle 1/1: research (model: sonnet) ---" (13 lines), no abort message, no final line
+- [ ] fix (health 2026-10-23): run-2026-10-19_161057 — external:tardyai opened 0/1, build phase hit "You've hit your session limit · resets 8:10pm (America/Chicago)" (not a reviewer FAIL)
+- [ ] fix (health 2026-10-23): run-2026-10-21_020002 — external:tardyai opened 0/1, "VERIFY: FAIL (1): routes stay in corridors — cycle 1 does not ship" (gate working; reviewer not run)
+- [ ] fix (health 2026-10-23): run-2026-10-22_020001 — external:tardyai opened 0/1, "VERIFY: FAIL (1): routes stay in corridors — cycle 1 does not ship" (gate working; log says it is blocked on open TardyAI PR #6)
+- [ ] fix (health 2026-10-23): "You've hit your session limit" in build phase — 2× on 2026-10-19 (run-2026-10-19_145923, run-2026-10-19_161057)
+- [ ] fix (health 2026-10-23): "VERIFY: FAIL (1): routes stay in corridors" — 2× on 2026-10-21, 2026-10-22 (consecutive nights; the 10-22 log attributes it to a failure already present on TardyAI main and a fix in open TardyAI PR #6)
+- [ ] fix (health 2026-10-23): run-2026-10-19_145923 phase 'cycle 1/1: build' — exited non-zero (session limit)
+- [ ] fix (health 2026-10-23): run-2026-10-19_161057 phase 'cycle 1/1: build' — exited non-zero (session limit); same phase failed twice
+
