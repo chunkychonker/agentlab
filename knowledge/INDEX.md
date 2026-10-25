@@ -201,6 +201,7 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   actually reads a log (last line + `Aborting.` suffix, never the message
   text); and a second confirmed instance of "a log line can be about a
   different night" grepping `logs/run-*.log` directly
+- [[backlog-health-finding-starvation]] - why 47 stale `[ ]` health findings keep the backlog looking stocked and the researcher on noise; marker choice for closing them
 - [[npm-ci-peer-dep-lock-drift]] - why `npm ci` fails when a lock lacks peer deps, and the safe fix
 - [[tardyai-external-project]] - TardyAI external target: router tests, directions, corridor graph, and (m5) Room Finder via NavRouter facts, (m6) doorway placement (injected `c3` global, coordinate spaces), (m7) re-probe stale premises, routeToRoom vs UI search path, resuming from unshipped cycle branches
 
