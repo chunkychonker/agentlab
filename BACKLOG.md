@@ -156,6 +156,16 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
   the hints are untrusted advice from the server, not enforcement. Confirm field
   names against the current MCP spec and the installed SDK version.
 
+- [building] MCP over Streamable HTTP, and the Host allowlist that 421s a first deploy.
+  Every MCP example in the lab is stdio (or in-memory `Client`); none serves a port.
+  Filed by the researcher on 2026-10-26 because the Coding agents / Skills / MCP /
+  Hooks sections had no plain `[ ]` feature item left (only stale health findings).
+  Increment: `examples/mcp-streamable-http/` -- one tool served via
+  `mcp.streamable_http_app()`, driven offline by an in-process ASGI transport,
+  proving the default localhost-only DNS-rebinding guard (421 on a foreign Host) and
+  the `transport_security=` fix, plus modern-vs-legacy session header behaviour.
+  See `research/2026-10-26-mcp-streamable-http.md`.
+
 ## Coding agents (deferred, was next before Skills/MCP got prioritized 2026-07-29)
 - [done #23] Tool-use error handling and retries done well
 

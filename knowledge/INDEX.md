@@ -208,3 +208,4 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
 ## Hooks
 - [[claude-code-hooks]] — PreToolUse contract: payload fields, exit 2 vs JSON deny, exit 1 fails open, silence is not approval
 - [[claude-code-plugins]] — plugin manifest contract, path rules, validate command, cache-copy caveat
+- [[mcp-streamable-http]] — serving MCP over HTTP in SDK 2.x: `streamable_http_app()`, the localhost-only Host allowlist that 421s a first deploy, mounted-lifespan trap, sessionless vs legacy eras, `httpx2` client
