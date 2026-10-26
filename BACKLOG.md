@@ -156,7 +156,7 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
   the hints are untrusted advice from the server, not enforcement. Confirm field
   names against the current MCP spec and the installed SDK version.
 
-- [building] MCP over Streamable HTTP, and the Host allowlist that 421s a first deploy.
+- [done #66] MCP over Streamable HTTP, and the Host allowlist that 421s a first deploy.
   Every MCP example in the lab is stdio (or in-memory `Client`); none serves a port.
   Filed by the researcher on 2026-10-26 because the Coding agents / Skills / MCP /
   Hooks sections had no plain `[ ]` feature item left (only stale health findings).
