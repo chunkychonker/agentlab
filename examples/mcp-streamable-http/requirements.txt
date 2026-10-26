@@ -1,0 +1,4 @@
+# Verified on mcp==2.3.0 (2026-10-26). mcp 2.x pulls in starlette, uvicorn, and
+# httpx2 (NOT httpx). The self-test drives the app in process through
+# httpx2.ASGITransport, so it needs nothing else: no port and no network.
+mcp>=2.3,<3
