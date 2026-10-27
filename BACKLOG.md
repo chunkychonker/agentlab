@@ -166,6 +166,14 @@ works top-down. Mark `[researching]`, `[building]`, `[done <PR#>]` as it moves.
   the `transport_security=` fix, plus modern-vs-legacy session header behaviour.
   See `research/2026-10-26-mcp-streamable-http.md`.
 
+- [building] The client-side memory tool (`memory_20250818`) with a path-safe handler.
+  No example in the lab persists anything across conversations. Filed by the
+  researcher on 2026-10-27 because the feature sections had no plain `[ ]` item
+  left (only stale health findings and stranded claims). Increment:
+  `examples/memory-tool-handler/` -- a pure command dispatcher over an injected
+  store, with `/memories` path-traversal rejection, plus a thin tool loop. See
+  `research/2026-10-27-memory-tool-handler.md`.
+
 ## Coding agents (deferred, was next before Skills/MCP got prioritized 2026-07-29)
 - [done #23] Tool-use error handling and retries done well
 
