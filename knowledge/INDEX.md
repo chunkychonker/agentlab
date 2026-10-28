@@ -57,6 +57,10 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   `applied_edits`), the null-summary failure mode both vendors' example
   snippets crash on, `encrypted_content` round-tripping, why top-level
   `usage.input_tokens` under-reports the bill, and why Haiku can't run it
+- [[memory-tool]] — the client-side `memory_20250818` tool: exact declaration (no
+  beta header), the six commands and documented return strings, `create`-overwrites
+  quirk, and why the handler (path containment on every path field) is the
+  security boundary
 - [[prompt-caching]] — where `cache_control` breakpoints go in a message list
   that grows every turn: the 4-breakpoint cap, the 20-block lookback, the
   tools/system/rolling/anchor layout for a hand-written tool loop, per-model

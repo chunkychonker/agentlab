@@ -1,0 +1,4 @@
+# Only needed for the live run (python agent.py with ANTHROPIC_API_KEY set).
+# The offline self-test (python test_memory.py) needs nothing beyond the stdlib.
+# 0.113.0 already ships the memory tool helpers mentioned in the README.
+anthropic>=0.120.0
