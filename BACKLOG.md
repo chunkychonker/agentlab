@@ -427,3 +427,10 @@ human's call.
   `examples/memory-tool-handler/` -- a pure command dispatcher over an injected
   store, with `/memories` path-traversal rejection, plus a thin tool loop. See
   `research/2026-10-27-memory-tool-handler.md`.
+- [stranded cycle/2026-10-27-unshipped-021126-1] The client-side memory tool (`memory_20250818`) with a path-safe handler.
+  No example in the lab persists anything across conversations. Filed by the
+  researcher on 2026-10-27 because the feature sections had no plain `[ ]` item
+  left (only stale health findings and stranded claims). Increment:
+  `examples/memory-tool-handler/` -- a pure command dispatcher over an injected
+  store, with `/memories` path-traversal rejection, plus a thin tool loop. See
+  `research/2026-10-27-memory-tool-handler.md`.
