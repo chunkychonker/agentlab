@@ -312,7 +312,7 @@ Both are small; a builder can reasonably take them in one cycle.
   `knowledge/claude-code-mcp-connection.md`. Confirm the manifest schema
   against the current plugin docs.
 
-- [building] Static compat scan for Anthropic API `2026-10-21` / Python SDK 2.x. Filed by
+- [done #68] Static compat scan for Anthropic API `2026-10-21` / Python SDK 2.x. Filed by
   the researcher 2026-10-29 (feature sections had no plain `[ ]` item). Increment:
   `examples/sdk2-compat-scan/` -- stdlib `ast` scanner flagging removed sampling params,
   `MessageParam(...)` calls, dual credentials, `models.list(betas=)`, `x-api-key` literals and
