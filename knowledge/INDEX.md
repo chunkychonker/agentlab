@@ -38,6 +38,7 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
 - [[sdk-retry-behavior]] — the *other* retry layer: source-verified SDK transport
   retry defaults, which statuses retry, `retry-after` handling and its ≤60s
   clamp, the wrong jitter comment, and the status → exception table
+- [[anthropic-api-2026-10-21]] — the 2026-10-21 API version + Python SDK 2.x breaking changes (sampling params 400, `MessageParam(...)` TypeError, Bearer auth, one credential per client) and why open-ended `anthropic>=` pins are exposed
 - [[anthropic-models]] — current model IDs and prices (re-check, don't guess)
 - [[token-counting-gate]] — `count_tokens` as a pre-send budget gate for the tool loop: endpoint/response, estimate caveat, free + separate rate limits, tokenizer and no-cache gotchas
 - [[context-editing]] — keeping a long tool loop inside the context budget
