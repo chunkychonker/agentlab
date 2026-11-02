@@ -116,6 +116,7 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   how Claude Code actually surfaces resources today (`@`-mention +
   synthetic list/read tools, verified against current docs, not stale
   GitHub issues)
+- [[mcp-mrtr]] — MCP 2026-07-28 stateless core + Multi Round-Trip Requests (`input_required` / `inputResponses`), headers, deprecations, and the SDK 2.3.0 surface (`Resolve`/`Elicit`, `Client(mode=)`)
 
 ## Cross-cutting patterns & gotchas
 - Testing agent loops offline: inject a fake client (see [[tool-use-loop]]);
