@@ -183,6 +183,11 @@ Both are small; a builder can reasonably take them in one cycle.
   code instead. Validate at the boundary per Protocol §4; start with a failing
   test per §6. Caught by the reviewer on 2026-08-10 and merged anyway.
 
+## MCP (filed 2026-11-02)
+- [building] MCP 2026-07-28 Multi Round-Trip Requests: `examples/mcp-mrtr-elicitation/` -- one
+  confirm-before-delete tool via `Resolve`/`Elicit`, tested offline in modern and legacy modes with the
+  in-memory `Client`. See `research/2026-11-02-mcp-mrtr-elicitation.md`.
+
 ## Context & cost
 - [done #25] Previewing server-side context editing (`clear_tool_uses_20250919`) for
   $0 with the free token-counting endpoint: a pure policy type that serialises

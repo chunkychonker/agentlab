@@ -1,0 +1,3 @@
+# Verified on mcp==2.3.0 (2026-11-02): Resolve/Elicit/ElicitationResult in
+# mcp.server.mcpserver, InputRequiredRoundsExceededError in mcp, mode="2026-07-28".
+mcp==2.3.0
