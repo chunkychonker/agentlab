@@ -184,7 +184,7 @@ Both are small; a builder can reasonably take them in one cycle.
   test per §6. Caught by the reviewer on 2026-08-10 and merged anyway.
 
 ## MCP (filed 2026-11-02)
-- [building] MCP 2026-07-28 Multi Round-Trip Requests: `examples/mcp-mrtr-elicitation/` -- one
+- [done #69] MCP 2026-07-28 Multi Round-Trip Requests: `examples/mcp-mrtr-elicitation/` -- one
   confirm-before-delete tool via `Resolve`/`Elicit`, tested offline in modern and legacy modes with the
   in-memory `Client`. See `research/2026-11-02-mcp-mrtr-elicitation.md`.
 
