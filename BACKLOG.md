@@ -396,6 +396,19 @@ Full detail is in the dated `logs/lab-health-*.log` for that date.
 - [ ] fix (health 2026-10-23): "VERIFY: FAIL (1): routes stay in corridors" — 2× on 2026-10-21, 2026-10-22 (consecutive nights; the 10-22 log attributes it to a failure already present on TardyAI main and a fix in open TardyAI PR #6)
 - [ ] fix (health 2026-10-23): run-2026-10-19_145923 phase 'cycle 1/1: build' — exited non-zero (session limit)
 - [ ] fix (health 2026-10-23): run-2026-10-19_161057 phase 'cycle 1/1: build' — exited non-zero (session limit); same phase failed twice
+- [ ] fix (health 2026-11-02): run-2026-10-27_020002 — shipped 0/1, cycle 1 (memory-tool handler) clean VERDICT: FAIL from reviewer (gate working correctly, not a malfunction); branch stranded as cycle/2026-10-27-unshipped-021126-1 and re-shipped as PR #6...
+- [ ] fix (health 2026-11-02): run-2026-10-30_020144 — shipped 0/1, "Failed to authenticate: OAuth session expired and could not be refreshed" in research, health and pipeline observer phases
+- [ ] fix (health 2026-11-02): run-2026-10-31_020001 — shipped 0/1, "Failed to authenticate: OAuth session expired and could not be refreshed" in research, health and pipeline observer phases
+- [ ] fix (health 2026-11-02): run-2026-11-01_020001 — shipped 0/1, "Failed to authenticate: OAuth session expired and could not be refreshed" in research, health and pipeline observer phases
+- [ ] fix (health 2026-11-02): run-2026-10-30_020144 phase 'cycle 1/1: research' exited non-zero — OAuth session expired
+- [ ] fix (health 2026-11-02): run-2026-10-30_020144 phase 'health' exited non-zero — OAuth session expired
+- [ ] fix (health 2026-11-02): run-2026-10-30_020144 phase 'pipeline observer' exited non-zero — OAuth session expired
+- [ ] fix (health 2026-11-02): run-2026-10-31_020001 phase 'cycle 1/1: research' exited non-zero — OAuth session expired
+- [ ] fix (health 2026-11-02): run-2026-10-31_020001 phase 'health' exited non-zero — OAuth session expired
+- [ ] fix (health 2026-11-02): run-2026-10-31_020001 phase 'pipeline observer' exited non-zero — OAuth session expired
+- [ ] fix (health 2026-11-02): run-2026-11-01_020001 phase 'cycle 1/1: research' exited non-zero — OAuth session expired
+- [ ] fix (health 2026-11-02): run-2026-11-01_020001 phase 'health' exited non-zero — OAuth session expired
+- [ ] fix (health 2026-11-02): run-2026-11-01_020001 phase 'pipeline observer' exited non-zero — OAuth session expired
 
 ## Stranded work (unshipped branches)
 Appended by `.pipeline/run.sh` when a failed cycle's claim names an item
