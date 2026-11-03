@@ -323,6 +323,8 @@ Both are small; a builder can reasonably take them in one cycle.
   `MessageParam(...)` calls, dual credentials, `models.list(betas=)`, `x-api-key` literals and
   unbounded `anthropic>=` pins; run over this lab. See `research/2026-10-29-sdk2-compat-scan.md`.
 
+- [building] Agent SDK permission gate: `examples/agent-sdk-permission-gate/` -- one pure `decide()` policy wired into a `PreToolUse` hook and a `can_use_tool` callback, proving the callback is bypassed by `allowed_tools`/`acceptEdits`/`bypassPermissions` and the hook is not. Filed by the researcher 2026-11-03 (no plain `[ ]` feature item left). See `research/2026-11-03-agent-sdk-permission-gate.md`.
+
 ## Notes
 - Prefer the latest Claude models and the current Anthropic SDK. Check the
   `claude-api` skill before writing any API code — do not guess model ids or params.
