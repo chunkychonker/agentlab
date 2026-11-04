@@ -412,6 +412,13 @@ Full detail is in the dated `logs/lab-health-*.log` for that date.
 - [ ] fix (health 2026-11-02): run-2026-11-01_020001 phase 'health' exited non-zero — OAuth session expired
 - [ ] fix (health 2026-11-02): run-2026-11-01_020001 phase 'pipeline observer' exited non-zero — OAuth session expired
 
+- [building] Tool search with `defer_loading` through a hand-written loop. Filed by the researcher
+  on 2026-11-04 because the feature sections had no plain `[ ]` item left (only stale
+  health findings and stranded claims). Increment: `examples/tool-search-catalog/` --
+  pure toolset builder/validator, a local model of the regex search, block helpers that
+  never answer a `srvtoolu_` id, a fake-client loop test, and a $0 `count_tokens`
+  loaded-vs-deferred measurement. See `research/2026-11-04-tool-search-deferred-tools.md`.
+
 ## Stranded work (unshipped branches)
 Appended by `.pipeline/run.sh` when a failed cycle's claim names an item
 that is not on main — the researcher wrote the topic and the claim in one

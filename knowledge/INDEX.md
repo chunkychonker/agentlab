@@ -33,6 +33,7 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
   does *not* override (`refusal` / `max_tokens`), and the SDK path
   (`beta_tool(strict=True)` → `.to_dict()` → `tool_runner`, verified in
   `anthropic==1.3.0`)
+- [[tool-search]] — `defer_loading` + `tool_search_tool_{regex,bm25}_20251119`: stable/no beta, deferred defs still sent each request, `server_tool_use`/`tool_search_tool_result` wire shape, never answer `srvtoolu_` ids, 200-with-error codes, cache-safe
 - [[message-batches]] — Batches API: endpoints, status values, four result types, any-order results (join on `custom_id`), deferred validation, 50% pricing, unsupported params
 - [[anthropic-python-sdk]] — SDK basics: client, `messages.create`, response shape
 - [[sdk-retry-behavior]] — the *other* retry layer: source-verified SDK transport
