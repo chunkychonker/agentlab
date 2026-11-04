@@ -1,0 +1,7 @@
+# Needed for the live runs (python agent.py / python measure.py with ANTHROPIC_API_KEY set)
+# and for python sdk_contract_check.py (mocked HTTP, no key). The offline self-test
+# (python test_tool_search.py) needs nothing beyond the stdlib.
+# 2.4.0 is the version the typed tool-search blocks (ServerToolUseBlock,
+# ToolSearchToolResultBlock), the defer_loading param and the 2026-10-21 version header
+# were verified against on 2026-11-04. 1.x predates API version 2026-10-21.
+anthropic>=2.4.0,<3
