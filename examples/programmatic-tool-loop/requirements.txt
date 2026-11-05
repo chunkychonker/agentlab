@@ -1,0 +1,7 @@
+# Needed for the live run (python main.py with ANTHROPIC_API_KEY set) and for
+# python sdk_contract_check.py (mocked HTTP, no key). The offline self-test
+# (python -m unittest -v) needs nothing beyond the stdlib.
+# 2.5.0 is the version caller on ToolUseBlock, Message.container, the
+# container= string param and the 2026-10-21 version header were verified
+# against on 2026-11-05. 1.x predates API version 2026-10-21.
+anthropic>=2.5.0,<3

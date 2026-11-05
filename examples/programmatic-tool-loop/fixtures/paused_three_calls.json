@@ -1,0 +1,66 @@
+{
+  "id": "msg_paused",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet-5-5",
+  "content": [
+    {
+      "type": "text",
+      "text": "I'll query the three regions in parallel from code."
+    },
+    {
+      "type": "server_tool_use",
+      "id": "srvtoolu_abc123",
+      "name": "code_execution",
+      "input": {
+        "code": "import asyncio, json\nregions = ['West', 'East', 'Central']\nrows = await asyncio.gather(*[query_database({'sql': f\"SELECT region, revenue_usd, target_usd FROM sales WHERE region = '{r}' AND quarter = '2026-Q3'\"}) for r in regions])\nfor r in rows:\n    row = json.loads(r)[0]\n    gap = row['revenue_usd'] - row['target_usd']\n    print(f\"{row['region']}: {'missed' if gap < 0 else 'beat'} target by {abs(gap)}\")\n"
+      }
+    },
+    {
+      "type": "tool_use",
+      "id": "toolu_01",
+      "name": "query_database",
+      "input": {
+        "sql": "SELECT region, revenue_usd, target_usd FROM sales WHERE region = 'West' AND quarter = '2026-Q3'"
+      },
+      "caller": {
+        "type": "code_execution_20260120",
+        "tool_id": "srvtoolu_abc123"
+      }
+    },
+    {
+      "type": "tool_use",
+      "id": "toolu_02",
+      "name": "query_database",
+      "input": {
+        "sql": "SELECT region, revenue_usd, target_usd FROM sales WHERE region = 'East' AND quarter = '2026-Q3'"
+      },
+      "caller": {
+        "type": "code_execution_20260120",
+        "tool_id": "srvtoolu_abc123"
+      }
+    },
+    {
+      "type": "tool_use",
+      "id": "toolu_03",
+      "name": "query_database",
+      "input": {
+        "sql": "SELECT region, revenue_usd, target_usd FROM sales WHERE region = 'Central' AND quarter = '2026-Q3'"
+      },
+      "caller": {
+        "type": "code_execution_20260120",
+        "tool_id": "srvtoolu_abc123"
+      }
+    }
+  ],
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 1,
+    "output_tokens": 1
+  },
+  "container": {
+    "id": "container_xyz789",
+    "expires_at": "2026-11-05T18:04:00Z"
+  }
+}
