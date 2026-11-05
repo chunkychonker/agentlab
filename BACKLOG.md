@@ -325,7 +325,7 @@ Both are small; a builder can reasonably take them in one cycle.
 
 - [done #70] Agent SDK permission gate: `examples/agent-sdk-permission-gate/` -- one pure `decide()` policy wired into a `PreToolUse` hook and a `can_use_tool` callback, proving the callback is bypassed by `allowed_tools`/`acceptEdits`/`bypassPermissions` and the hook is not. Filed by the researcher 2026-11-03 (no plain `[ ]` feature item left). See `research/2026-11-03-agent-sdk-permission-gate.md`.
 
-- [building] Programmatic tool calling loop: `examples/programmatic-tool-loop/` -- hand-written loop that pauses/resumes on caller-tagged `tool_use`, tool_result-only replies, container threading, per-tool timeout. Filed by the researcher 2026-11-05 (no plain `[ ]` feature item left). See `research/2026-11-05-programmatic-tool-calling-loop.md`.
+- [done #72] Programmatic tool calling loop: `examples/programmatic-tool-loop/` -- hand-written loop that pauses/resumes on caller-tagged `tool_use`, tool_result-only replies, container threading, per-tool timeout. Filed by the researcher 2026-11-05 (no plain `[ ]` feature item left). See `research/2026-11-05-programmatic-tool-calling-loop.md`.
 
 ## Notes
 - Prefer the latest Claude models and the current Anthropic SDK. Check the
