@@ -1,0 +1,49 @@
+{
+  "id": "msg_mixed",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet-5-5",
+  "content": [
+    {
+      "type": "server_tool_use",
+      "id": "srvtoolu_def456",
+      "name": "code_execution",
+      "input": {
+        "code": "print(await query_database({'sql': \"SELECT COUNT(*) AS n FROM sales\"}))\n"
+      }
+    },
+    {
+      "type": "tool_use",
+      "id": "toolu_direct1",
+      "name": "query_database",
+      "input": {
+        "sql": "SELECT DISTINCT quarter FROM sales ORDER BY quarter"
+      },
+      "caller": {
+        "type": "direct"
+      }
+    },
+    {
+      "type": "tool_use",
+      "id": "toolu_prog1",
+      "name": "query_database",
+      "input": {
+        "sql": "SELECT COUNT(*) AS n FROM sales"
+      },
+      "caller": {
+        "type": "code_execution_20260120",
+        "tool_id": "srvtoolu_def456"
+      }
+    }
+  ],
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 1,
+    "output_tokens": 1
+  },
+  "container": {
+    "id": "container_mixed42",
+    "expires_at": "2026-11-05T18:04:00Z"
+  }
+}
