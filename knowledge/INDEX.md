@@ -36,6 +36,7 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
 - [[tool-search]] — `defer_loading` + `tool_search_tool_{regex,bm25}_20251119`: stable/no beta, deferred defs still sent each request, `server_tool_use`/`tool_search_tool_result` wire shape, never answer `srvtoolu_` ids, 200-with-error codes, cache-safe
 - [[message-batches]] — Batches API: endpoints, status values, four result types, any-order results (join on `custom_id`), deferred validation, 50% pricing, unsupported params
 - [[programmatic-tool-calling]] — `allowed_callers` + `code_execution_20260120`: caller-tagged `tool_use` pause/resume, tool_result-only replies, container id threading, ~270s timeout surfacing in stderr, incompatibilities, when it costs more
+- [[citations]] — document `citations`, the three location shapes and their indexing, `citations_delta`, 400 with structured outputs, and the unverified exact-slice claim
 - [[anthropic-python-sdk]] — SDK basics: client, `messages.create`, response shape
 - [[sdk-retry-behavior]] — the *other* retry layer: source-verified SDK transport
   retry defaults, which statuses retry, `retry-after` handling and its ≤60s

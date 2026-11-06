@@ -1,0 +1,6 @@
+# Needed only for the live run (python3 live_demo.py with ANTHROPIC_API_KEY set)
+# and for python3 sdk_contract_check.py (mocked HTTP, no key). The offline
+# self-test (python3 -m unittest -v) needs nothing beyond the stdlib.
+# 2.6.0 is the version the citation types, the 2026-10-21 version header and
+# the stream accumulator comparison were verified against on 2026-11-06.
+anthropic>=2.6.0,<3
