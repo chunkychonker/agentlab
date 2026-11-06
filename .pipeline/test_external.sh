@@ -104,6 +104,55 @@ check "E25 bookkeeping pushes the reviewed verify script" \
 check "E26 bookkeeping never commits target" \
   bash -c "git -C '$T/lab.git' show main:projects/p/target | grep -qx repo=a && git -C '$T/lab' status --short | grep -q target"
 
+# --- baseline decision (B1) ------------------------------------------------
+check "B1a base passes -> PROCEED, PRs not consulted" \
+  [ "$(ext_baseline_decision 0 1 "")" == "$EXT_BASELINE_PROCEED" ]
+check "B1b base passes with our PR open -> still PROCEED" \
+  [ "$(ext_baseline_decision 0 0 "6")" == "$EXT_BASELINE_PROCEED" ]
+check "B1c base fails, no PR open -> PROCEED_MUST_FIX (the 10-20 night)" \
+  [ "$(ext_baseline_decision 1 0 "")" == "$EXT_BASELINE_MUST_FIX" ]
+check "B1d base fails, our PR open -> STOP_OPEN_PR (the 10-21 night)" \
+  [ "$(ext_baseline_decision 1 0 "6")" == "$EXT_BASELINE_STOP_OPEN_PR" ]
+check "B1e base fails, PR list unknown -> stop" \
+  [ "$(ext_baseline_decision 1 1 "")" == "$EXT_BASELINE_STOP_UNKNOWN" ]
+check "B1f whitespace-only PR list counts as none" \
+  [ "$(ext_baseline_decision 1 0 $'\n ')" == "$EXT_BASELINE_MUST_FIX" ]
+
+# --- which PRs are ours (B4) -----------------------------------------------
+rows=$'6 agentlab/2026-10-20-doorway-links\n7 fix/wall-safe-map-routes\n8 kush/agentlab/x\n9 agentlab-ish/y'
+check "B4 only head branches starting with agentlab/ count" \
+  [ "$(printf '%s\n' "$rows" | ext_prs_with_prefix "$EXT_BRANCH_PREFIX" | tr '\n' ,)" == "6," ]
+check "B4b empty input gives no PRs" [ -z "$(printf '' | ext_prs_with_prefix "$EXT_BRANCH_PREFIX")" ]
+
+# --- ext_reset_pristine ----------------------------------------------------
+ext_sync "$W" "$T/remote.git" main
+pristine="$(git -C "$W" rev-parse HEAD)"
+echo dirt >> "$W/a.txt"; echo out > "$W/build.out"; mkdir -p "$W/node_modules"; echo x > "$W/node_modules/i"
+( cd "$T/seed" && echo three > later.txt && git add -A && git commit --quiet -m three && git push --quiet origin main )
+check "B5 reset_pristine succeeds" ext_reset_pristine "$W" main
+check "B5b ...removes edits, untracked and ignored output" \
+  [ -z "$(git -C "$W" status --porcelain --ignored)" ]
+check "B5c ...and does not fetch: HEAD stays at the verified commit" \
+  [ "$(git -C "$W" rev-parse HEAD)" == "$pristine" ]
+
+# --- resume marker (L4) ----------------------------------------------------
+M="$T/marker"; echo note > "$T/note.md"
+check "L4a write succeeds" ext_resume_write "$M" "$T/note.md" abc123
+check "L4b matching base -> the note path" [ "$(ext_resume_read "$M" abc123)" == "$T/note.md" ]
+check "L4c the marker is consumed after one read" [ ! -e "$M" ]
+ext_resume_write "$M" "$T/note.md" abc123
+ext_resume_read "$M" def456 >/dev/null
+check "L4d moved base -> not resumed" [ $? -eq 1 ]
+check "L4e ...and the stale marker is deleted" [ ! -e "$M" ]
+ext_resume_write "$M" "$T/gone.md" abc123
+ext_resume_read "$M" abc123 >/dev/null
+check "L4f a note that no longer exists -> not resumed" [ $? -eq 1 ]
+echo garbage > "$M"
+ext_resume_read "$M" abc123 >/dev/null
+check "L4g malformed marker -> not resumed, deleted" [ $? -eq 1 -a ! -e "$M" ]
+ext_resume_read "$M" abc123 >/dev/null
+check "L4h missing marker -> not resumed" [ $? -eq 1 ]
+
 echo ""
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

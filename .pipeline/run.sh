@@ -67,13 +67,14 @@ echo "=== agentlab pipeline $TS ===" | tee -a "$LOG"
 # preflight.sh (what does a dirty main mean), postcondition.sh (did a phase
 # actually produce the artifact the next one needs),
 # schedule.sh (does the clock say tonight's run should happen at all),
-# network_retry.sh (is another network probe owed, and after how long).
-# All eight live outside this script so they can be unit-tested offline
+# network_retry.sh (is another network probe owed, and after how long),
+# usage_limit.sh (did a phase die on a Claude usage limit).
+# All nine live outside this script so they can be unit-tested offline
 # (`bash .pipeline/test_backlog.sh`, `bash .pipeline/test_gates.sh`) instead of
 # only being exercised on the rare night each gate fires. Sourcing defines
 # functions and constants only — it runs nothing and prints nothing.
 BACKLOG_FILE="BACKLOG.md"
-for lib in backlog verdict health pipeline_health preflight postcondition schedule network_retry; do
+for lib in backlog verdict health pipeline_health preflight postcondition schedule network_retry usage_limit; do
   if [ ! -r "$REPO/.pipeline/$lib.sh" ]; then
     echo "MISSING $REPO/.pipeline/$lib.sh — required. Aborting." | tee -a "$LOG"
     exit 1
@@ -338,6 +339,12 @@ echo "cycles tonight: $CYCLES" | tee -a "$LOG"
 # the CLI still exited 0, and the build phase ran against a research/ whose
 # newest note was the previous night's. Exit code is "the process ended", not
 # "the artifact exists".
+#
+# Returns 0 on success, $USAGE_LIMIT_RC (75) when the CLI exited non-zero AND
+# this phase's own output shows a Claude usage limit, and 1 for every other
+# failure. Callers that only test zero / non-zero keep working; callers that
+# can do better (stop the night instead of burning the next cycle on the same
+# limit) test for $USAGE_LIMIT_RC. The reset time is printed to the log.
 run_phase () {
   local model="$1" name="$2" postcondition="$3" prompt="$4"
   case "$model" in
@@ -362,8 +369,21 @@ run_phase () {
 
   echo "" | tee -a "$LOG"
   echo "--- phase: $name (model: $model) ---" | tee -a "$LOG"
+  # Byte offset of this phase's first output line, so the usage-limit check
+  # reads only what THIS phase printed, never an earlier phase's message.
+  local offset
+  offset="$(wc -c < "$LOG" | tr -d ' ')"
   if ! $CLAUDE --model "$model" "$prompt" >>"$LOG" 2>&1; then
     echo "phase '$name' exited non-zero — see $LOG" | tee -a "$LOG"
+    local slice reset
+    slice="$(mktemp)"
+    tail -c "+$(( offset + 1 ))" "$LOG" > "$slice"
+    if reset="$(usage_limit_reset "$slice")"; then
+      rm -f "$slice"
+      echo "--- phase '$name' stopped on a usage limit (resets $reset) ---" | tee -a "$LOG"
+      return "$USAGE_LIMIT_RC"
+    fi
+    rm -f "$slice"
     return 1
   fi
 
@@ -505,7 +525,9 @@ reconcile_shipped_claim () {
 
 # One full increment: research -> build -> review -> maintain -> auto-merge.
 # Returns non-zero if the increment did not ship; the caller continues to the
-# next cycle regardless, so one bad increment costs one slot, not the night.
+# next cycle, so one bad increment costs one slot, not the night — except
+# $USAGE_LIMIT_RC, passed through from run_phase, which stops the loop: every
+# later cycle would hit the same limit.
 run_cycle () {
   local k="$1"
 
@@ -516,10 +538,10 @@ run_cycle () {
   rm -f logs/last-review.md logs/last-pr.txt
 
   run_phase sonnet "cycle $k/$CYCLES: research" research_note_fresh \
-    "Use the agentlab-researcher subagent to run this cycle's research end to end, following its instructions exactly." || return 1
+    "Use the agentlab-researcher subagent to run this cycle's research end to end, following its instructions exactly." || return $?
 
   run_phase opus "cycle $k/$CYCLES: build" increment_built \
-    "Use the agentlab-builder subagent to build this cycle's increment from the newest research note, following its instructions exactly. Verify it runs." || return 1
+    "Use the agentlab-builder subagent to build this cycle's increment from the newest research note, following its instructions exactly. Verify it runs." || return $?
 
   # No artifact postcondition here on purpose: the review gate 15 lines down is
   # already one, and a stricter one. last-review.md was `rm -f`d above, so a
@@ -527,7 +549,7 @@ run_cycle () {
   # cycle does not ship. Duplicating that as a freshness check would give the
   # same fact two enforcement points to drift apart at.
   run_phase opus "cycle $k/$CYCLES: review" phase_no_postcondition \
-    "Use the agentlab-reviewer subagent to independently review this cycle's working-tree diff, run its tests/lint, and write a PASS/FAIL verdict to logs/last-review.md. Do not modify the increment." || return 1
+    "Use the agentlab-reviewer subagent to independently review this cycle's working-tree diff, run its tests/lint, and write a PASS/FAIL verdict to logs/last-review.md. Do not modify the increment." || return $?
 
   # The review gate, read mechanically — the same principle as the auto-merge
   # gate below, applied to the phase that actually opens the PR. The maintainer
@@ -553,6 +575,8 @@ run_cycle () {
   # rather than trusting this phase's word, so there is nothing here to gate.
   run_phase sonnet "cycle $k/$CYCLES: maintain" phase_no_postcondition \
     "Use the agentlab-maintainer subagent. Read logs/last-review.md; ONLY if the verdict is PASS, commit this cycle's work as Steve Ling <steveylingy@gmail.com>, push a branch, and open a PR. On FAIL or missing verdict, do nothing and say why."
+  local maintain_rc=$?
+  [ "$maintain_rc" -eq "$USAGE_LIMIT_RC" ] && return "$USAGE_LIMIT_RC"
 
   # Auto-merge gate: mechanical, not an LLM judgment call. The maintainer never
   # merges (see agentlab-maintainer.md) — it only opens the PR and, on success,
@@ -931,11 +955,17 @@ reconcile_stranded_claims "pre-loop"
 stock_backlog "pre-loop"
 
 SHIPPED=0
+USAGE_LIMITED=0
 for (( k=1; k<=CYCLES; k++ )); do
   echo "" | tee -a "$LOG"
   echo "=== cycle $k of $CYCLES ===" | tee -a "$LOG"
-  if run_cycle "$k"; then
+  run_cycle "$k"
+  cycle_rc=$?
+  if [ "$cycle_rc" -eq 0 ]; then
     SHIPPED=$(( SHIPPED + 1 ))
+  elif [ "$cycle_rc" -eq "$USAGE_LIMIT_RC" ]; then
+    USAGE_LIMITED=1
+    echo "cycle $k did not ship — usage limit; stopping the loop after cleanup." | tee -a "$LOG"
   else
     echo "cycle $k did not ship — continuing to the next cycle." | tee -a "$LOG"
   fi
@@ -953,9 +983,22 @@ for (( k=1; k<=CYCLES; k++ )); do
   # it, cycle k+1 re-researches and rebuilds exactly what cycle k just built —
   # the 2026-08-12 failure.
   reconcile_stranded_claims "after cycle $k"
+  [ "$USAGE_LIMITED" -eq 1 ] && break
 done
+unset cycle_rc
 echo "" | tee -a "$LOG"
 echo "shipped $SHIPPED of $CYCLES cycles." | tee -a "$LOG"
+
+# A usage limit ends the night here: replenish, health and the observer are all
+# model phases and would only hit the same limit. The postflight snapshot still
+# runs, and the run exits $USAGE_LIMIT_RC so launchd's log shows why.
+if [ "$USAGE_LIMITED" -eq 1 ]; then
+  echo "--- night stopped: usage limit — skipping replenish, health and observer ---" | tee -a "$LOG"
+  snapshot_dirty_main "cycle run $TS"
+  echo "" | tee -a "$LOG"
+  echo "=== done $TS === (shipped $SHIPPED/$CYCLES, full log: $LOG)" | tee -a "$LOG"
+  exit "$USAGE_LIMIT_RC"
+fi
 
 # Leave tomorrow's draw stocked. Usually a no-op: the pre-loop pass already
 # guaranteed one night's worth, and the loop consumes at most one item a cycle.

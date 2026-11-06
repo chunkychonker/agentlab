@@ -99,6 +99,7 @@ assert_eq "INV1" "0|" "$src_rc|$src_noise" \
 . "$REPO/.pipeline/postcondition.sh"
 . "$REPO/.pipeline/schedule.sh"
 . "$REPO/.pipeline/network_retry.sh"
+. "$REPO/.pipeline/usage_limit.sh"
 
 # --- verdict.sh ------------------------------------------------------------
 #
@@ -1272,6 +1273,29 @@ else
   esac
   assert_eq "R13" "1|yes" "$rp_rc|$rp_saw" \
     "run_phase aborts the phase when its postcondition names no defined function"
+
+  # R20-R22: what run_phase returns when the CLI itself fails. A stand-in CLI
+  # prints canned output and exits non-zero, so no model is called.
+  printf '#!/bin/bash\necho "You'"'"'ve hit your session limit · resets 4:10pm (America/Chicago)"\nexit 1\n' > "$WORK/cli-limit"
+  printf '#!/bin/bash\necho "Traceback: KeyError door"\nexit 1\n' > "$WORK/cli-error"
+  chmod +x "$WORK/cli-limit" "$WORK/cli-error"
+
+  : > "$WORK/rp-limit.log"
+  CLAUDE="$WORK/cli-limit" LOG="$WORK/rp-limit.log" \
+    run_phase opus "build" phase_no_postcondition "prompt" >/dev/null 2>&1
+  rp_rc=$?
+  assert_eq "R20" "$USAGE_LIMIT_RC" "$rp_rc" \
+    "run_phase returns USAGE_LIMIT_RC when the phase died on a usage limit"
+  grep -q "stopped on a usage limit (resets 4:10pm (America/Chicago))" "$WORK/rp-limit.log"
+  assert_eq "R21" "0" "$?" "...and logs the reset time"
+
+  # The previous phase's limit message is already in the log; this phase fails
+  # for an unrelated reason. Only THIS phase's output may decide.
+  CLAUDE="$WORK/cli-error" LOG="$WORK/rp-limit.log" \
+    run_phase opus "build" phase_no_postcondition "prompt" >/dev/null 2>&1
+  rp_rc=$?
+  assert_eq "R22" "1" "$rp_rc" \
+    "an ordinary failure returns 1 even when an earlier phase's limit message is in the log"
 fi
 
 # The floor is per PHASE, not per run. With CYCLES=2 both cycles' artifacts carry
@@ -1289,11 +1313,12 @@ syntax_bad="$(for f in "$RUN_SH" "$REPO/.pipeline/verdict.sh" "$REPO/.pipeline/h
   "$REPO/.pipeline/pipeline_health.sh" "$REPO/.pipeline/backlog.sh" \
   "$REPO/.pipeline/preflight.sh" "$REPO/.pipeline/postcondition.sh" \
   "$REPO/.pipeline/schedule.sh" "$REPO/.pipeline/network_retry.sh" \
+  "$REPO/.pipeline/usage_limit.sh" \
   "$REPO/.pipeline/test_gates.sh"; do
     bash -n "$f" 2>&1
   done)"
 assert_eq "R5" "" "$syntax_bad" \
-  "bash -n is clean on run.sh, the eight libs, and this test"
+  "bash -n is clean on run.sh, the nine libs, and this test"
 
 # --- schedule.sh -----------------------------------------------------------
 #
