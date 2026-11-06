@@ -421,6 +421,15 @@ Full detail is in the dated `logs/lab-health-*.log` for that date.
   never answer a `srvtoolu_` id, a fake-client loop test, and a $0 `count_tokens`
   loaded-vs-deferred measurement. See `research/2026-11-04-tool-search-deferred-tools.md`.
 
+- [building] Citations, and checking that a citation is true. Filed by the researcher on
+  2026-11-06 because the feature sections had no plain `[ ]` item left (only stale health
+  findings and stranded claims). Nothing in the lab grounds an answer in a source document.
+  Increment: `examples/citation-verifier/` -- pure verifier that re-slices the source
+  text for every `char_location` / `content_block_location` citation and compares it to
+  `cited_text`, bounds-checks `document_index`, and reports `page_location` as
+  unverifiable offline; a `citations_delta` accumulator; offline fixtures plus one
+  cheap live call. See `research/2026-11-06-citations-verifier.md`.
+
 ## Stranded work (unshipped branches)
 Appended by `.pipeline/run.sh` when a failed cycle's claim names an item
 that is not on main — the researcher wrote the topic and the claim in one
