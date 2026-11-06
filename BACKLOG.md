@@ -421,7 +421,7 @@ Full detail is in the dated `logs/lab-health-*.log` for that date.
   never answer a `srvtoolu_` id, a fake-client loop test, and a $0 `count_tokens`
   loaded-vs-deferred measurement. See `research/2026-11-04-tool-search-deferred-tools.md`.
 
-- [building] Citations, and checking that a citation is true. Filed by the researcher on
+- [done #73] Citations, and checking that a citation is true. Filed by the researcher on
   2026-11-06 because the feature sections had no plain `[ ]` item left (only stale health
   findings and stranded claims). Nothing in the lab grounds an answer in a source document.
   Increment: `examples/citation-verifier/` -- pure verifier that re-slices the source
