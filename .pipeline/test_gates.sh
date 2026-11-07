@@ -100,6 +100,7 @@ assert_eq "INV1" "0|" "$src_rc|$src_noise" \
 . "$REPO/.pipeline/schedule.sh"
 . "$REPO/.pipeline/network_retry.sh"
 . "$REPO/.pipeline/usage_limit.sh"
+. "$REPO/.pipeline/metrics.sh"
 
 # --- verdict.sh ------------------------------------------------------------
 #
@@ -1296,6 +1297,57 @@ else
   rp_rc=$?
   assert_eq "R22" "1" "$rp_rc" \
     "an ordinary failure returns 1 even when an earlier phase's limit message is in the log"
+
+  # M1-M5: the metrics line (spec #4). R20/R22's stand-ins print plain text,
+  # which is exactly the "CLI output was not JSON" case, so their lines exist.
+  rp_metrics="$WORK/rp-metrics.jsonl"
+  : > "$WORK/rp-m.log"; : > "$rp_metrics"
+  cat > "$WORK/cli-json" <<'EOF'
+#!/bin/bash
+echo '{"type":"result","is_error":false,"duration_ms":5000,"num_turns":3,"result":"I wrote the note.","session_id":"s1","total_cost_usd":0.5,"usage":{"input_tokens":1,"output_tokens":2,"cache_read_input_tokens":3,"cache_creation_input_tokens":4}}'
+exit 0
+EOF
+  cat > "$WORK/cli-json-limit" <<'EOF'
+#!/bin/bash
+echo '{"type":"result","is_error":true,"result":"You\u0027ve hit your session limit · resets 4:10pm (America/Chicago)"}'
+exit 1
+EOF
+  chmod +x "$WORK/cli-json" "$WORK/cli-json-limit"
+
+  CLAUDE="$WORK/cli-json" LOG="$WORK/rp-m.log" METRICS_FILE="$rp_metrics" TS="2026-11-08_020001" \
+    run_phase sonnet "cycle 2/3: research" phase_no_postcondition "prompt" >/dev/null 2>&1
+  rp_rc=$?
+  m_line="$(tail -1 "$rp_metrics")"
+  assert_eq "M1" "0|I wrote the note.|0" \
+    "$rp_rc|$(grep -F 'I wrote the note.' "$WORK/rp-m.log")|$(grep -c '"duration_ms"' "$WORK/rp-m.log")" \
+    "a JSON phase logs its answer text, not the JSON, and still returns 0"
+  assert_eq "M2" '["2026-11-08_020001",2,"research","sonnet",0,"NONE",5000,2,false]' \
+    "$(printf '%s\n' "$m_line" | "$METRICS_JQ" -c '[.run_ts,.cycle,.phase,.model,.rc,.postcondition_state,.duration_ms,.tokens.output,.parse_error]')" \
+    "...and appends one metrics line built from the outcome and the CLI's numbers"
+
+  CLAUDE="$WORK/cli-json-limit" LOG="$WORK/rp-m.log" METRICS_FILE="$rp_metrics" \
+    run_phase opus "cycle 1/1: build" phase_no_postcondition "prompt" >/dev/null 2>&1
+  rp_rc=$?
+  assert_eq "M3" "$USAGE_LIMIT_RC|75|null" \
+    "$rp_rc|$(tail -1 "$rp_metrics" | "$METRICS_JQ" -r '.rc, .postcondition_state' | paste -sd'|' -)" \
+    "a usage limit reported inside the JSON is still caught, and recorded as rc 75 with no postcondition"
+
+  CLAUDE="$WORK/cli-limit" LOG="$WORK/rp-m.log" METRICS_FILE="$rp_metrics" \
+    run_phase opus "build" phase_no_postcondition "prompt" >/dev/null 2>&1
+  rp_rc=$?
+  assert_eq "M4" "$USAGE_LIMIT_RC|true|75" \
+    "$rp_rc|$(tail -1 "$rp_metrics" | "$METRICS_JQ" -r '.parse_error, .rc' | paste -sd'|' -)" \
+    "non-JSON output: logged raw, rc unchanged, recorded with parse_error"
+
+  bad_n="$("$METRICS_JQ" -c . "$rp_metrics" 2>&1 | wc -l | tr -d ' ')|$(wc -l < "$rp_metrics" | tr -d ' ')"
+  assert_eq "M5" "3|3" "$bad_n" "every metrics line is valid JSON, one per phase run"
+
+  mkdir -p "$WORK/not-a-file"
+  CLAUDE="$WORK/cli-json" LOG="$WORK/rp-m.log" METRICS_FILE="$WORK/not-a-file" \
+    run_phase sonnet "health" phase_no_postcondition "prompt" >/dev/null 2>&1
+  rp_rc=$?
+  assert_eq "M6" "0|1" "$rp_rc|$(grep -c "WARN: no metrics line for phase 'health'" "$WORK/rp-m.log")" \
+    "a metrics file that cannot be written is a WARN, never a failed phase"
 fi
 
 # The floor is per PHASE, not per run. With CYCLES=2 both cycles' artifacts carry
@@ -1313,7 +1365,7 @@ syntax_bad="$(for f in "$RUN_SH" "$REPO/.pipeline/verdict.sh" "$REPO/.pipeline/h
   "$REPO/.pipeline/pipeline_health.sh" "$REPO/.pipeline/backlog.sh" \
   "$REPO/.pipeline/preflight.sh" "$REPO/.pipeline/postcondition.sh" \
   "$REPO/.pipeline/schedule.sh" "$REPO/.pipeline/network_retry.sh" \
-  "$REPO/.pipeline/usage_limit.sh" \
+  "$REPO/.pipeline/usage_limit.sh" "$REPO/.pipeline/metrics.sh" \
   "$REPO/.pipeline/test_gates.sh"; do
     bash -n "$f" 2>&1
   done)"

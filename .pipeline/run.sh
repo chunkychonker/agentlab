@@ -35,6 +35,8 @@ export AGENTLAB_REPO="$REPO"
 mkdir -p logs
 TS="$(date +%Y-%m-%d_%H%M%S)"
 LOG="logs/run-$TS.log"
+# One JSON line per phase, appended across nights. See run_phase and metrics.sh.
+METRICS_FILE="logs/metrics.jsonl"
 
 # Headless runs can't answer permission prompts. This job operates only inside
 # its own repo, and nothing reaches main without a human merging the PR, so we
@@ -81,7 +83,7 @@ echo "=== agentlab pipeline $TS ===" | tee -a "$LOG"
 # only being exercised on the rare night each gate fires. Sourcing defines
 # functions and constants only — it runs nothing and prints nothing.
 BACKLOG_FILE="BACKLOG.md"
-for lib in backlog verdict health pipeline_health preflight postcondition schedule network_retry usage_limit auth alert; do
+for lib in backlog verdict health pipeline_health preflight postcondition schedule network_retry usage_limit auth alert metrics; do
   if [ ! -r "$REPO/.pipeline/$lib.sh" ]; then
     echo "MISSING $REPO/.pipeline/$lib.sh — required. Aborting." | tee -a "$LOG"
     exit 1
@@ -461,6 +463,12 @@ echo "cycles tonight: $CYCLES" | tee -a "$LOG"
 # failure. Callers that only test zero / non-zero keep working; callers that
 # can do better (stop the night instead of burning the next cycle on the same
 # limit) test for $USAGE_LIMIT_RC. The reset time is printed to the log.
+#
+# Every phase that reaches the CLI also appends one line to $METRICS_FILE
+# (duration, turns, tokens, cost — see metrics.sh). The CLI runs with
+# --output-format json; only its answer text (.result) goes into the log, at
+# the spot plain output used to, so the log reads as it always has. A line
+# that cannot be written is a WARN, never a change to the return code.
 run_phase () {
   local model="$1" name="$2" postcondition="$3" prompt="$4"
   case "$model" in
@@ -489,29 +497,51 @@ run_phase () {
   # reads only what THIS phase printed, never an earlier phase's message.
   local offset
   offset="$(wc -c < "$LOG" | tr -d ' ')"
-  if ! $CLAUDE --model "$model" "$prompt" >>"$LOG" 2>&1; then
+  # stdout is the CLI's JSON; stderr goes straight to the log as before. Output
+  # that is not JSON (a crash, a stand-in CLI) is logged raw, so nothing the
+  # usage-limit check below greps for can be lost.
+  local out cli_rc=0
+  out="$(mktemp)"
+  $CLAUDE --model "$model" --output-format json "$prompt" >"$out" 2>>"$LOG" || cli_rc=$?
+  metrics_extract_result "$out" >>"$LOG" 2>/dev/null || cat "$out" >>"$LOG"
+
+  # The outcome is decided first and the metrics line written after, from it.
+  # state stays empty when the postcondition never ran (recorded as null).
+  local phase_rc state=""
+  if [ "$cli_rc" -ne 0 ]; then
     echo "phase '$name' exited non-zero — see $LOG" | tee -a "$LOG"
     local slice reset
     slice="$(mktemp)"
     tail -c "+$(( offset + 1 ))" "$LOG" > "$slice"
     if reset="$(usage_limit_reset "$slice")"; then
-      rm -f "$slice"
       echo "--- phase '$name' stopped on a usage limit (resets $reset) ---" | tee -a "$LOG"
-      return "$USAGE_LIMIT_RC"
+      phase_rc="$USAGE_LIMIT_RC"
+    else
+      phase_rc=1
     fi
     rm -f "$slice"
-    return 1
+  else
+    local pc_rc
+    state="$("$postcondition" "$floor")"
+    pc_rc=$?
+    if [ "$pc_rc" -ne 0 ]; then
+      echo "--- gate: phase '$name' exited 0 but produced no artifact ($postcondition -> $state) — treating the phase as failed. See $LOG. ---" | tee -a "$LOG"
+      phase_rc=1
+    else
+      [ "$state" != "NONE" ] && echo "--- gate: phase '$name' postcondition $postcondition -> $state ---" | tee -a "$LOG"
+      phase_rc=0
+    fi
   fi
 
-  local state rc
-  state="$("$postcondition" "$floor")"
-  rc=$?
-  if [ "$rc" -ne 0 ]; then
-    echo "--- gate: phase '$name' exited 0 but produced no artifact ($postcondition -> $state) — treating the phase as failed. See $LOG. ---" | tee -a "$LOG"
-    return 1
+  local mline
+  if ! { mline="$(metrics_record "$out" "${TS:-}" "$(metrics_cycle_of "$name")" \
+           "$(metrics_phase_of "$name")" "$model" "$phase_rc" "$state")" \
+         && [ -n "${METRICS_FILE:-}" ] \
+         && printf '%s\n' "$mline" >> "$METRICS_FILE"; } 2>/dev/null; then
+    echo "WARN: no metrics line for phase '$name' — the phase result is unaffected." | tee -a "$LOG"
   fi
-  [ "$state" != "NONE" ] && echo "--- gate: phase '$name' postcondition $postcondition -> $state ---" | tee -a "$LOG"
-  return 0
+  rm -f "$out"
+  return "$phase_rc"
 }
 
 # Rescue anything left uncommitted onto a clearly-named, pushed branch, then
