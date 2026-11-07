@@ -26,7 +26,8 @@
 
 set -uo pipefail
 
-REPO="/Users/steeb/agentlab"
+# The checkout this script lives in, not a fixed path (see test_gates.sh).
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO" || { echo "cannot cd $REPO"; exit 1; }
 
 LIB="$REPO/.pipeline/run_log.sh"

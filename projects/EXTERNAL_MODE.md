@@ -7,7 +7,7 @@ The night is `.pipeline/external_night.sh`. Before every cycle it resets a
 checkout of the target to its base branch and writes **`logs/ext-context.md`**:
 the checkout path, the target repo, the verify command, and the files you may
 not touch. **Every phase reads that file first.** Its path and rules override
-anything in your own definition that assumes the work lives in `~/agentlab`.
+anything in your own definition that assumes the work lives in `$AGENTLAB_REPO`.
 
 ## Gates the script runs before any phase
 
@@ -29,12 +29,12 @@ anything in your own definition that assumes the work lives in `~/agentlab`.
 | Thing | Where |
 | --- | --- |
 | The target's code (what you change) | the checkout named in `logs/ext-context.md` (`~/agentlab-work/<slug>/`) |
-| Plan, milestones, decisions log | `~/agentlab/projects/<slug>/PLAN.md` |
-| Target config (repo, base, verify, protect) | `~/agentlab/projects/<slug>/target` |
-| Platform-parity gate | `~/agentlab/projects/<slug>/verify.sh` |
-| Research note | `~/agentlab/research/YYYY-MM-DD-<slug>-<milestone>.md` |
+| Plan, milestones, decisions log | `$AGENTLAB_REPO/projects/<slug>/PLAN.md` |
+| Target config (repo, base, verify, protect) | `$AGENTLAB_REPO/projects/<slug>/target` |
+| Platform-parity gate | `$AGENTLAB_REPO/projects/<slug>/verify.sh` |
+| Research note | `$AGENTLAB_REPO/research/YYYY-MM-DD-<slug>-<milestone>.md` |
 
-**Never copy the target's code into `~/agentlab`.** It is not ours to publish.
+**Never copy the target's code into `$AGENTLAB_REPO`.** It is not ours to publish.
 
 ## PR size
 
@@ -90,7 +90,7 @@ does not override "working": verify must still pass.
      - [ ] Mobile preview: the change works at phone width
      ```
      (The checklist names this project's demo route; adapt it per project.)
-  4. Write the PR number, only the number, to `~/agentlab/logs/last-pr.txt`.
+  4. Write the PR number, only the number, to `$AGENTLAB_REPO/logs/last-pr.txt`.
   5. Mark the milestone `done <repo>#<PR>` in `PLAN.md` — **don't commit
      agentlab**; the pipeline does its bookkeeping commit.
   **Never merge, never force-push, never push to the base branch.**
