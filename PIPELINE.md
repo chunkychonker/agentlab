@@ -184,6 +184,7 @@ handed:
 | `.pipeline/postcondition.sh` | did a phase actually produce the artifact the next one needs | `bash .pipeline/test_gates.sh` |
 | `.pipeline/auth.sh` | which login the night uses, and did the auth probe fail on it | `bash .pipeline/test_auth_alert.sh` |
 | `.pipeline/alert.sh` | does the finished night need a human's attention | `bash .pipeline/test_auth_alert.sh` |
+| `.pipeline/runner.sh` | what launchd job runs the night from the runner clone | `bash .pipeline/test_runner.sh` |
 
 Run both suites by hand after editing `run.sh` or any lib. They are on-demand
 only, like `eval/run_reviewer_eval.sh`: they live outside `examples/`, so the
@@ -292,12 +293,13 @@ for practitioner discussion/reception, not just vendor docs.
 ## Running it
 
 - Manually (recommended first, to shake out PATH/auth):
-  `AGENTLAB_IGNORE_SCHEDULE=1 bash .pipeline/run.sh`. The env var is required
+  `AGENTLAB_IGNORE_SCHEDULE=1 bash ~/agentlab-runner/.pipeline/run.sh` — in the
+  runner clone, not your working copy (see "The runner clone" below). The env var is required
   outside 01:00-05:59 — see the run window below. Any non-empty value counts,
   so `=0` and `=false` also mean "run anyway"; unset it to put the guard back.
-- On a schedule: the launchd job `com.steeb.agentlab.daily` runs `run.sh` daily
-  at 02:00 local time (America/Chicago). See the repo setup notes for how to
-  load/unload it. It runs overnight deliberately — a job this long sharing a
+- On a schedule: the launchd job `com.steeb.agentlab.daily` runs the runner
+  clone's `run.sh` daily at 02:00 local time (America/Chicago).
+  `.pipeline/setup_runner.sh` writes and loads it. It runs overnight deliberately — a job this long sharing a
   rolling 5-hour usage window with interactive daytime work is what makes both
   feel starved.
   launchd runs a missed job on next wake, so a Mac asleep at 02:00 will start
@@ -321,6 +323,45 @@ for practitioner discussion/reception, not just vendor docs.
   and a few minutes more when the pipeline observer runs alongside it.
 
 Logs land in `logs/` (git-ignored).
+
+### The runner clone
+
+The night runs from **`~/agentlab-runner`**, a full clone of `origin` that
+nothing but the pipeline touches. `~/agentlab` is yours: a tracked edit left
+there no longer aborts the night, and the night's scrub (`git clean -fdx`) can
+no longer delete your untracked work. Your changes reach the runner only
+through merged PRs, which the night pulls before it starts. A git worktree
+would not do: two worktrees cannot both check out `main`.
+
+Nothing hardcodes the location. `run.sh` and `eval/run_reviewer_eval.sh`
+find the repo from their own path and export it as `AGENTLAB_REPO`; the phase
+agents and `.mcp.json` read that variable (`.mcp.json` falls back to
+`/Users/steeb/agentlab` for interactive sessions, where it is unset).
+
+Set it up, or check it, from `~/agentlab`:
+
+```bash
+bash .pipeline/setup_runner.sh --dry-run      # what would change
+bash .pipeline/setup_runner.sh --no-launchd   # build the clone, leave the job alone
+bash .pipeline/setup_runner.sh                # ...and point the launchd job at it
+```
+
+It clones if needed, copies your local git identity, copies `logs/` once (with
+mtimes, so the weekly health and observer cadence carry on instead of
+restarting from "never"), builds the hn-search venv, and rewrites and reloads
+the job, saving the old plist to `logs/launchd-plist-before-runner.plist`.
+Each step checks before it acts, so a second run prints "Nothing to do". It
+refuses to touch the job while a night is running. To go back, restore the
+saved plist and `launchctl bootout` / `bootstrap` it.
+
+The hn-search venv (`examples/mcp-hn-search/.venv`) is the one ignored path
+besides the logs that the nightly scrub spares. Before this, the scrub deleted
+it every night, which is why the researcher ran without hn-search from
+2026-11-02 on. `.pipeline/deps.sh` rebuilds it when it is missing; a failed
+build warns and the night goes on without it.
+
+**Failure mode:** if `~/agentlab-runner` is deleted or moved, launchd fails
+before `run.sh` starts, so no morning alert fires. Rerun `setup_runner.sh`.
 
 ### What a dirty `main` does to the night
 

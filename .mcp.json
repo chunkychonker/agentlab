@@ -1,8 +1,10 @@
 {
   "mcpServers": {
     "hn-search": {
-      "command": "/Users/steeb/agentlab/examples/mcp-hn-search/.venv/bin/python3",
-      "args": ["/Users/steeb/agentlab/examples/mcp-hn-search/server.py"]
+      "command": "${AGENTLAB_REPO:-/Users/steeb/agentlab}/examples/mcp-hn-search/.venv/bin/python3",
+      "args": [
+        "${AGENTLAB_REPO:-/Users/steeb/agentlab}/examples/mcp-hn-search/server.py"
+      ]
     }
   }
 }

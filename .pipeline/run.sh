@@ -24,8 +24,13 @@ set -uo pipefail
 # launchd gives a minimal PATH; these are the real tool locations on this Mac.
 export PATH="/Users/steeb/.local/bin:/opt/homebrew/bin:/usr/local/bin:/Library/Frameworks/Python.framework/Versions/3.13/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
-REPO="/Users/steeb/agentlab"
+# The clone this script lives in, not a fixed path: launchd runs it from a
+# dedicated runner clone (~/agentlab-runner, see .pipeline/setup_runner.sh) so
+# a night never shares a working tree with interactive work. Exported because
+# the phase agents and .mcp.json locate the repo through it.
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO" || { echo "cannot cd $REPO"; exit 1; }
+export AGENTLAB_REPO="$REPO"
 
 mkdir -p logs
 TS="$(date +%Y-%m-%d_%H%M%S)"
@@ -83,6 +88,12 @@ for lib in backlog verdict health pipeline_health preflight postcondition schedu
   fi
   . "$REPO/.pipeline/$lib.sh"
 done
+# deps.sh is the one sourced edge: it builds the hn-search venv when missing,
+# so it sits outside the pure-lib loop above. Sourcing it only defines.
+if ! . "$REPO/.pipeline/deps.sh"; then
+  echo "MISSING $REPO/.pipeline/deps.sh — required. Aborting." | tee -a "$LOG"
+  exit 1
+fi
 unset lib
 
 # Preflight: refuse to start outside the overnight window. This runs FIRST,
@@ -364,9 +375,17 @@ scrub_artifacts () {
   # -x deletes IGNORED files too, so every path that must survive the scrub is
   # named here whether or not .gitignore already lists it — $STRAY_DIR included,
   # or the rescue above would be undone seconds after it happened.
-  git clean -fdx -e logs/ -e "$STRAY_DIR" -e '.claude/settings.local.json' -e '.env*' -e graphify-out/ >>"$LOG" 2>&1
+  git clean -fdx -e logs/ -e "$STRAY_DIR" -e '.claude/settings.local.json' -e '.env*' -e graphify-out/ -e "$HN_VENV" >>"$LOG" 2>&1
 }
 scrub_artifacts
+
+# hn-search's venv (deps.sh): rebuilt only when missing, e.g. on a fresh runner
+# clone. A failed build warns and continues rather than aborting: the
+# researcher already falls back to web search without hn-search, so losing it
+# costs one source, while aborting would cost the night.
+if ! bootstrap_runner_deps "$LOG" | tee -a "$LOG"; then
+  echo "WARN: could not build $HN_VENV — the researcher runs without hn-search tonight (pip output above in $LOG)." | tee -a "$LOG"
+fi
 
 # Mode is the single source of truth for demo vs. project work, read by both
 # this script (to fail fast on a bad config) and each subagent itself (each

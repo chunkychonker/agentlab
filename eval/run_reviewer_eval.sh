@@ -17,8 +17,10 @@ set -uo pipefail
 
 export PATH="/Users/steeb/.local/bin:/opt/homebrew/bin:/usr/local/bin:/Library/Frameworks/Python.framework/Versions/3.13/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
-REPO="/Users/steeb/agentlab"
+# The checkout this script lives in, not a fixed path (see test_gates.sh).
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO" || { echo "cannot cd $REPO"; exit 1; }
+export AGENTLAB_REPO="$REPO"
 
 CLAUDE="claude -p --permission-mode bypassPermissions"
 FIXTURES_DIR="eval/fixtures"
