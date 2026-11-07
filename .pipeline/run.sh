@@ -68,13 +68,15 @@ echo "=== agentlab pipeline $TS ===" | tee -a "$LOG"
 # actually produce the artifact the next one needs),
 # schedule.sh (does the clock say tonight's run should happen at all),
 # network_retry.sh (is another network probe owed, and after how long),
-# usage_limit.sh (did a phase die on a Claude usage limit).
-# All nine live outside this script so they can be unit-tested offline
+# usage_limit.sh (did a phase die on a Claude usage limit),
+# auth.sh (which login to use, and did the probe fail on it),
+# alert.sh (does the finished night need a human's attention).
+# All eleven live outside this script so they can be unit-tested offline
 # (`bash .pipeline/test_backlog.sh`, `bash .pipeline/test_gates.sh`) instead of
 # only being exercised on the rare night each gate fires. Sourcing defines
 # functions and constants only — it runs nothing and prints nothing.
 BACKLOG_FILE="BACKLOG.md"
-for lib in backlog verdict health pipeline_health preflight postcondition schedule network_retry usage_limit; do
+for lib in backlog verdict health pipeline_health preflight postcondition schedule network_retry usage_limit auth alert; do
   if [ ! -r "$REPO/.pipeline/$lib.sh" ]; then
     echo "MISSING $REPO/.pipeline/$lib.sh — required. Aborting." | tee -a "$LOG"
     exit 1
@@ -102,6 +104,42 @@ ${WINDOW_START_HOUR}:00-${WINDOW_END_HOUR}:00). Skipping tonight. \
 Set $SCHEDULE_OVERRIDE_VAR=1 to run anyway." | tee -a "$LOG"
   exit 0
 fi
+
+# From here on the night is real, so any ending that did not ship everything
+# tells a human the same morning (alert.sh decides; this posts). Armed only
+# after the run-window gate on purpose: a daytime wake that skips is correct
+# and must stay silent.
+#
+# The trap never writes to $LOG. By the time it runs, run.sh may already have
+# printed its `=== done ===` line, and run_log.sh and the pipeline observer
+# both require that line to be the log's last content. Its own output goes to
+# stdout only, which launchd keeps in logs/launchd.out.log.
+#
+# It cannot fire on SIGKILL, and bash defers it until a foreground child
+# returns (knowledge/pipeline-run-log-shapes.md); a night killed that way
+# stays silent here and is the observer's to report.
+send_alert () {
+  local summary="$1" file="logs/ALERT-$TS.md"
+  if ! printf '%s\n\n%s\n' "# agentlab night $TS needs attention" \
+      "$summary"$'\n\n'"Full log: $LOG" > "$file"; then
+    echo "alert: could not write $file"
+  fi
+  # The summary rides in as an argument, never spliced into the script text:
+  # it quotes a log line, and a quote in it must not become AppleScript.
+  if ! osascript -e 'on run argv' \
+      -e 'display notification (item 1 of argv) with title "agentlab"' \
+      -e 'end run' "$summary" >/dev/null 2>&1; then
+    echo "alert: could not post a notification (see $file)"
+  fi
+  echo "ALERT: $summary (see $file)"
+}
+on_exit () {
+  local rc=$? last summary
+  last="$(grep -av '^[[:space:]]*$' "$LOG" 2>/dev/null | tail -1 | cut -c1-200)"
+  summary="$(night_alert_summary "$rc" "${SHIPPED:--}" "${CYCLES:--}" "$last")" || return 0
+  send_alert "$summary"
+}
+trap on_exit EXIT
 
 # Preflight: both api.anthropic.com (claude -p) and github.com (git/gh) must be
 # reachable. This box's network is VPN-gated; the 403 auth and "can't reach
@@ -189,6 +227,65 @@ if ! network_preflight; then
   # network_preflight has already logged why, ending in `Aborting.`.
   exit 1
 fi
+
+# Preflight: which login the night uses (auth.sh decides). A long-lived token
+# from `claude setup-token`, read from the login Keychain, so the night no
+# longer depends on the interactive session staying fresh — the 2026-10-30
+# outage. With no Keychain item yet it falls back to the interactive login
+# and says so; an item that exists but cannot be read aborts. The token is
+# exported for the claude CLI and is never echoed.
+load_oauth_token () {
+  local token rc disposition
+  token="$(security find-generic-password -a "$(id -un)" -s "$AUTH_KEYCHAIN_SERVICE" -w 2>/dev/null)"
+  rc=$?
+  disposition="$(auth_token_disposition "$rc" "${#token}")"
+  case "$disposition" in
+    USE)
+      export CLAUDE_CODE_OAUTH_TOKEN="$token"
+      echo "auth: long-lived token from Keychain item '$AUTH_KEYCHAIN_SERVICE'" | tee -a "$LOG" ;;
+    FALLBACK)
+      echo "auth: no Keychain item '$AUTH_KEYCHAIN_SERVICE' — using the interactive login. Run 'claude setup-token' and store it there to stop depending on it." | tee -a "$LOG" ;;
+    *)
+      echo "AUTH: Keychain item '$AUTH_KEYCHAIN_SERVICE' could not be read (security rc=$rc; Keychain locked?). Aborting." | tee -a "$LOG"
+      return 1 ;;
+  esac
+  return 0
+}
+load_oauth_token || exit 1
+
+# Preflight: prove the login works before any phase spends anything. One
+# tiny call on the cheapest model, with no MCP servers and no permission to
+# use a tool. Without this an expired login shows up as every phase failing in
+# turn, and the night logs as an ordinary partial run.
+auth_preflight () {
+  local out rc reason reset
+  out="$(mktemp)"
+  claude -p --model haiku --permission-mode dontAsk --strict-mcp-config \
+    "Reply with the single word OK." >"$out" 2>&1
+  rc=$?
+  if [ "$rc" -eq 0 ]; then
+    rm -f "$out"
+    echo "auth: probe OK" | tee -a "$LOG"
+    return 0
+  fi
+  if reason="$(auth_failure_reason "$out")"; then
+    rm -f "$out"
+    echo "AUTH FAILED: $reason — run 'claude setup-token' and store it in Keychain item '$AUTH_KEYCHAIN_SERVICE' (see PIPELINE.md). Aborting." | tee -a "$LOG"
+    return 1
+  fi
+  if reset="$(usage_limit_reset "$out")"; then
+    rm -f "$out"
+    echo "USAGE LIMIT at the auth probe (resets $reset) — no phase would get further. Aborting." | tee -a "$LOG"
+    return "$USAGE_LIMIT_RC"
+  fi
+  echo "CLAUDE PROBE FAILED (rc=$rc): $(grep -av '^[[:space:]]*$' "$out" | tail -1 | cut -c1-200). Aborting." | tee -a "$LOG"
+  rm -f "$out"
+  return 1
+}
+auth_preflight
+AUTH_RC=$?
+[ "$AUTH_RC" -ne 0 ] && exit "$AUTH_RC"
+unset AUTH_RC
 
 # Preflight: the maintainer needs a GitHub remote + auth to push and open a PR.
 if ! git remote get-url origin >/dev/null 2>&1; then

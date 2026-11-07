@@ -170,7 +170,7 @@ researcher — an item written without it is invisible to the pipeline.
 The decision itself (count, target, whether to act) lives in
 `.pipeline/backlog.sh`, apart from the `claude -p` call and the `git` push it
 triggers, so it can be tested with no network and no API key. Every decision
-`run.sh` makes without a model in the loop follows that shape — six
+`run.sh` makes without a model in the loop follows that shape — small
 sourceable libs, each doing one thing and doing no I/O beyond the file it is
 handed:
 
@@ -182,6 +182,8 @@ handed:
 | `.pipeline/pipeline_health.sh` | what did the pipeline observer actually find | `bash .pipeline/test_gates.sh` |
 | `.pipeline/preflight.sh` | what does a dirty `main` mean for this run | `bash .pipeline/test_gates.sh` |
 | `.pipeline/postcondition.sh` | did a phase actually produce the artifact the next one needs | `bash .pipeline/test_gates.sh` |
+| `.pipeline/auth.sh` | which login the night uses, and did the auth probe fail on it | `bash .pipeline/test_auth_alert.sh` |
+| `.pipeline/alert.sh` | does the finished night need a human's attention | `bash .pipeline/test_auth_alert.sh` |
 
 Run both suites by hand after editing `run.sh` or any lib. They are on-demand
 only, like `eval/run_reviewer_eval.sh`: they live outside `examples/`, so the
@@ -339,6 +341,48 @@ The second case is why this split exists: on 2026-08-14 a single untracked
 `.claude/settings.local.json` ended the run three seconds in. If a file you
 wanted goes missing from the repo root, look in `.pipeline/strays/` before
 assuming the pipeline ate it.
+
+### Login: the long-lived token and the auth probe
+
+On 2026-10-30, 10-31 and 11-01 every phase died with `Failed to authenticate:
+OAuth session expired and could not be refreshed`. The headless run had been
+borrowing the interactive login, and nothing checked it before the first
+phase. Two preflights now run after the network check:
+
+- **Token.** `run.sh` reads a long-lived token from the login Keychain item
+  `agentlab-claude-oauth` and exports it as `CLAUDE_CODE_OAUTH_TOKEN` for
+  every `claude` call. It is never echoed or logged. With no such item it
+  falls back to the interactive login and says so in the log; an item that
+  exists but cannot be read (a locked Keychain) aborts the night.
+- **Probe.** One `claude -p` call on haiku, with no MCP servers and no tool
+  permission, must succeed before any phase spends anything. An auth failure
+  logs `AUTH FAILED: <the CLI's message>` and aborts; a usage limit exits 75
+  like any other.
+
+One-time setup (by hand, in a terminal — never paste the token anywhere else):
+
+```bash
+claude setup-token                                            # prints a token valid for about a year
+security add-generic-password -a "$USER" -s agentlab-claude-oauth -w   # paste it at the prompt
+```
+
+To replace it later, delete the old item first
+(`security delete-generic-password -a "$USER" -s agentlab-claude-oauth`), then
+repeat both steps. If the log says `AUTH FAILED`, that is the fix.
+
+### Morning alert
+
+Any night that gets past the run window and does not ship everything it set
+out to — an abort, a usage limit, `shipped 0/1` — writes
+`logs/ALERT-<timestamp>.md` and posts a macOS notification titled
+"agentlab". A night that ships everything is silent, and so is a daytime wake
+that the run window skips. The decision is `night_alert_summary` in
+`.pipeline/alert.sh`; it works from the exit code and the shipped/cycles
+counts, not the log's prose, so external mode (which never prints
+`=== done ===`) alerts only when it exits non-zero. The alert never writes to
+the run log, which must still end on the `=== done ===` line. A night killed
+with SIGKILL cannot run the alert and stays silent; the pipeline observer is
+the backstop for that.
 
 ### If the log says NETWORK UNREACHABLE
 
