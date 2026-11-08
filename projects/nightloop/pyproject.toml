@@ -1,0 +1,14 @@
+[project]
+name = "nightloop"
+version = "0.0.1"
+description = "A gated overnight research -> build -> review loop for a git repo, driven by headless Claude Code."
+requires-python = ">=3.11"
+# Standard library only for the core (PLAN.md decision 2026-11-06).
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=68,<81"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["nightloop"]
