@@ -31,7 +31,7 @@ skip ahead of an unfinished predecessor without saying why in the decisions
 log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
 `done <PR#>`.
 
-1. [in-progress] Config: `nightloop.toml` schema and loader. Covers repo,
+1. [done 78] Config: `nightloop.toml` schema and loader. Covers repo,
    run window, cycles, and per phase: agent, model, postcondition, and tool
    allowlist. Invalid config fails at load with a message naming the field.
    Pure; no I/O beyond reading the file it is handed.
