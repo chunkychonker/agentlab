@@ -31,7 +31,7 @@ skip ahead of an unfinished predecessor without saying why in the decisions
 log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
 `done <PR#>`.
 
-1. [not-started] Config: `nightloop.toml` schema and loader. Covers repo,
+1. [in-progress] Config: `nightloop.toml` schema and loader. Covers repo,
    run window, cycles, and per phase: agent, model, postcondition, and tool
    allowlist. Invalid config fails at load with a message naming the field.
    Pure; no I/O beyond reading the file it is handed.
@@ -80,4 +80,33 @@ contradict an entry here without adding one.
 
 ## Current state
 
-Nothing exists yet. Next: milestone 1 (config schema and loader).
+Milestone 1 (config schema and loader) is built as of 2026-11-08 and awaiting
+review/merge; research note: `research/2026-11-08-nightloop-config-schema.md`.
+
+- `nightloop/config.py`: `parse_config(text)` (pure) and `load_config(path)`
+  (reads at most 64 KiB) for schema version 1: `[repo] backlog`, `[run]`
+  cycles + window (start inclusive, end exclusive, as in `schedule.sh`),
+  and exactly `[phase.research|build|review]` with agent, model,
+  postcondition, `allowed_tools`, and optional `allow_unrestricted_bash`.
+  Unknown keys are errors. The only exception raised is `ConfigError`, whose
+  `.field` is the dotted document path (`phase.build.allowed_tools[2]`) or
+  `<file>` / `<toml>`.
+- `nightloop/model.py`: frozen `Config` / `Window` / `Phase` and the
+  `Postcondition` enum. The invariants are enforced in `__post_init__`, so a
+  directly built value cannot be invalid either. Review must use
+  `review_verdict`; research and build may use their own gate or `none`.
+- `nightloop/tool_rules.py`: rejects `--allowedTools` rules that Claude Code
+  would ignore (unanchored globs, `mcp__…(…)`) or that are overbroad (bare
+  `Bash`/`Bash(*)` without opt-in, `Bash(git * main)`, `:*` mid-pattern).
+- `examples/agentlab.nightloop.toml`: agentlab's live pipeline expressed as
+  config. It needs `allow_unrestricted_bash = true` on every phase, because
+  the live agents use bare `Bash`.
+- Tests: `cd projects/nightloop && python3 -I -m unittest discover -v`
+  (47 tests, stdlib only; pass on 3.11, 3.12, 3.13).
+
+Known limits: a run window cannot wrap midnight (end must be > start). Model
+names are not checked against a list. Whether `--allowedTools` (as opposed to
+settings files) also skips `mcp__` rules with parentheses is unverified, so
+they are rejected conservatively. There is no `maintain` phase yet.
+Next: milestone 2 (gates library), which implements the `Postcondition`
+values.

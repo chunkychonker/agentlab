@@ -1,0 +1,45 @@
+# agentlab's own nightly pipeline, expressed as a nightloop config.
+# Mirrors the live values in agentlab's .pipeline/ as of 2026-11-08:
+#   window  .pipeline/schedule.sh  WINDOW_START_HOUR=1, WINDOW_END_HOUR=6 (end exclusive)
+#   cycles  .pipeline/cycles       1
+#   models  .pipeline/run.sh       research=sonnet, build=opus, review=opus
+#   tools   .claude/agents/*.md    each agent's `tools:` frontmatter
+#
+# The live agents use bare `Bash`, i.e. every shell command. nightloop refuses
+# that unless the phase opts in, so each phase here sets
+# allow_unrestricted_bash = true to say so out loud. Narrowing these to
+# `Bash(<command> *)` rules is the safer configuration.
+
+schema_version = 1
+
+[repo]
+backlog = "BACKLOG.md"
+
+[run]
+cycles = 1
+window_start_hour = 1
+window_end_hour = 6
+
+[phase.research]
+agent = "agentlab-researcher"
+model = "sonnet"
+postcondition = "research_note_fresh"
+allowed_tools = [
+  "WebSearch", "WebFetch", "Read", "Write", "Edit", "Glob", "Grep", "Bash",
+  "mcp__hn-search__search_stories", "mcp__hn-search__get_story",
+]
+allow_unrestricted_bash = true
+
+[phase.build]
+agent = "agentlab-builder"
+model = "opus"
+postcondition = "increment_built"
+allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
+allow_unrestricted_bash = true
+
+[phase.review]
+agent = "agentlab-reviewer"
+model = "opus"
+postcondition = "review_verdict"
+allowed_tools = ["Bash", "Read", "Grep", "Glob", "Write"]
+allow_unrestricted_bash = true
