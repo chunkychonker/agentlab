@@ -90,7 +90,7 @@ echo "=== agentlab pipeline $TS ===" | tee -a "$LOG"
 # only being exercised on the rare night each gate fires. Sourcing defines
 # functions and constants only — it runs nothing and prints nothing.
 BACKLOG_FILE="BACKLOG.md"
-for lib in backlog verdict health pipeline_health preflight postcondition schedule network_retry usage_limit auth alert metrics phase_tools; do
+for lib in backlog verdict health pipeline_health preflight postcondition schedule network_retry usage_limit auth alert metrics phase_tools review_record; do
   if [ ! -r "$REPO/.pipeline/$lib.sh" ]; then
     echo "MISSING $REPO/.pipeline/$lib.sh — required. Aborting." | tee -a "$LOG"
     exit 1
@@ -751,6 +751,50 @@ write_research_context () {
   mv "$tmp" "$out"
 }
 
+# attach_review_to_pr <pr_num>
+# Adds the reviewer's verdict (Ran and Findings, from $REVIEW_VERDICT_FILE) to
+# the PR body as an "## Independent review" section, so what the reviewer
+# found is public before the PR can merge (spec #5). Idempotent: a body that
+# already carries the section's marker is left alone.
+#
+# Returns 0 when the section is on the PR, now or from an earlier run.
+# Returns 1, and the caller must NOT merge, when: the PR number is not a
+# number; the body cannot be read; the verdict has no Findings block; the
+# section matches a credential pattern (nothing is posted); the existing body
+# leaves no room; `gh pr edit` fails; or the body read back afterwards lacks
+# the marker. The public record is part of the gate, so a PR whose record
+# could not be written stays open for a human. Each reason goes to the log.
+attach_review_to_pr () {
+  local pr="$1" body section new rc=1
+  case "$pr" in ''|*[!0-9]*)
+    echo "review record: PR number '$pr' is not a number — not merging." | tee -a "$LOG"
+    return 1 ;;
+  esac
+  body="$(mktemp)"; section="$(mktemp)"; new="$(mktemp)"
+  if ! gh pr view "$pr" --json body -q .body > "$body" 2>>"$LOG"; then
+    echo "review record: could not read PR #$pr's body — not merging." | tee -a "$LOG"
+  elif review_record_has_marker "$body"; then
+    echo "review record: PR #$pr already has the Independent review section." | tee -a "$LOG"
+    rc=0
+  elif ! review_record_section "$REVIEW_VERDICT_FILE" > "$section"; then
+    echo "review record: $REVIEW_VERDICT_FILE has no Findings block — nothing to post, not merging PR #$pr." | tee -a "$LOG"
+  elif review_record_secret_hit "$section" || [ $? -ne 1 ]; then
+    echo "review record: the review text matches a credential pattern — NOT posted, PR #$pr left open. Check $REVIEW_VERDICT_FILE by hand." | tee -a "$LOG"
+  elif ! review_record_compose "$body" "$section" > "$new"; then
+    echo "review record: PR #$pr's body leaves no room for the review section — not merging." | tee -a "$LOG"
+  elif ! gh pr edit "$pr" --body-file "$new" >>"$LOG" 2>&1; then
+    echo "review record: 'gh pr edit' failed for PR #$pr — not merging. See $LOG." | tee -a "$LOG"
+  elif ! gh pr view "$pr" --json body -q .body > "$body" 2>>"$LOG" \
+       || ! review_record_has_marker "$body"; then
+    echo "review record: PR #$pr's body does not show the section after the edit — not merging." | tee -a "$LOG"
+  else
+    echo "review record: Independent review section added to PR #$pr." | tee -a "$LOG"
+    rc=0
+  fi
+  rm -f "$body" "$section" "$new"
+  return "$rc"
+}
+
 # One full increment: research -> build -> review -> maintain -> auto-merge.
 # Returns non-zero if the increment did not ship; the caller continues to the
 # next cycle, so one bad increment costs one slot, not the night — except
@@ -822,6 +866,12 @@ run_cycle () {
   pr_num="$(tr -d '[:space:]' < logs/last-pr.txt)"
   echo "" | tee -a "$LOG"
   echo "--- phase: cycle $k/$CYCLES: auto-merge (PR #$pr_num) ---" | tee -a "$LOG"
+  # The reviewer's findings go on the PR first; a PR whose record could not be
+  # posted does not merge (spec #5).
+  if ! attach_review_to_pr "$pr_num"; then
+    echo "PR #$pr_num left open: the review record is part of the merge gate." | tee -a "$LOG"
+    return 1
+  fi
   for _ in 1 2 3 4 5; do
     mergeable="$(gh pr view "$pr_num" --json mergeable -q .mergeable 2>>"$LOG")"
     [ "$mergeable" != "UNKNOWN" ] && break
