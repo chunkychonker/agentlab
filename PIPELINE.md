@@ -83,7 +83,8 @@ is how the state actually flows:
    re-reported next week adds nothing; a `[done #N]` fix deliberately does
    *not* suppress, since a recurrence is new information. Runs only after a
    health phase that exited clean — a partial report must not queue findings
-   that were never established.
+   that were never established. When `.pipeline/file-issues` says `on`, each
+   finding is *also* filed as a GitHub issue (see "Findings as GitHub issues").
 8. **Pipeline observer** (`agentlab-pipeline-observer`) — the sibling of the
    health check, pointed at the machine instead of the portfolio. Phase 6 asks
    "does what we shipped still work"; this asks "did the nights actually run,
@@ -114,6 +115,7 @@ is how the state actually flows:
    place, and the subjects are disjoint in practice (an example directory or a
    wikilink vs. a run log, an abort cause, or a claim line). The observer is
    told to make its subjects self-describing so they read correctly there.
+   Issues, when switched on, carry the `pipeline` label instead of `health`.
 
 Three gates protect code that carries your name: a mechanical parse of the
 review verdict before the maintainer runs at all, the reviewer's own judgment
@@ -190,6 +192,7 @@ handed:
 | `.pipeline/runner.sh` | what launchd job runs the night from the runner clone | `bash .pipeline/test_runner.sh` |
 | `.pipeline/metrics.sh` | what one phase's JSON output says it cost, and the per-phase medians | `bash .pipeline/test_metrics.sh` |
 | `.pipeline/phase_tools.sh` | which tools each phase may use | `bash .pipeline/test_phase_tools.sh` |
+| `.pipeline/issues.sh` | which GitHub issue a finding belongs to, and whether to open one or comment | `bash .pipeline/test_issues.sh` |
 | `.pipeline/review_record.sh` | what the reviewer's findings look like in the PR body, and is that text safe to post | `bash .pipeline/test_review_record.sh` |
 
 Run both suites by hand after editing `run.sh` or any lib. They are on-demand
@@ -408,6 +411,49 @@ limit, only the section is cut, never the maintainer's text, and it ends with
 a note saying so. The format code is `.pipeline/review_record.sh`.
 
 External mode is not covered: it never merges, so it has no merge to gate.
+
+## Findings as GitHub issues (spec #6, step 1 of 3, off by default)
+
+The plan is for `BACKLOG.md` to hold only portfolio topics, with health and
+pipeline findings living in GitHub issues labeled `health` or `pipeline`. It
+rolls out in three steps:
+
+1. **(this step)** File findings to issues **and** to the backlog, as before.
+2. A one-off migration moves the unclaimed `fix (health …)` lines already in
+   `BACKLOG.md` to issues.
+3. Stop filing findings to the backlog.
+
+**It is off until you turn it on.** The issues are public, so `run.sh` files
+them only when `.pipeline/file-issues` holds `on`. The file ships holding
+`off`. A missing file also means off; anything else is logged and treated as
+off. To turn it on:
+
+```bash
+gh label create health   --description "Found by the nightly health check"
+gh label create pipeline --description "Found by the nightly pipeline observer"
+echo on > .pipeline/file-issues   # then commit and push to main
+```
+
+When on, for each finding (`issue_file_finding` in `.pipeline/issues.sh`):
+
+- The issue title is the finding's subject, with whitespace squeezed and cut
+  to 256 characters. It is the dedupe key, as the subject is in the backlog.
+- **An open issue with that exact title and label already exists:** a
+  "Re-observed <date> (run <ts>)" comment is added. No new issue.
+- **Only a closed one exists:** a new issue opens and links the old one. A
+  finding that comes back after its fix is new information.
+- **None exists:** a new issue opens. Its body holds the detail, the date, the
+  run, and which report it came from.
+- The text goes through the same credential scan as the review record. A
+  match is not posted.
+- **gh fails, or the scan matched:** the finding is appended to
+  `logs/unfiled-findings.md`, the night raises one alert per observer naming
+  how many were unfiled, and the night carries on. Findings are report-only;
+  a GitHub outage must not cost a night's work. Unfiled findings are not
+  retried; file them by hand from that file.
+
+The issue is filed whatever the backlog step said, so a finding already
+queued in `BACKLOG.md` still gets its "re-observed" comment.
 
 ## Tools available to the pipeline
 

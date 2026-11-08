@@ -1459,6 +1459,7 @@ syntax_bad="$(for f in "$RUN_SH" "$REPO/.pipeline/verdict.sh" "$REPO/.pipeline/h
   "$REPO/.pipeline/schedule.sh" "$REPO/.pipeline/network_retry.sh" \
   "$REPO/.pipeline/usage_limit.sh" "$REPO/.pipeline/metrics.sh" \
   "$REPO/.pipeline/phase_tools.sh" "$REPO/.pipeline/review_record.sh" \
+  "$REPO/.pipeline/issues.sh" \
   "$REPO/.pipeline/test_gates.sh"; do
     bash -n "$f" 2>&1
   done)"
