@@ -57,7 +57,8 @@ metrics_phase_of () {
 #   run_ts, cycle (number or null), phase, model, rc, postcondition_state
 #   (string, or null when the postcondition never ran), duration_ms,
 #   num_turns, tokens {input, output, cache_read, cache_creation},
-#   total_cost_usd, session_id, is_error, parse_error.
+#   total_cost_usd, session_id, is_error, parse_error, denials (how many tool
+#   calls the phase's permission rules refused; added with spec #3).
 # CLI fields the output lacks are null. If the file is not exactly one JSON
 # object every CLI field is null and parse_error is true — that is still a
 # record, returned 0: "this phase printed something unreadable" is data.
@@ -90,8 +91,26 @@ metrics_record () {
                 cache_read: $o.usage.cache_read_input_tokens,
                 cache_creation: $o.usage.cache_creation_input_tokens},
        total_cost_usd: $o.total_cost_usd, session_id: $o.session_id,
-       is_error: $o.is_error, parse_error: $parse_error
+       is_error: $o.is_error, parse_error: $parse_error,
+       denials: ($o.permission_denials | if type == "array" then length else null end)
      }' "$src"
+}
+
+# metrics_denials <json-file>
+# Prints one line per tool call the phase's permission rules refused, as
+# "<tool>: <command or path>", cut to 200 characters. These are the calls
+# spec #3's per-phase allow lists turned away; a denial is not an error, but a
+# phase that keeps hitting one is either misbehaving or missing a rule.
+# Prints nothing, and returns 0, when there were none or the file is not one
+# JSON object.
+metrics_denials () {
+  local file="$1"
+  [ -s "$file" ] || return 0
+  "$METRICS_JQ" -rs 'if length == 1 and (.[0] | type) == "object" then
+      (.[0].permission_denials // [])[]? |
+      "\(.tool_name // "?"): \((.tool_input.command // .tool_input.file_path // .tool_input.url // (.tool_input | tostring)) | tostring | .[0:200])"
+    else empty end' "$file" 2>/dev/null
+  return 0
 }
 
 # metrics_summary <metrics.jsonl> <nights>

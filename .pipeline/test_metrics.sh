@@ -112,6 +112,23 @@ check "C4f N=0 is a usage error" [ $? -eq 2 ]
 metrics_summary "$T/nope.jsonl" 3 >/dev/null
 check "C4g a missing file returns 1" [ $? -eq 1 ]
 
+# --- metrics_denials and the denials field (spec #3) ---
+
+# Shape captured from claude 2026-11-08: a Bash call refused under dontAsk.
+cat > "$T/denied.json" <<'EOF'
+{"type":"result","is_error":false,"result":"blocked","permission_denials":[{"tool_name":"Bash","tool_use_id":"toolu_01","tool_input":{"command":"git push origin main","description":"Push"}},{"tool_name":"Write","tool_use_id":"toolu_02","tool_input":{"file_path":"/r/examples/x.txt","content":"x"}}]}
+EOF
+check "D1 each refusal prints as tool: command-or-path" \
+  [ "$(metrics_denials "$T/denied.json")" == "$(printf 'Bash: git push origin main\nWrite: /r/examples/x.txt')" ]
+for f in ok.json text torn.json empty missing; do
+  out="$(metrics_denials "$T/$f")"; rc=$?
+  check "D2 $f has no refusals: prints nothing, returns 0" [ "$rc|$out" == "0|" ]
+done
+check "D3 the metrics line counts refusals" \
+  [ "$(field "$(metrics_record "$T/denied.json" ts "" build opus 0 "")" .denials)" == 2 ]
+check "D3b ...and is null when the CLI reported no list" \
+  [ "$(field "$(metrics_record "$T/ok.json" ts "" build opus 0 "")" .denials)" == null ]
+
 echo ""
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

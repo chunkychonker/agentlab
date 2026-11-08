@@ -189,14 +189,15 @@ run_external_cycle () {
   } > "$EXT_CONTEXT_FILE"
 
   if [ -z "$note" ]; then
-    run_phase sonnet "cycle $k/$CYCLES: research" research_note_fresh \
-      "Use the agentlab-researcher subagent to run this cycle's research end to end, following its instructions exactly." || return $?
+    write_research_context "$RESEARCH_CONTEXT_FILE" || return 1
+    run_phase sonnet research "cycle $k/$CYCLES: research" research_note_fresh \
+      "Run this cycle's research end to end, following your instructions exactly. The agentlab repo is $REPO; read $REPO/$RESEARCH_CONTEXT_FILE first." || return $?
     note="$(ls -t "$RESEARCH_DIR"/*.md 2>/dev/null | head -1)"
   fi
 
   local rc
-  run_phase opus "cycle $k/$CYCLES: build" ext_increment_built \
-    "Use the agentlab-builder subagent to build this cycle's increment from the research note $note, following its instructions exactly. Verify it runs."
+  run_phase opus build "cycle $k/$CYCLES: build" ext_increment_built \
+    "Build this cycle's increment from the research note $note, following your instructions exactly. Verify it runs. The agentlab repo is $REPO."
   rc=$?
   [ "$rc" -eq 0 ] || { ext_after_phase_failure "$rc" "$marker" "$note" "$base_sha"; return $?; }
 
@@ -215,8 +216,8 @@ run_external_cycle () {
   fi
   echo "--- gate: VERIFY: PASS ---" | tee -a "$LOG"
 
-  run_phase opus "cycle $k/$CYCLES: review" phase_no_postcondition \
-    "Use the agentlab-reviewer subagent to independently review this cycle's diff in the external checkout named in $EXT_CONTEXT_FILE (and $EXT_VERIFY_FILE), and write a PASS/FAIL verdict to logs/last-review.md. Do not modify the increment."
+  run_phase opus review "cycle $k/$CYCLES: review" phase_no_postcondition \
+    "Independently review, following your instructions exactly, this cycle's diff in the external checkout named in $EXT_CONTEXT_FILE (and $EXT_VERIFY_FILE), and write a PASS/FAIL verdict to logs/last-review.md. Do not modify the increment."
   rc=$?
   [ "$rc" -eq 0 ] || { ext_after_phase_failure "$rc" "$marker" "$note" "$base_sha"; return $?; }
 
@@ -228,8 +229,8 @@ run_external_cycle () {
   fi
   echo "--- gate: review verdict PASS — proceeding to maintain. ---" | tee -a "$LOG"
 
-  run_phase sonnet "cycle $k/$CYCLES: maintain" phase_no_postcondition \
-    "Use the agentlab-maintainer subagent. Read logs/last-review.md; ONLY if the verdict is PASS, follow its External mode procedure: commit in the external checkout as Steve Ling <steveylingy@gmail.com>, push a branch to the target repo, open a PR there, and write the PR number to logs/last-pr.txt. Never merge."
+  run_phase sonnet maintain "cycle $k/$CYCLES: maintain" phase_no_postcondition \
+    "Follow your instructions exactly. The agentlab repo is $REPO. Read logs/last-review.md; ONLY if the verdict is PASS, follow its External mode procedure: commit in the external checkout as Steve Ling <steveylingy@gmail.com>, push a branch to the target repo, open a PR there, and write the PR number to logs/last-pr.txt. Never merge."
   rc=$?
   # A limit after the PR was recorded is not a lost cycle: verify it below as
   # usual. Only a limit with no PR on record stops the night.

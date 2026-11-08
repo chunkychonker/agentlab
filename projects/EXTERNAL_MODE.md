@@ -80,7 +80,9 @@ does not override "working": verify must still pass.
      set them **repo-locally** to `Steve Ling` / `steveylingy@gmail.com`.
   2. `git switch -c agentlab/YYYY-MM-DD-<milestone-slug>`, commit (no AI
      co-author trailer), `git push -u origin HEAD`.
-  3. `gh pr create -R <repo> --base <base>` with a body that has: what
+  3. `gh pr create -R <repo> --base <base> --body-file $AGENTLAB_REPO/logs/pr-body.md`
+     (write the file with the Write tool first; this phase's shell refuses
+     `$( )` and heredocs) with a body that has: what
      changed and why; how it was verified (paste the `VERIFY:` summary); and
      this checklist for the human, verbatim:
      ```

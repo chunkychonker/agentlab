@@ -65,8 +65,12 @@ night () {
     ext_commit_bookkeeping () { :; }
     snapshot_dirty_main () { :; }
 
+    write_research_context () { echo ctx > "$1"; }
+    RESEARCH_CONTEXT_FILE="logs/research-context.md"
     run_phase () {
-      local name="${2##*: }" prompt="$4" var rc
+      local name="${3##*: }" prompt="$5" var rc
+      # The phase key must match the phase the name describes.
+      [ "$2" = "$name" ] || { echo "key $2 != phase $name" >> "$T/$id/keyerr"; return 1; }
       echo "$name|$prompt" >> "$T/$id/phases"
       var="RC_$name"; rc="${!var:-0}"
       [ "$rc" -eq 0 ] || return "$rc"
@@ -85,6 +89,7 @@ night () {
   touch "$T/$id/phases"
 }
 phases () { cut -d'|' -f1 "$T/$1/phases" | tr '\n' ,; }
+keyerr () { cat "$T/$1/keyerr" 2>/dev/null; }
 rc () { cat "$T/$1/rc"; }
 
 # B2: the 10-21 night. Base fails, our PR is open: no phase runs at all.
@@ -97,6 +102,7 @@ check "B2c ...and says why, naming the PR" grep -q "PR(s) #6 are open" "$T/B2/lo
 CYCLES=1 BUILD_FIXES=1 night B3
 check "B3 base fails with no PR open -> the full cycle runs" [ "$(phases B3)" == "research,build,review,maintain," ]
 check "B3b ...and ships" [ "$(rc B3)" -eq 0 ]
+check "B3k ...with every phase called under its own permission key" [ -z "$(keyerr B3)" ]
 check "B3c ...with the failure named in ext-context for the phases" \
   grep -q "fails verify on its own" "$LAB/logs/ext-context.md"
 
