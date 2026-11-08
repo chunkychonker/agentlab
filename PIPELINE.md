@@ -185,6 +185,7 @@ handed:
 | `.pipeline/auth.sh` | which login the night uses, and did the auth probe fail on it | `bash .pipeline/test_auth_alert.sh` |
 | `.pipeline/alert.sh` | does the finished night need a human's attention | `bash .pipeline/test_auth_alert.sh` |
 | `.pipeline/runner.sh` | what launchd job runs the night from the runner clone | `bash .pipeline/test_runner.sh` |
+| `.pipeline/metrics.sh` | what one phase's JSON output says it cost, and the per-phase medians | `bash .pipeline/test_metrics.sh` |
 
 Run both suites by hand after editing `run.sh` or any lib. They are on-demand
 only, like `eval/run_reviewer_eval.sh`: they live outside `examples/`, so the
@@ -283,6 +284,43 @@ observer by reading their own reports on the success branch only, the maintainer
 by the auto-merge gate re-reading git and the PR. Each call site says so in a
 comment; duplicating those as freshness checks would give one fact two
 enforcement points to drift apart at.
+
+## Phase metrics
+
+Every phase that reaches the CLI appends one JSON line to `logs/metrics.jsonl`:
+when it ran (`run_ts`, `cycle`, `phase`, `model`), how it ended (`rc` —
+0, 1, or 75 for a usage limit — and `postcondition_state`, null when the CLI
+failed before the gate ran), and what it used (`duration_ms`, `num_turns`,
+`tokens.{input,output,cache_read,cache_creation}`, `total_cost_usd`,
+`session_id`, `is_error`). `run_phase` gets these by running the CLI with
+`--output-format json`; only the answer text (`.result`) goes into the run log,
+so the log reads exactly as before.
+
+`total_cost_usd` is the CLI's API-price estimate. On a subscription nobody is
+billed that amount; it is still a fair relative measure of which phase is
+heavy.
+
+Metrics never change a phase's result. If the CLI's output is not JSON, the
+raw output goes into the log (so the usage-limit check still sees it) and the
+line is written with `parse_error: true` and every CLI field null. If the line
+cannot be written at all, the log gets a `WARN: no metrics line` and the night
+goes on. `--max-budget-usd` is deliberately not used: a spending cap would end
+phases early, which is exactly the outcome change metrics must not cause.
+
+To read it:
+
+```bash
+bash ~/agentlab-runner/.pipeline/metrics_report.sh      # per-phase medians, last 7 nights
+bash ~/agentlab-runner/.pipeline/metrics_report.sh 30   # ...last 30
+```
+
+The nights run in the runner clone, so the file is
+`~/agentlab-runner/logs/metrics.jsonl`; the copy of the script in `~/agentlab`
+reads `~/agentlab/logs/`, which only has lines from runs started there.
+
+Each row is a phase (research, build, review, maintain, replenish, health,
+pipeline observer) with its record count, how many ended rc 0, and the median
+minutes, turns, output tokens and cost. Medians skip parse-error records.
 
 ## Tools available to the pipeline
 
