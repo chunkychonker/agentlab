@@ -129,6 +129,10 @@ check "I15 ...and stderr says why" grep -q 'credential pattern' "$T/err"
 reset_gh; seed 1 OPEN health "config leak"
 issue_file_finding health 2026-11-08 "config leak" "ghp_abcdefghijklmnopqrstuvwxyz0123 again" 2>/dev/null; rc=$?
 check "I16 a secret on the comment path is not posted either" [ "$rc|$(calls comment)" == "1|0" ]
+reset_gh
+issue_file_finding health 2026-11-08 "token sk-ant-api03-abcdefghijklmnop in a subject" "plain detail" 2>"$T/err"; rc=$?
+check "I16b a secret in the subject (the title): rc 1, gh never called" [ "$rc|$(ncalls)" == "1|0" ]
+check "I16c ...and stderr says it was the subject" grep -q 'subject matches a credential pattern' "$T/err"
 
 reset_gh
 FAKE_GH_FAIL=list issue_file_finding health 2026-11-08 "s" "d" 2>/dev/null; rc=$?

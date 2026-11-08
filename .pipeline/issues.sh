@@ -115,18 +115,27 @@ issue_match () {
 #   Return codes:
 #     0  a new issue was opened
 #     3  a comment was added to the open issue
-#     1  nothing was posted: a bad label, an empty subject, the body matched a
-#        credential pattern, or a gh call failed. If `gh issue list` worked
+#     1  nothing was posted: a bad label, an empty subject, the subject or
+#        the body matched a credential pattern, or a gh call failed. If `gh issue list` worked
 #        and the create or comment failed, GitHub is unchanged.
 #   Not idempotent within a night: run twice, an open issue gets two comments.
 issue_file_finding () {
   local label="$1" date="$2" subject="$3" detail="$4" ts="${5:-}"
-  local title list match body rc=1
+  local title list match body scan hit rc=1
   case " $ISSUE_LABELS " in
     *" $label "*) ;;
     *) echo "issue_file_finding: label '$label' is not one of: $ISSUE_LABELS" >&2; return 1 ;;
   esac
   title="$(issue_title_for "$subject")" || { echo "issue_file_finding: empty subject" >&2; return 1; }
+  # The issues are public, and the title is the subject verbatim: scan it
+  # before anything else, like the body below.
+  scan="$(mktemp)" || return 1
+  printf '%s\n' "$title" > "$scan"
+  review_record_secret_hit "$scan"; hit=$?
+  rm -f "$scan"
+  if [ "$hit" -ne 1 ]; then
+    echo "issue_file_finding: the subject matches a credential pattern — not posted" >&2; return 1
+  fi
   if ! list="$(gh issue list --label "$label" --state all --limit "$ISSUE_LIST_LIMIT" \
                   --json number,title,state)"; then
     echo "issue_file_finding: 'gh issue list' failed" >&2; return 1
