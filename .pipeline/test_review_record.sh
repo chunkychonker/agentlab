@@ -165,7 +165,7 @@ fi
 attach_ln="$(grep -n 'if ! attach_review_to_pr "\$pr_num"; then' "$RUN_SH" | head -1 | cut -d: -f1)"
 merge_ln="$(grep -n 'gh pr merge "\$pr_num"' "$RUN_SH" | head -1 | cut -d: -f1)"
 check "W1 (E4) run_cycle attaches the review before it merges (lines ${attach_ln:-none} < ${merge_ln:-none})" \
-  [ -n "$attach_ln" -a -n "$merge_ln" ] && [ "${attach_ln:-0}" -lt "${merge_ln:-0}" ]
+  [ "${attach_ln:-0}" -gt 0 -a "${merge_ln:-0}" -gt "${attach_ln:-0}" ]
 check "W2 (E4) ...and a failed attach returns before the merge" \
   [ "$(awk -v s="${attach_ln:-0}" 'NR > s && NR <= s + 3 && /return 1/ { print "yes"; exit }' "$RUN_SH")" == "yes" ]
 
