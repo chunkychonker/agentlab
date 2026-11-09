@@ -205,7 +205,7 @@ check_reachable () {
 # sleep, no extra log line.
 #
 # The retry lines are logged on purpose: they are the only evidence a later
-# cycle would have for whether NETWORK_MAX_ATTEMPTS=3 is enough.
+# cycle would have for whether NETWORK_MAX_ATTEMPTS is enough.
 #
 # Returns 0 once both hosts answer. Returns 1 when the attempt budget is spent
 # (logging an abort line, as before), or 2 when the constants in

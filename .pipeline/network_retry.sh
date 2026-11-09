@@ -38,10 +38,15 @@
 # "gave up after N attempts" line recurring — the retry lines run.sh logs on
 # the way are what that decision should be made from.
 #
-# Worst case with these values is two waits (15s + 30s = 45s) plus up to two
-# extra rounds of probes, each already bounded by run.sh's RESPONSE_TIMEOUT_S.
-# Roughly a couple of minutes before the same abort that happens today.
-NETWORK_MAX_ATTEMPTS=3       # 1 initial probe + up to 2 retries
+# Worst case with these values is four waits (15s + 30s + 60s + 60s = 165s)
+# plus up to four extra rounds of probes, each already bounded by run.sh's
+# RESPONSE_TIMEOUT_S. Roughly four minutes before the same abort.
+#
+# Retuned 2026-11-09 from 3 attempts (45s of waiting): run-2026-11-07_020002
+# gave up after 3 attempts and lost the night. The system log for that hour
+# had already rotated away, so whether a longer window would have saved it is
+# unknown; it is cheap, and a healthy night never reaches it.
+NETWORK_MAX_ATTEMPTS=5       # 1 initial probe + up to 4 retries
 NETWORK_BASE_DELAY_S=15
 NETWORK_CAP_DELAY_S=60
 
