@@ -5,8 +5,9 @@ maintain → auto-merge, repeated `.pipeline/cycles` times, bracketed by a
 backlog replenishment check before and after the loop, plus two every-7th-night
 observers — a lab-wide health check over the portfolio, and an observer over
 the pipeline's own run logs. Each phase is a
-headless Claude Code run (`claude -p`) that delegates to one specialist
-subagent (except auto-merge, which is deterministic bash). The phases don't
+headless Claude Code run (`claude -p --agent agentlab-<phase>`) of one
+specialist agent, with only the tools that phase needs (see "Permissions per
+phase"); auto-merge is deterministic bash. The phases don't
 talk to each other directly — they coordinate through this repo's files, which
 is how the state actually flows:
 
@@ -186,6 +187,7 @@ handed:
 | `.pipeline/alert.sh` | does the finished night need a human's attention | `bash .pipeline/test_auth_alert.sh` |
 | `.pipeline/runner.sh` | what launchd job runs the night from the runner clone | `bash .pipeline/test_runner.sh` |
 | `.pipeline/metrics.sh` | what one phase's JSON output says it cost, and the per-phase medians | `bash .pipeline/test_metrics.sh` |
+| `.pipeline/phase_tools.sh` | which tools each phase may use | `bash .pipeline/test_phase_tools.sh` |
 
 Run both suites by hand after editing `run.sh` or any lib. They are on-demand
 only, like `eval/run_reviewer_eval.sh`: they live outside `examples/`, so the
@@ -203,8 +205,8 @@ prompts. See `projects/README.md` for how to start one.
 
 ## Model per phase
 
-`run_phase` takes the model as its first argument (the third is the phase's
-postcondition, below); nothing inherits the interactive default from
+`run_phase` takes the model as its first argument (the second is the phase's
+permission key, below; the fourth is its postcondition); nothing inherits the interactive default from
 `~/.claude/settings.json`, so changing that default can't silently re-price the
 nightly job.
 
@@ -292,7 +294,8 @@ when it ran (`run_ts`, `cycle`, `phase`, `model`), how it ended (`rc` —
 0, 1, or 75 for a usage limit — and `postcondition_state`, null when the CLI
 failed before the gate ran), and what it used (`duration_ms`, `num_turns`,
 `tokens.{input,output,cache_read,cache_creation}`, `total_cost_usd`,
-`session_id`, `is_error`). `run_phase` gets these by running the CLI with
+`session_id`, `is_error`), and how many tool calls its permission rules
+refused (`denials`, see "Permissions per phase"). `run_phase` gets these by running the CLI with
 `--output-format json`; only the answer text (`.result`) goes into the run log,
 so the log reads exactly as before.
 
@@ -321,6 +324,57 @@ reads `~/agentlab/logs/`, which only has lines from runs started there.
 Each row is a phase (research, build, review, maintain, replenish, health,
 pipeline observer) with its record count, how many ended rc 0, and the median
 minutes, turns, output tokens and cost. Medians skip parse-error records.
+
+## Permissions per phase
+
+Every phase runs under `--permission-mode dontAsk`: a tool call that is not on
+the phase's allow list is refused on the spot, never asked about (nobody is
+awake to answer). The lists live in `.pipeline/phase_tools.sh`, picked by the
+key `run_phase` is given:
+
+| Phase (key) | May use | Notably refused |
+|---|---|---|
+| researcher (`research`) | WebSearch, WebFetch, hn-search, Read/Glob/Grep; Edit/Write only in `research/`, `knowledge/`, `BACKLOG.md`, `projects/*/PLAN.md` | **any shell** |
+| builder (`build`) | Read/Glob/Grep/Edit/Write, Bash | `git commit`, `git push`, `gh` |
+| reviewer (`review`) | Read/Glob/Grep, Bash; Write only `logs/last-review.md` | `git commit`, `git push`, `gh` |
+| maintainer (`maintain`) | Read; a fixed list of `git` commands incl. `push`; `gh pr create/view/list`; Write `logs/last-pr.txt`, `logs/pr-body.md`, `projects/*/PLAN.md` | web tools, `gh pr merge`, force push |
+| replenish (`replenish`) | Read/Glob/Grep; Edit/Write only `BACKLOG.md` | any shell, web tools |
+| health / observer (`health`, `observe`) | Read/Glob/Grep, Bash; Write only their own reports | `git commit/push`, any `gh` that writes |
+
+The researcher's open-PR and branch checks now read
+`logs/research-context.md`, which `run.sh` writes (`write_research_context`)
+before research and again before build. If it cannot be written — `gh` is
+down, say — the cycle stops, because the duplicate-topic checks depend on it.
+Every refused tool call is listed in the run log (`denied: Bash: git push …`)
+and counted in the metrics line (`denials`).
+
+A second, independent check: `.claude/hooks/publish_guard.py` runs before
+every shell command in a nightly phase and blocks `git push` and any `gh`
+that writes unless the phase is `maintain`. It is registered only through
+`.pipeline/phase_settings.json`, which `run_phase` passes with `--settings`,
+so your own interactive sessions in this repo never see it.
+
+**This is not a security boundary, and does not claim to be.** The deny rules
+and the hook both match command *text*, and any phase with a shell can get
+around a text match (`python3 -c`, a script file). Two things to know:
+
+- The real protection against the main threat — a fetched web page with
+  planted instructions — is that **the only phase that reads the open web has
+  no shell at all.** That is enforced by the tool list, not by a text match.
+- Your RTK hook (`~/.claude/settings.json`) rewrites `git push` to
+  `rtk git push` *before* permissions are checked. A deny rule for only the
+  plain form was bypassed by this in testing (2026-11-08), so every deny is
+  written in both forms, and the hook sees through `rtk`.
+
+Accepted risk: a builder or reviewer that deliberately works around the text
+checks could still push, even straight to `main`. Neither reads the web; what
+they act on is the research note and the repo, so a planted instruction would
+have to survive the researcher writing it into a note first.
+
+The runner clone is an *untrusted* workspace, so the project's
+`.claude/settings.json` allow list does not apply there; each list in
+`phase_tools.sh` is complete on its own. `--model` overrides an agent file's
+`model:` line, so the table in "Model per phase" is what runs.
 
 ## Tools available to the pipeline
 

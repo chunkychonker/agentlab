@@ -101,6 +101,7 @@ assert_eq "INV1" "0|" "$src_rc|$src_noise" \
 . "$REPO/.pipeline/network_retry.sh"
 . "$REPO/.pipeline/usage_limit.sh"
 . "$REPO/.pipeline/metrics.sh"
+. "$REPO/.pipeline/phase_tools.sh"
 
 # --- verdict.sh ------------------------------------------------------------
 #
@@ -1141,7 +1142,7 @@ assert_eq "R2" "guarded" "${r2:-unguarded}" \
   "a non-PASS verdict returns from run_cycle rather than falling through to maintain"
 
 file_ln="$(grep -n '^    file_health_findings$' "$RUN_SH" | head -1 | cut -d: -f1)"
-health_ln="$(grep -n 'agentlab-health subagent' "$RUN_SH" | head -1 | cut -d: -f1)"
+health_ln="$(grep -n 'run_phase sonnet health ' "$RUN_SH" | head -1 | cut -d: -f1)"
 if [ -z "$file_ln" ] || [ -z "$health_ln" ]; then
   fail "R3" "run.sh is missing a health call site (phase=${health_ln:-none}, file=${file_ln:-none})"
 elif [ "$file_ln" -gt "$health_ln" ]; then
@@ -1157,7 +1158,7 @@ assert_eq "R4" "1" \
   "agentlab-health.md still forbids the agent from editing BACKLOG.md itself"
 
 pfile_ln="$(grep -n '^    file_pipeline_findings$' "$RUN_SH" | head -1 | cut -d: -f1)"
-pobs_ln="$(grep -n 'agentlab-pipeline-observer subagent' "$RUN_SH" | head -1 | cut -d: -f1)"
+pobs_ln="$(grep -n 'run_phase sonnet observe ' "$RUN_SH" | head -1 | cut -d: -f1)"
 if [ -z "$pfile_ln" ] || [ -z "$pobs_ln" ]; then
   fail "R9" "run.sh is missing a pipeline-observer call site (phase=${pobs_ln:-none}, file=${pfile_ln:-none})"
 elif [ "$pfile_ln" -gt "$pobs_ln" ]; then
@@ -1244,7 +1245,7 @@ pc_n=0
 while IFS= read -r pc_line; do
   [ -n "$pc_line" ] || continue
   pc_n=$(( pc_n + 1 ))
-  pc_name="$(echo "$pc_line" | sed 's/.*run_phase [a-z][a-z]*  *"[^"]*"  *//' | awk '{print $1}')"
+  pc_name="$(echo "$pc_line" | sed 's/.*run_phase [a-z][a-z]*  *[a-z][a-z]*  *"[^"]*"  *//' | awk '{print $1}')"
   declare -f "$pc_name" >/dev/null 2>&1 \
     || pc_bad="$pc_bad ${pc_line%%:*}:${pc_name:-<none>}"
 done <<EOF
@@ -1259,14 +1260,34 @@ else
     "all $pc_n run_phase call sites name a postcondition function that exists"
 fi
 
+# Every call site, in run.sh and external_night.sh, names a phase key that
+# phase_tools.sh knows. An unknown key aborts the phase at runtime; this
+# catches the typo before a night loses a cycle to it.
+key_bad=""
+key_n=0
+while IFS= read -r key_line; do
+  [ -n "$key_line" ] || continue
+  key_n=$(( key_n + 1 ))
+  key_name="$(echo "$key_line" | sed 's/.*run_phase [a-z][a-z]*  *//' | awk '{print $1}')"
+  phase_tool_args "$key_name" >/dev/null 2>&1 || key_bad="$key_bad ${key_line%%:*}:${key_name:-<none>}"
+done <<EOF
+$(grep -n '^[[:space:]]*\(if \)\{0,1\}run_phase ' "$RUN_SH" "$REPO/.pipeline/external_night.sh" | grep -v 'run_phase ()')
+EOF
+if [ "$key_n" -lt 9 ]; then
+  fail "R12b" "found only $key_n run_phase call sites — the extraction broke, this case is vacuous"
+else
+  assert_eq "R12b" "" "$key_bad" "all $key_n run_phase call sites name a known phase key"
+fi
+
 # run_phase itself, extracted verbatim. Both its guards run BEFORE the floor is
 # taken and before the CLI is invoked, which is what makes this runnable offline
 # with no key: a bad postcondition never reaches `claude`.
 eval "$(sed -n '/^run_phase () {/,/^}/p' "$RUN_SH")"
+PHASE_SETTINGS="$REPO/.pipeline/phase_settings.json"
 if ! declare -f run_phase >/dev/null 2>&1; then
   fail "R13" "could not extract run_phase from run.sh — this case is vacuous"
 else
-  rp_out="$( LOG="$WORK/run-phase.log" run_phase sonnet "test phase" no_such_postcondition_xyz "prompt" 2>&1 )"
+  rp_out="$( LOG="$WORK/run-phase.log" run_phase sonnet build "test phase" no_such_postcondition_xyz "prompt" 2>&1 )"
   rp_rc=$?
   case "$rp_out" in
     *"is not a defined function"*) rp_saw="yes" ;;
@@ -1283,7 +1304,7 @@ else
 
   : > "$WORK/rp-limit.log"
   CLAUDE="$WORK/cli-limit" LOG="$WORK/rp-limit.log" \
-    run_phase opus "build" phase_no_postcondition "prompt" >/dev/null 2>&1
+    run_phase opus build "build" phase_no_postcondition "prompt" >/dev/null 2>&1
   rp_rc=$?
   assert_eq "R20" "$USAGE_LIMIT_RC" "$rp_rc" \
     "run_phase returns USAGE_LIMIT_RC when the phase died on a usage limit"
@@ -1293,7 +1314,7 @@ else
   # The previous phase's limit message is already in the log; this phase fails
   # for an unrelated reason. Only THIS phase's output may decide.
   CLAUDE="$WORK/cli-error" LOG="$WORK/rp-limit.log" \
-    run_phase opus "build" phase_no_postcondition "prompt" >/dev/null 2>&1
+    run_phase opus build "build" phase_no_postcondition "prompt" >/dev/null 2>&1
   rp_rc=$?
   assert_eq "R22" "1" "$rp_rc" \
     "an ordinary failure returns 1 even when an earlier phase's limit message is in the log"
@@ -1315,7 +1336,7 @@ EOF
   chmod +x "$WORK/cli-json" "$WORK/cli-json-limit"
 
   CLAUDE="$WORK/cli-json" LOG="$WORK/rp-m.log" METRICS_FILE="$rp_metrics" TS="2026-11-08_020001" \
-    run_phase sonnet "cycle 2/3: research" phase_no_postcondition "prompt" >/dev/null 2>&1
+    run_phase sonnet research "cycle 2/3: research" phase_no_postcondition "prompt" >/dev/null 2>&1
   rp_rc=$?
   m_line="$(tail -1 "$rp_metrics")"
   assert_eq "M1" "0|I wrote the note.|0" \
@@ -1326,14 +1347,14 @@ EOF
     "...and appends one metrics line built from the outcome and the CLI's numbers"
 
   CLAUDE="$WORK/cli-json-limit" LOG="$WORK/rp-m.log" METRICS_FILE="$rp_metrics" \
-    run_phase opus "cycle 1/1: build" phase_no_postcondition "prompt" >/dev/null 2>&1
+    run_phase opus build "cycle 1/1: build" phase_no_postcondition "prompt" >/dev/null 2>&1
   rp_rc=$?
   assert_eq "M3" "$USAGE_LIMIT_RC|75|null" \
     "$rp_rc|$(tail -1 "$rp_metrics" | "$METRICS_JQ" -r '.rc, .postcondition_state' | paste -sd'|' -)" \
     "a usage limit reported inside the JSON is still caught, and recorded as rc 75 with no postcondition"
 
   CLAUDE="$WORK/cli-limit" LOG="$WORK/rp-m.log" METRICS_FILE="$rp_metrics" \
-    run_phase opus "build" phase_no_postcondition "prompt" >/dev/null 2>&1
+    run_phase opus build "build" phase_no_postcondition "prompt" >/dev/null 2>&1
   rp_rc=$?
   assert_eq "M4" "$USAGE_LIMIT_RC|true|75" \
     "$rp_rc|$(tail -1 "$rp_metrics" | "$METRICS_JQ" -r '.parse_error, .rc' | paste -sd'|' -)" \
@@ -1344,11 +1365,82 @@ EOF
 
   mkdir -p "$WORK/not-a-file"
   CLAUDE="$WORK/cli-json" LOG="$WORK/rp-m.log" METRICS_FILE="$WORK/not-a-file" \
-    run_phase sonnet "health" phase_no_postcondition "prompt" >/dev/null 2>&1
+    run_phase sonnet health "health" phase_no_postcondition "prompt" >/dev/null 2>&1
   rp_rc=$?
   assert_eq "M6" "0|1" "$rp_rc|$(grep -c "WARN: no metrics line for phase 'health'" "$WORK/rp-m.log")" \
     "a metrics file that cannot be written is a WARN, never a failed phase"
+
+  # S1-S6: how run_phase calls the CLI (spec #3). A stand-in CLI records its
+  # arguments and AGENTLAB_PHASE, then prints a result with one denial.
+  cat > "$WORK/cli-record" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$@" > "$CLI_ARGS_OUT"
+printf '%s\n' "${AGENTLAB_PHASE:-<unset>}" > "$CLI_ARGS_OUT.phase"
+echo '{"type":"result","is_error":false,"result":"done","permission_denials":[{"tool_name":"Bash","tool_input":{"command":"git push origin main"}}]}'
+exit 0
+EOF
+  chmod +x "$WORK/cli-record"
+  : > "$WORK/rp-s.log"; : > "$WORK/rp-s.jsonl"
+  CLI_ARGS_OUT="$WORK/s-args" CLAUDE="$WORK/cli-record" LOG="$WORK/rp-s.log" METRICS_FILE="$WORK/rp-s.jsonl" \
+    run_phase sonnet research "cycle 1/1: research" phase_no_postcondition "the prompt" >/dev/null 2>&1
+  rp_rc=$?
+  assert_eq "S1" "0|the prompt" "$rp_rc|$(head -1 "$WORK/s-args")" \
+    "the prompt is the CLI's first argument, ahead of the variadic tool flags"
+  assert_eq "S2" "research" "$(cat "$WORK/s-args.phase")" \
+    "the phase key reaches the CLI as AGENTLAB_PHASE, for publish_guard.py"
+  assert_eq "S3" "$(phase_tool_args research | tr '\n' '|')" \
+    "$(awk 'f; $0 == "'"$PHASE_SETTINGS"'" { f = 1 }' "$WORK/s-args" | tr '\n' '|')" \
+    "the phase's own tool arguments follow --settings, unchanged and in order"
+  assert_eq "S4" "--settings" "$(grep -B1 -xF "$PHASE_SETTINGS" "$WORK/s-args" | head -1)" \
+    "the hook settings file is passed with --settings"
+  assert_eq "S5" "1|1|1" \
+    "$(grep -c "refused 1 tool call" "$WORK/rp-s.log")|$(grep -c '  denied: Bash: git push origin main' "$WORK/rp-s.log")|$(tail -1 "$WORK/rp-s.jsonl" | "$METRICS_JQ" -r .denials)" \
+    "a refused tool call is listed in the log and counted in the metrics line"
+
+  rm -f "$WORK/s-args2"
+  : > "$WORK/rp-s2.log"
+  CLI_ARGS_OUT="$WORK/s-args2" CLAUDE="$WORK/cli-record" LOG="$WORK/rp-s2.log" \
+    run_phase sonnet reserch "cycle 1/1: research" phase_no_postcondition "prompt" >/dev/null 2>&1
+  rp_rc=$?
+  assert_eq "S6" "1|no|1" \
+    "$rp_rc|$([ -e "$WORK/s-args2" ] && echo yes || echo no)|$(grep -c "unknown phase key 'reserch'" "$WORK/rp-s2.log")" \
+    "an unknown phase key aborts the phase without calling the CLI"
 fi
+
+# C1-C3: write_research_context, with gh stubbed. It replaces the researcher's
+# shell lookups, so a failure must stop the cycle rather than write a file
+# that silently says "no open PRs".
+eval "$(sed -n '/^write_research_context () {/,/^}/p' "$RUN_SH")"
+if ! declare -f write_research_context >/dev/null 2>&1; then
+  fail "C1" "could not extract write_research_context from run.sh — this case is vacuous"
+else
+  ctx_dir="$WORK/ctx"; mkdir -p "$ctx_dir/examples/tool-a" "$ctx_dir/projects/nightloop"
+  git -C "$ctx_dir" init -q 2>/dev/null
+  ctx_out="$( cd "$ctx_dir" && gh () { echo "- #81 feat: thing (branch cycle/x)"; } \
+      && REPO="$ctx_dir" MODE="project:nightloop" TS="2026-11-09_020000" LOG="$WORK/ctx.log" \
+         write_research_context "$ctx_dir/context.md" 2>&1 )"
+  ctx_rc=$?
+  assert_eq "C1" "0|1|1|1|1" \
+    "$ctx_rc|$(grep -c '#81 feat: thing' "$ctx_dir/context.md")|$(grep -c '^- tool-a$' "$ctx_dir/context.md")|$(grep -c '^- nightloop$' "$ctx_dir/context.md")|$(grep -c 'Mode: project:nightloop' "$ctx_dir/context.md")" \
+    "the context file lists open PRs, examples/, projects/ and the mode"
+  echo "previous" > "$ctx_dir/context.md"
+  ( cd "$ctx_dir" && gh () { return 1; } && REPO="$ctx_dir" LOG="$WORK/ctx.log" \
+      write_research_context "$ctx_dir/context.md" >/dev/null 2>&1 )
+  ctx_rc=$?
+  assert_eq "C2" "1|previous" "$ctx_rc|$(cat "$ctx_dir/context.md")" \
+    "a gh failure returns 1 and leaves the previous file untouched"
+  ( cd "$ctx_dir" && gh () { :; } && REPO="$ctx_dir" LOG="$WORK/ctx.log" \
+      write_research_context "$ctx_dir/context.md" >/dev/null 2>&1 )
+  assert_eq "C3" "1" "$(grep -c '^(none)$' "$ctx_dir/context.md")" \
+    "no open PRs is written as (none), not as an empty section"
+fi
+# Both write sites stop the cycle when the context cannot be written.
+assert_eq "C4" "3" "$(grep -c 'write_research_context "\$RESEARCH_CONTEXT_FILE" || return 1' "$RUN_SH" "$REPO/.pipeline/external_night.sh" | awk -F: '{ n += $2 } END { print n }')" \
+  "every write_research_context call site stops the cycle on failure"
+
+# No phase runs with every permission check skipped any more.
+assert_eq "S7" "0" "$(grep -c 'bypassPermissions' "$RUN_SH" "$REPO/.pipeline/external_night.sh" | awk -F: '{ n += $2 } END { print n }')" \
+  "neither run.sh nor external_night.sh mentions bypassPermissions"
 
 # The floor is per PHASE, not per run. With CYCLES=2 both cycles' artifacts carry
 # the same date, so a run-scoped floor would let cycle 1's note satisfy cycle 2's
@@ -1366,6 +1458,7 @@ syntax_bad="$(for f in "$RUN_SH" "$REPO/.pipeline/verdict.sh" "$REPO/.pipeline/h
   "$REPO/.pipeline/preflight.sh" "$REPO/.pipeline/postcondition.sh" \
   "$REPO/.pipeline/schedule.sh" "$REPO/.pipeline/network_retry.sh" \
   "$REPO/.pipeline/usage_limit.sh" "$REPO/.pipeline/metrics.sh" \
+  "$REPO/.pipeline/phase_tools.sh" \
   "$REPO/.pipeline/test_gates.sh"; do
     bash -n "$f" 2>&1
   done)"

@@ -35,11 +35,11 @@ If it's `external:<slug>`, read `$AGENTLAB_REPO/projects/EXTERNAL_MODE.md` and `
    proposal**. Read `README.md` and skim `examples/` to match existing
    conventions.
 2. Before creating the directory, re-check it's still free: `ls examples/` on
-   current `main`, plus `gh pr list --state open` and `git branch -a` for
-   another cycle's in-flight claim on the same name (same two checks the
-   researcher already ran — repeat them here since time passes between
-   research and build, and this is the last checkpoint before an actual
-   on-disk collision). If it's now taken, disambiguate the name
+   current `main`, plus the open PRs and remote branches in
+   `$AGENTLAB_REPO/logs/research-context.md` for another cycle's in-flight
+   claim on the same name (the pipeline rewrites that file just before this
+   phase, so it is newer than the researcher's copy — and this phase cannot
+   run `gh`; only the maintainer talks to GitHub). If it's now taken, disambiguate the name
    (`examples/<topic>-<distinguishing-detail>/`) and note why in the README.
    Implement the proposal as a self-contained directory under `examples/`
    (e.g. `examples/minimal-agent-loop/`). Include:
