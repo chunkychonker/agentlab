@@ -193,6 +193,7 @@ handed:
 | `.pipeline/metrics.sh` | what one phase's JSON output says it cost, and the per-phase medians | `bash .pipeline/test_metrics.sh` |
 | `.pipeline/phase_tools.sh` | which tools each phase may use | `bash .pipeline/test_phase_tools.sh` |
 | `.pipeline/issues.sh` | which GitHub issue a finding belongs to, and whether to open one or comment | `bash .pipeline/test_issues.sh` |
+| `.pipeline/migrate_backlog_findings.sh` | which backlog lines are unclaimed findings, and which label each gets (a one-off you run by hand) | `bash .pipeline/test_migrate_backlog_findings.sh` |
 | `.pipeline/review_record.sh` | what the reviewer's findings look like in the PR body, and is that text safe to post | `bash .pipeline/test_review_record.sh` |
 
 Run both suites by hand after editing `run.sh` or any lib. They are on-demand
@@ -419,8 +420,8 @@ pipeline findings living in GitHub issues labeled `health` or `pipeline`. It
 rolls out in three steps:
 
 1. **(this step)** File findings to issues **and** to the backlog, as before.
-2. A one-off migration moves the unclaimed `fix (health …)` lines already in
-   `BACKLOG.md` to issues.
+2. **(ready, not run)** A one-off migration moves the unclaimed
+   `fix (health …)` lines already in `BACKLOG.md` to issues. See below.
 3. Stop filing findings to the backlog.
 
 **It is off until you turn it on.** The issues are public, so `run.sh` files
@@ -454,6 +455,35 @@ When on, for each finding (`issue_file_finding` in `.pipeline/issues.sh`):
 
 The issue is filed whatever the backlog step said, so a finding already
 queued in `BACKLOG.md` still gets its "re-observed" comment.
+
+### Step 2: moving the existing findings
+
+```bash
+bash .pipeline/migrate_backlog_findings.sh --dry-run   # lists, files nothing
+bash .pipeline/migrate_backlog_findings.sh             # files and deletes
+```
+
+For each `- [ ] fix (health <date>): <subject> — <detail>` line it files an
+issue through the same `issue_file_finding` (so an already-open issue gets a
+comment, never a twin) and deletes the line once GitHub has it. `[building]`
+and `[done …]` lines stay, as does everything under `## Stranded work`. It
+does not commit: read `git diff BACKLOG.md` and commit it yourself. Do not run
+it while a night is running.
+
+- **Label:** both observers filed under one prefix, so the label is guessed
+  from the subject: `health` if it names `examples/`, `knowledge/` or a
+  `[[wikilink]]`, `pipeline` otherwise. The dry run prints every guess.
+- **The live run refuses** unless `.pipeline/file-issues` says `on`. The dry
+  run works either way and calls no `gh`.
+- **Safe to re-run.** A line that failed to file stays and is retried next
+  time. A line whose issue was filed but whose delete failed gets a comment
+  next time, not a second issue. Exit code 1 means at least one line stayed.
+- It pauses 2 seconds between issues to stay under GitHub's limit on how fast
+  an account may create content.
+
+Run it close to step 3. Until step 3, the nightly filing still writes
+findings into `BACKLOG.md`, so a migrated finding seen again comes back as a
+new line.
 
 ## Tools available to the pipeline
 
