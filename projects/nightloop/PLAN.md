@@ -35,7 +35,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    run window, cycles, and per phase: agent, model, postcondition, and tool
    allowlist. Invalid config fails at load with a message naming the field.
    Pure; no I/O beyond reading the file it is handed.
-2. [in-progress] Gates library: the fail-closed review-verdict parse
+2. [done 83] Gates library: the fail-closed review-verdict parse
    (PASS / FAIL / MISSING / MALFORMED) and per-phase artifact freshness
    checks, with the edge cases from agentlab's `test_gates.sh` ported as tests.
 3. [not-started] Phase runner: runs one phase as
@@ -95,7 +95,7 @@ contradict an entry here without adding one.
 ## Current state
 
 Milestone 2 (gates library) is built as of 2026-11-09 and awaiting
-review/merge; research note: `research/2026-11-09-nightloop-gates-library.md`.
+review/merge (PR #83); research note: `research/2026-11-09-nightloop-gates-library.md`.
 Milestone 1 (config) is done (#78).
 
 - `nightloop/gates/verdict.py` (pure): `parse_verdict(text | None) -> Verdict`
