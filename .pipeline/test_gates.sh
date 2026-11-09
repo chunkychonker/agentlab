@@ -708,6 +708,36 @@ else
     "a tracked file is never touched by the mover"
 fi
 
+# --- .gitignore: Python packaging output ------------------------------------
+#
+# `pip install ./projects/nightloop` writes build/ and *.egg-info/ next to the
+# source. Untracked, they made `git status --porcelain` non-empty after cycle 1
+# of 2026-11-09, and the postflight snapshotted 16 generated files to
+# cycle/2026-11-09-unshipped-021340-1. The real repo's .gitignore, in a real
+# throwaway repo: git's own matching is the behaviour under test.
+
+PKREPO="$WORK/pkgrepo"
+mkdir -p "$PKREPO"
+(
+  cd "$PKREPO" || exit 1
+  git -c init.defaultBranch=main init -q . >/dev/null 2>&1
+  cp "$REPO/.gitignore" .gitignore
+  git add .gitignore >/dev/null 2>&1
+  git -c user.name=t -c user.email=t@t commit -q -m init >/dev/null 2>&1
+  mkdir -p projects/nightloop/build/lib/nightloop projects/nightloop/nightloop.egg-info projects/nightloop/dist
+  printf 'x\n' > projects/nightloop/build/lib/nightloop/__init__.py
+  printf 'x\n' > projects/nightloop/nightloop.egg-info/PKG-INFO
+  printf 'x\n' > projects/nightloop/dist/nightloop-0.1.tar.gz
+)
+pk1="$(cd "$PKREPO" && git status --porcelain --untracked-files=all)"
+assert_eq "PK1" "" "$pk1" \
+  "build/, dist/ and *.egg-info/ from a pip install leave git status clean, so no unshipped snapshot"
+
+printf 'x\n' > "$PKREPO/projects/nightloop/new_module.py"
+pk2="$(cd "$PKREPO" && git status --porcelain --untracked-files=all)"
+assert_eq "PK2" "?? projects/nightloop/new_module.py" "$pk2" \
+  "a new source file beside them is still untracked work — the patterns are not too broad"
+
 # --- run.sh's network preflight --------------------------------------------
 #
 # check_reachable answers "is the network there", and the 2026-08-15 abort was
@@ -1106,12 +1136,15 @@ else
     "giving up still closes the log with a line ending in Aborting."
 
   # A retry that is not worth having is one that delays the night more than it
-  # rescues. 120s is this test's own tolerance, not a law — raising the
-  # constants past it should come with a look at this case.
+  # rescues. 300s is this test's own tolerance, not a law — raising the
+  # constants past it should come with a look at this case. It was 120s until
+  # 2026-11-09, when run-2026-11-07 gave up after 45s of waiting and lost the
+  # night: a few minutes at 02:00 costs nothing a night of 20+ minute phases
+  # would notice, and a lost night costs the whole night.
   np_total=0
   for np_d in $np_sched; do np_total=$(( np_total + np_d )); done
   assert_eq "N29" "bounded" \
-    "$( [ "$np_total" -le 120 ] && echo bounded || echo "${np_total}s" )" \
+    "$( [ "$np_total" -le 300 ] && echo bounded || echo "${np_total}s" )" \
     "the whole backoff budget is ${np_total}s of waiting before the night aborts"
 fi
 

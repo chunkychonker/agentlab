@@ -8,6 +8,12 @@ __pycache__/
 venv/
 .venv/
 *.pyc
+# Python packaging output: `pip install ./projects/<x>` writes these next to
+# the source. Untracked, they made main look dirty after a cycle, and the
+# postflight snapshotted them to a cycle/*-unshipped-* branch (2026-11-09).
+build/
+dist/
+*.egg-info/
 
 # Generated knowledge-graph output (graphify); not part of the repo.
 graphify-out/
