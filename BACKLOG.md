@@ -436,7 +436,7 @@ Appended by `.pipeline/run.sh` when a failed cycle's claim names an item
 that is not on main — the researcher wrote the topic and the claim in one
 edit, so main never had it. The branch holds the work; salvaging it is a
 human's call.
-- [stranded cycle/2026-09-12-unshipped-024106-1] MCP's other transport: Streamable HTTP, not stdio. Every MCP example
+- [done #66] (stranded duplicate, resolved by hand 2026-11-09: shipped as #66 from the item marked done above; branch cycle/2026-09-12-unshipped-024106-1 deleted, kept in a local bundle) MCP's other transport: Streamable HTTP, not stdio. Every MCP example
   in the lab so far (`mcp-hello-world`, and the two stranded `mcp-prompts` /
   `mcp-resources-claude-code` items above) either uses stdio or bypasses the wire
   entirely via the SDK's in-memory `Client`; `mcp-hello-world/README.md` names
@@ -472,7 +472,7 @@ human's call.
   `examples/memory-tool-handler/` -- a pure command dispatcher over an injected
   store, with `/memories` path-traversal rejection, plus a thin tool loop. See
   `research/2026-10-27-memory-tool-handler.md`.
-- [stranded cycle/2026-10-27-unshipped-021126-1] The client-side memory tool (`memory_20250818`) with a path-safe handler.
+- [done #67] (stranded duplicate, resolved by hand 2026-11-09: shipped as #67 from the re-claimed item above; branch cycle/2026-10-27-unshipped-021126-1 deleted, kept in a local bundle) The client-side memory tool (`memory_20250818`) with a path-safe handler.
   No example in the lab persists anything across conversations. Filed by the
   researcher on 2026-10-27 because the feature sections had no plain `[ ]` item
   left (only stale health findings and stranded claims). Increment:
