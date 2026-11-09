@@ -35,7 +35,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    run window, cycles, and per phase: agent, model, postcondition, and tool
    allowlist. Invalid config fails at load with a message naming the field.
    Pure; no I/O beyond reading the file it is handed.
-2. [not-started] Gates library: the fail-closed review-verdict parse
+2. [done 83] Gates library: the fail-closed review-verdict parse
    (PASS / FAIL / MISSING / MALFORMED) and per-phase artifact freshness
    checks, with the edge cases from agentlab's `test_gates.sh` ported as tests.
 3. [not-started] Phase runner: runs one phase as
@@ -77,36 +77,56 @@ contradict an entry here without adding one.
   `.pipeline/` — the live pipeline must not rewrite its own gates.
 - 2026-11-06: No test calls a real model; every model call sits behind the
   milestone-3 runner interface. A live smoke run is a documented human step.
+- 2026-11-09: A bad freshness floor (not an `int`, a `bool`, or negative)
+  raises `ValueError` from `classify_freshness`, the `check_*` functions and
+  `evaluate`, instead of returning MISSING as `postcondition.sh` does
+  (PC5/PC6). In bash the floor arrives as an untyped string; in Python it is a
+  typed value the runner computes, so a bad one is a programming error, and
+  raising stops the night (still fail-closed) and names the bug instead of
+  logging it as a missing artifact. `evaluate` validates it for every
+  postcondition, including `NONE` and `REVIEW_VERDICT`, which otherwise ignore
+  it, so the bug shows up on the first call.
+- 2026-11-09: `GateResult.outcome` is a typed enum (`Verdict`, `Freshness`, or
+  `Ungated.NONE`) checked against the postcondition, and `advance` is a
+  property computed from it, not a stored field. This replaces the research
+  note's `outcome: str` plus `advance: bool` so that an inconsistent result
+  cannot be built. The orchestrator still branches only on `advance`.
 
 ## Current state
 
-Milestone 1 (config schema and loader) is built as of 2026-11-08 and awaiting
-review/merge; research note: `research/2026-11-08-nightloop-config-schema.md`.
+Milestone 2 (gates library) is built as of 2026-11-09 and awaiting
+review/merge (PR #83); research note: `research/2026-11-09-nightloop-gates-library.md`.
+Milestone 1 (config) is done (#78).
 
-- `nightloop/config.py`: `parse_config(text)` (pure) and `load_config(path)`
-  (reads at most 64 KiB) for schema version 1: `[repo] backlog`, `[run]`
-  cycles + window (start inclusive, end exclusive, as in `schedule.sh`),
-  and exactly `[phase.research|build|review]` with agent, model,
-  postcondition, `allowed_tools`, and optional `allow_unrestricted_bash`.
-  Unknown keys are errors. The only exception raised is `ConfigError`, whose
-  `.field` is the dotted document path (`phase.build.allowed_tools[2]`) or
-  `<file>` / `<toml>`.
-- `nightloop/model.py`: frozen `Config` / `Window` / `Phase` and the
-  `Postcondition` enum. The invariants are enforced in `__post_init__`, so a
-  directly built value cannot be invalid either. Review must use
-  `review_verdict`; research and build may use their own gate or `none`.
-- `nightloop/tool_rules.py`: rejects `--allowedTools` rules that Claude Code
-  would ignore (unanchored globs, `mcp__…(…)`) or that are overbroad (bare
-  `Bash`/`Bash(*)` without opt-in, `Bash(git * main)`, `:*` mid-pattern).
-- `examples/agentlab.nightloop.toml`: agentlab's live pipeline expressed as
-  config. It needs `allow_unrestricted_bash = true` on every phase, because
-  the live agents use bare `Bash`.
+- `nightloop/gates/verdict.py` (pure): `parse_verdict(text | None) -> Verdict`
+  (PASS / FAIL / MISSING / MALFORMED), a port of `verdict.sh`. Lines are split
+  on `\n` only, the word after `VERDICT:` is captured whole (`PASSED` is
+  MALFORMED), and whitespace is ASCII-only, as in POSIX `[[:space:]]`.
+- `nightloop/gates/freshness.py` (pure): `classify_freshness(mtimes, floor)`
+  (FRESH / STALE / MISSING): inclusive `>=` on the float mtime, and `None`
+  (unreadable) counts as found but not fresh. Also `validate_floor`.
+- `nightloop/gates/fs.py` (the only I/O): `check_verdict(path)` opens with
+  `O_NONBLOCK`, so a FIFO cannot hang it. It requires a regular file and
+  decodes with `errors="replace"`. `check_freshness(root, pattern, floor)` and
+  `check_increment(roots, pattern, floor)` use a `scandir` walk with the
+  semantics of `find -P ... -prune -o -type f -name`: regular files only,
+  symlinks neither followed nor counted, and `.venv` / `__pycache__` /
+  `node_modules` / `.git` skipped whether they are directories or files.
+- `nightloop/gates/dispatch.py`: `evaluate(post, repo, phase_started,
+  verdict_path) -> GateResult`, the one entry point for the runner. A relative
+  `verdict_path` resolves against `repo`. The default artifact locations are in
+  `gates/constants.py`. `nightloop/gates/outcome.py` holds `Verdict`,
+  `Freshness`, `Ungated` and `GateResult` (see the decisions log).
 - Tests: `cd projects/nightloop && python3 -I -m unittest discover -v`
-  (47 tests, stdlib only; pass on 3.11, 3.12, 3.13).
+  (122 tests: 47 from milestone 1 plus 75 new; stdlib only; pass on 3.11, 3.12
+  and 3.13). Ported cases: V1-V12 and PC1-PC14 (PC5/PC6 as `ValueError`). V13
+  reads the live repo, so it was dropped.
 
-Known limits: a run window cannot wrap midnight (end must be > start). Model
-names are not checked against a list. Whether `--allowedTools` (as opposed to
-settings files) also skips `mcp__` rules with parentheses is unverified, so
-they are rejected conservatively. There is no `maintain` phase yet.
-Next: milestone 2 (gates library), which implements the `Postcondition`
-values.
+Known limits: `check_verdict` has no size cap (neither does bash). A symlinked
+*root* is followed, where bash `find -P` would not descend it. Windows is
+untested. Note for milestone 3: take the floor as `int(time.time())` *before*
+launching the phase. Linux stamps mtimes from a coarse clock that can lag
+`time.time()` by a few ms, so a floor taken right at a second boundary could
+call a file written in the same instant STALE. Consider a one-second slack
+(`floor - 1`), and record it in this log if adopted.
+Next: milestone 3 (phase runner).
