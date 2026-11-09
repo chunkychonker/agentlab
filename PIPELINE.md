@@ -47,7 +47,9 @@ is how the state actually flows:
    push, and open a PR. On `FAIL` (or missing verdict) it ships nothing and logs
    why. It never fabricates, backdates, or pads commits, and never overrules a
    FAIL. It never merges — it writes the PR number to `logs/last-pr.txt` and stops.
-5. **Auto-merge** (`run.sh`, deterministic bash — not a subagent) — asks GitHub
+5. **Auto-merge** (`run.sh`, deterministic bash — not a subagent) — first adds
+   the reviewer's findings to the PR body (see "The review record on the PR";
+   if that fails the PR stays open), then asks GitHub
    whether the PR is a clean, conflict-free merge (`gh pr view --json mergeable`)
    and merges only if so. A real conflict, or GitHub still computing the answer
    after a few retries, leaves the PR open instead. On a merge it then closes
@@ -188,6 +190,7 @@ handed:
 | `.pipeline/runner.sh` | what launchd job runs the night from the runner clone | `bash .pipeline/test_runner.sh` |
 | `.pipeline/metrics.sh` | what one phase's JSON output says it cost, and the per-phase medians | `bash .pipeline/test_metrics.sh` |
 | `.pipeline/phase_tools.sh` | which tools each phase may use | `bash .pipeline/test_phase_tools.sh` |
+| `.pipeline/review_record.sh` | what the reviewer's findings look like in the PR body, and is that text safe to post | `bash .pipeline/test_review_record.sh` |
 
 Run both suites by hand after editing `run.sh` or any lib. They are on-demand
 only, like `eval/run_reviewer_eval.sh`: they live outside `examples/`, so the
@@ -375,6 +378,36 @@ The runner clone is an *untrusted* workspace, so the project's
 `.claude/settings.json` allow list does not apply there; each list in
 `phase_tools.sh` is complete on its own. `--model` overrides an agent file's
 `model:` line, so the table in "Model per phase" is what runs.
+
+## The review record on the PR
+
+Before `run.sh` merges a PR, it adds the reviewer's findings to the PR body
+under an **Independent review** heading: the verdict, the `Ran:` lines (what
+the reviewer ran to check the code), and every `Findings:` bullet, copied
+word for word from `logs/last-review.md`. Before this, the findings lived
+only in that file, which is git-ignored and overwritten every cycle, so a PR
+merged with warnings and nits nobody could read afterwards.
+
+This step is part of the merge gate. `attach_review_to_pr` (in `run.sh`)
+leaves the PR **open, unmerged,** if any of these happen, and says which in
+the run log:
+
+- the PR body cannot be read, or `gh pr edit` fails, or the section is not
+  there when the body is read back afterwards;
+- `logs/last-review.md` has no `Findings:` block;
+- the review text matches a credential pattern (`sk-ant-…`, a GitHub token,
+  an AWS key id, a private key, `API_KEY=…`). Nothing is posted; read the
+  verdict file yourself. Long hex strings are not flagged, because findings
+  cite commit SHAs;
+- the maintainer's body is so long there is no room left for the section.
+
+The section starts with a hidden line, `<!-- agentlab-review -->`. If it is
+already there (a rerun, or a night that died after posting), nothing is
+added again. If the body plus the section would pass GitHub's 65,536-character
+limit, only the section is cut, never the maintainer's text, and it ends with
+a note saying so. The format code is `.pipeline/review_record.sh`.
+
+External mode is not covered: it never merges, so it has no merge to gate.
 
 ## Tools available to the pipeline
 
