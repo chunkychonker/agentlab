@@ -429,6 +429,7 @@ Full detail is in the dated `logs/lab-health-*.log` for that date.
   `cited_text`, bounds-checks `document_index`, and reports `page_location` as
   unverifiable offline; a `citations_delta` accumulator; offline fixtures plus one
   cheap live call. See `research/2026-11-06-citations-verifier.md`.
+- [ ] fix (health 2026-11-09): run-2026-11-07_020002 — NETWORK UNREACHABLE (api.anthropic.com / github.com) after 3 attempts — check VPN. Aborting. (last action: retry 2/3 of the reachability probe; no phase ran)
 
 ## Stranded work (unshipped branches)
 Appended by `.pipeline/run.sh` when a failed cycle's claim names an item
