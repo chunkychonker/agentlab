@@ -1,6 +1,11 @@
 #!/bin/bash
 # issues.sh — files a health or pipeline finding as a GitHub issue.
 #
+# NOT WIRED IN since spec #7, step 2: run.sh no longer sources this file, and
+# its call sites there are commented out. Findings go to the private
+# logs/findings.md instead (findings.sh). Kept, with its tests, in case
+# public issues are wanted later; restore the run.sh lines to use it again.
+#
 # Sourced by run.sh (and by migrate_backlog_findings.sh). The helpers above
 # issue_file_finding are pure; issue_file_finding itself calls `gh`. Covered
 # offline, with gh faked, by test_issues.sh.
