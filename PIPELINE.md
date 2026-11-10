@@ -83,8 +83,8 @@ is how the state actually flows:
    re-reported next week adds nothing; a `[done #N]` fix deliberately does
    *not* suppress, since a recurrence is new information. Runs only after a
    health phase that exited clean — a partial report must not queue findings
-   that were never established. When `.pipeline/file-issues` says `on`, each
-   finding is *also* filed as a GitHub issue (see "Findings as GitHub issues").
+   that were never established. (Filing to GitHub issues is commented out;
+   see "Findings as GitHub issues".)
    Every finding is also saved to the private `logs/findings.md` (see "The
    private findings file").
 8. **Pipeline observer** (`agentlab-pipeline-observer`) — the sibling of the
@@ -117,7 +117,6 @@ is how the state actually flows:
    place, and the subjects are disjoint in practice (an example directory or a
    wikilink vs. a run log, an abort cause, or a claim line). The observer is
    told to make its subjects self-describing so they read correctly there.
-   Issues, when switched on, carry the `pipeline` label instead of `health`.
    Saved to `logs/findings.md` the same way, under the `pipeline` label.
 
 Three gates protect code that carries your name: a mechanical parse of the
@@ -195,8 +194,8 @@ handed:
 | `.pipeline/runner.sh` | what launchd job runs the night from the runner clone | `bash .pipeline/test_runner.sh` |
 | `.pipeline/metrics.sh` | what one phase's JSON output says it cost, and the per-phase medians | `bash .pipeline/test_metrics.sh` |
 | `.pipeline/phase_tools.sh` | which tools each phase may use | `bash .pipeline/test_phase_tools.sh` |
-| `.pipeline/issues.sh` | which GitHub issue a finding belongs to, and whether to open one or comment | `bash .pipeline/test_issues.sh` |
-| `.pipeline/migrate_backlog_findings.sh` | which backlog lines are unclaimed findings, and which label each gets (a one-off you run by hand) | `bash .pipeline/test_migrate_backlog_findings.sh` |
+| `.pipeline/issues.sh` (not wired in, spec #7) | which GitHub issue a finding belongs to, and whether to open one or comment | `bash .pipeline/test_issues.sh` |
+| `.pipeline/migrate_backlog_findings.sh` (not wired in, spec #7) | which backlog lines are unclaimed findings, and which label each gets (a one-off you run by hand) | `bash .pipeline/test_migrate_backlog_findings.sh` |
 | `.pipeline/findings_store.py` (via `.pipeline/findings.sh`) | what the private findings file says after tonight's findings are saved | `bash .pipeline/test_findings_store.sh` |
 | `.pipeline/review_record.sh` | what the reviewer's findings look like in the PR body, and is that text safe to post | `bash .pipeline/test_review_record.sh` |
 
@@ -448,11 +447,21 @@ The rollout:
 
 1. **(this step)** Save every finding to `logs/findings.md` **and** file it to
    `BACKLOG.md` as before, so the two can be compared for a night or two.
-2. Comment out the GitHub-issues code (spec #6), which was never switched on.
+2. **(done)** Comment out the GitHub-issues code (spec #6), which was never
+   switched on.
 3. Stop filing findings to `BACKLOG.md`, and move the open `fix (health …)`
    lines into the file.
 
-## Findings as GitHub issues (spec #6, step 1 of 3, off by default)
+## Findings as GitHub issues (spec #6, commented out by spec #7)
+
+**Not in use.** Findings go to the private `logs/findings.md` instead (see
+above), because the issues would be public. `run.sh` no longer sources
+`.pipeline/issues.sh`, and its call sites in `file_health_findings` and
+`file_pipeline_findings` are commented out, as are the wiring tests in
+`test_issues.sh`. The code, its unit tests and the `.pipeline/file-issues`
+switch (still `off`) are kept. To use issues again, restore the commented
+lines and the `issues` entry in run.sh's `for lib in` list. What follows
+describes it as it was.
 
 The plan is for `BACKLOG.md` to hold only portfolio topics, with health and
 pipeline findings living in GitHub issues labeled `health` or `pipeline`. It

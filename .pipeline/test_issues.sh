@@ -10,8 +10,6 @@ RUN_SH="$REPO/.pipeline/run.sh"
 . .pipeline/review_record.sh
 # shellcheck source=issues.sh
 . .pipeline/issues.sh
-# shellcheck source=findings.sh
-. .pipeline/findings.sh
 
 PASS=0; FAIL=0
 ok ()  { PASS=$((PASS+1)); echo "ok   $1"; }
@@ -163,75 +161,83 @@ check "U4 no detail: no trailing dash" grep -qxF -- "- [pipeline] 2026-11-08: su
 issue_record_unfiled "$T/no/such/dir/u.md" health d s x 2>/dev/null
 check "U5 an unwritable file: rc 1" [ $? -eq 1 ]
 
-# --- run.sh wiring ---
+# --- run.sh wiring: commented out (spec #7, step 2) ---
+# run.sh no longer files findings as issues. The checks below hold that; the
+# wiring tests that covered it are kept, commented out, with the wiring.
+live="$(grep -nE '^[^#]*(issue_file_finding|issue_record_unfiled|issues_enabled|findings_to_issues|file_finding_issue|UNFILED_FINDINGS_FILE|ISSUES_SWITCH_FILE)' "$RUN_SH")"
+check "X1 run.sh calls none of the issues code" [ -z "$live" ]
+check "X2 run.sh does not source issues.sh" [ -z "$(grep -E '^for lib in ' "$RUN_SH" | grep -w issues)" ]
 
-eval "$(sed -n '/^file_finding_issue () {/,/^}/p' "$RUN_SH")"
-eval "$(sed -n '/^findings_to_issues () {/,/^}/p' "$RUN_SH")"
-if ! declare -f file_finding_issue >/dev/null || ! declare -f findings_to_issues >/dev/null; then
-  bad "W0 could not extract the run.sh helpers — the W cases are vacuous"
-else
-  LOG="$T/run.log"; : > "$LOG"; TS="2026-11-08_020001"
-  UNFILED_FINDINGS_FILE="$T/unfiled-run.md"
-  reset_gh
-  file_finding_issue health 2026-11-08 "examples/a/" "broken" >/dev/null; rc=$?
-  logged="$(grep -c 'issue opened: examples/a/' "$LOG")"
-  check "W1 a filed finding: rc 0, logged as opened" [ "$rc|$logged" == "0|1" ]
-  FAKE_GH_FAIL=create file_finding_issue health 2026-11-08 "examples/b/" "broken" >/dev/null; rc=$?
-  check "W2 gh failing: rc 1" [ "$rc" -eq 1 ]
-  check "W3 ...the finding lands in the unfiled file" grep -qxF -- "- [health] 2026-11-08: examples/b/ — broken" "$UNFILED_FINDINGS_FILE"
-  check "W4 ...and gh's reason is in the run log" grep -q "'gh issue create' failed" "$LOG"
-
-  ISSUES_SWITCH_FILE="$T/sw2"
-  printf 'on\n' > "$ISSUES_SWITCH_FILE"; findings_to_issues; check "W5 switch on: findings_to_issues rc 0" [ $? -eq 0 ]
-  printf 'off\n' > "$ISSUES_SWITCH_FILE"; findings_to_issues; check "W6 switch off: rc 1" [ $? -eq 1 ]
-  printf 'onn\n' > "$ISSUES_SWITCH_FILE"; findings_to_issues >/dev/null; rc=$?
-  logged="$(grep -c "neither 'on' nor 'off'" "$LOG")"
-  check "W7 a typo in the switch: rc 1 and a log line" [ "$rc|$logged" == "1|1" ]
-fi
-
-# Structure: both filing functions file issues behind the switch, and alert
-# on anything unfiled before their early return.
-for fn in file_health_findings file_pipeline_findings; do
-  body="$(awk -v f="^$fn \\\\(\\\\) \\\\{" '$0 ~ f { on = 1 } on { print } on && /^\}/ { exit }' "$RUN_SH")"
-  check "W8 $fn reads the switch" [ -n "$(printf '%s\n' "$body" | grep -F 'findings_to_issues && issues_on=1')" ]
-  check "W9 $fn files each finding as an issue only when on" \
-    [ -n "$(printf '%s\n' "$body" | grep -A1 -F 'if [ "$issues_on" -eq 1 ]; then' | grep -F 'file_finding_issue')" ]
-  alert_ln="$(printf '%s\n' "$body" | grep -n 'send_alert "\$unfiled' | head -1 | cut -d: -f1)"
-  early_ln="$(printf '%s\n' "$body" | grep -n '\[ "\$filed" -eq 0 \] && return 0' | head -1 | cut -d: -f1)"
-  check "W10 $fn alerts on unfiled findings before it can return early" \
-    [ "${alert_ln:-0}" -gt 0 -a "${early_ln:-0}" -gt "${alert_ln:-0}" ]
-done
-
-# End to end through file_health_findings, with the backlog and git stubbed:
-# the night continues (rc 0) even when every issue fails.
-eval "$(sed -n '/^file_health_findings () {/,/^}/p' "$RUN_SH")"
-if declare -f file_health_findings >/dev/null; then
-  HEALTH_SNAPSHOT_FILE="$T/health.md"; : > "$HEALTH_SNAPSHOT_FILE"
-  BACKLOG_FILE="$T/BACKLOG.md"
-  health_findings () { printf '%s\n' "examples/x/ — test fails" "examples/y/ — import error"; }
-  health_item_subject () { printf '%s' "${1%% — *}"; }
-  backlog_file_health_finding () { return 3; }
-  # The findings file is test_findings_store.sh's to cover; here it always saves.
-  record_finding () { return "$FINDING_ADDED"; }
-  git () { return 0; }
-  send_alert () { echo "$1" >> "$T/alerts"; }
-  printf 'on\n' > "$ISSUES_SWITCH_FILE"; : > "$T/alerts"; rm -f "$UNFILED_FINDINGS_FILE"
-  reset_gh
-  FAKE_GH_FAIL=list file_health_findings >/dev/null; rc=$?
-  check "E1 every issue failing: file_health_findings still returns 0" [ "$rc" -eq 0 ]
-  check "E2 ...both findings are in the unfiled file" [ "$(grep -c '^- \[health\]' "$UNFILED_FINDINGS_FILE")" == 2 ]
-  check "E3 ...and one alert was raised, counting them" [ "$(wc -l < "$T/alerts" | tr -d ' ')|$(grep -c '^2 health finding' "$T/alerts")" == "1|1" ]
-  reset_gh; : > "$T/alerts"
-  file_health_findings >/dev/null
-  check "E4 gh working: two issues opened even though the backlog had both (rc 3)" [ "$(q 'len(issues)')" == 2 ]
-  check "E5 ...and no alert" [ ! -s "$T/alerts" ]
-  printf 'off\n' > "$ISSUES_SWITCH_FILE"; reset_gh
-  file_health_findings >/dev/null
-  check "E6 switch off: gh is never called" [ "$(ncalls)" == 0 ]
-  unset -f git
-else
-  bad "E0 could not extract file_health_findings"
-fi
+# # --- run.sh wiring ---
+#
+# eval "$(sed -n '/^file_finding_issue () {/,/^}/p' "$RUN_SH")"
+# eval "$(sed -n '/^findings_to_issues () {/,/^}/p' "$RUN_SH")"
+# if ! declare -f file_finding_issue >/dev/null || ! declare -f findings_to_issues >/dev/null; then
+#   bad "W0 could not extract the run.sh helpers — the W cases are vacuous"
+# else
+#   LOG="$T/run.log"; : > "$LOG"; TS="2026-11-08_020001"
+#   UNFILED_FINDINGS_FILE="$T/unfiled-run.md"
+#   reset_gh
+#   file_finding_issue health 2026-11-08 "examples/a/" "broken" >/dev/null; rc=$?
+#   logged="$(grep -c 'issue opened: examples/a/' "$LOG")"
+#   check "W1 a filed finding: rc 0, logged as opened" [ "$rc|$logged" == "0|1" ]
+#   FAKE_GH_FAIL=create file_finding_issue health 2026-11-08 "examples/b/" "broken" >/dev/null; rc=$?
+#   check "W2 gh failing: rc 1" [ "$rc" -eq 1 ]
+#   check "W3 ...the finding lands in the unfiled file" grep -qxF -- "- [health] 2026-11-08: examples/b/ — broken" "$UNFILED_FINDINGS_FILE"
+#   check "W4 ...and gh's reason is in the run log" grep -q "'gh issue create' failed" "$LOG"
+#
+#   ISSUES_SWITCH_FILE="$T/sw2"
+#   printf 'on\n' > "$ISSUES_SWITCH_FILE"; findings_to_issues; check "W5 switch on: findings_to_issues rc 0" [ $? -eq 0 ]
+#   printf 'off\n' > "$ISSUES_SWITCH_FILE"; findings_to_issues; check "W6 switch off: rc 1" [ $? -eq 1 ]
+#   printf 'onn\n' > "$ISSUES_SWITCH_FILE"; findings_to_issues >/dev/null; rc=$?
+#   logged="$(grep -c "neither 'on' nor 'off'" "$LOG")"
+#   check "W7 a typo in the switch: rc 1 and a log line" [ "$rc|$logged" == "1|1" ]
+# fi
+#
+# # Structure: both filing functions file issues behind the switch, and alert
+# # on anything unfiled before their early return.
+# for fn in file_health_findings file_pipeline_findings; do
+#   body="$(awk -v f="^$fn \\\\(\\\\) \\\\{" '$0 ~ f { on = 1 } on { print } on && /^\}/ { exit }' "$RUN_SH")"
+#   check "W8 $fn reads the switch" [ -n "$(printf '%s\n' "$body" | grep -F 'findings_to_issues && issues_on=1')" ]
+#   check "W9 $fn files each finding as an issue only when on" \
+#     [ -n "$(printf '%s\n' "$body" | grep -A1 -F 'if [ "$issues_on" -eq 1 ]; then' | grep -F 'file_finding_issue')" ]
+#   alert_ln="$(printf '%s\n' "$body" | grep -n 'send_alert "\$unfiled' | head -1 | cut -d: -f1)"
+#   early_ln="$(printf '%s\n' "$body" | grep -n '\[ "\$filed" -eq 0 \] && return 0' | head -1 | cut -d: -f1)"
+#   check "W10 $fn alerts on unfiled findings before it can return early" \
+#     [ "${alert_ln:-0}" -gt 0 -a "${early_ln:-0}" -gt "${alert_ln:-0}" ]
+# done
+#
+# # End to end through file_health_findings, with the backlog and git stubbed:
+# # the night continues (rc 0) even when every issue fails.
+# eval "$(sed -n '/^file_health_findings () {/,/^}/p' "$RUN_SH")"
+# if declare -f file_health_findings >/dev/null; then
+#   HEALTH_SNAPSHOT_FILE="$T/health.md"; : > "$HEALTH_SNAPSHOT_FILE"
+#   BACKLOG_FILE="$T/BACKLOG.md"
+#   health_findings () { printf '%s\n' "examples/x/ — test fails" "examples/y/ — import error"; }
+#   health_item_subject () { printf '%s' "${1%% — *}"; }
+#   backlog_file_health_finding () { return 3; }
+#   # The findings file is test_findings_store.sh's to cover; here it always saves.
+#   record_finding () { return "$FINDING_ADDED"; }
+#   git () { return 0; }
+#   send_alert () { echo "$1" >> "$T/alerts"; }
+#   printf 'on\n' > "$ISSUES_SWITCH_FILE"; : > "$T/alerts"; rm -f "$UNFILED_FINDINGS_FILE"
+#   reset_gh
+#   FAKE_GH_FAIL=list file_health_findings >/dev/null; rc=$?
+#   check "E1 every issue failing: file_health_findings still returns 0" [ "$rc" -eq 0 ]
+#   check "E2 ...both findings are in the unfiled file" [ "$(grep -c '^- \[health\]' "$UNFILED_FINDINGS_FILE")" == 2 ]
+#   check "E3 ...and one alert was raised, counting them" [ "$(wc -l < "$T/alerts" | tr -d ' ')|$(grep -c '^2 health finding' "$T/alerts")" == "1|1" ]
+#   reset_gh; : > "$T/alerts"
+#   file_health_findings >/dev/null
+#   check "E4 gh working: two issues opened even though the backlog had both (rc 3)" [ "$(q 'len(issues)')" == 2 ]
+#   check "E5 ...and no alert" [ ! -s "$T/alerts" ]
+#   printf 'off\n' > "$ISSUES_SWITCH_FILE"; reset_gh
+#   file_health_findings >/dev/null
+#   check "E6 switch off: gh is never called" [ "$(ncalls)" == 0 ]
+#   unset -f git
+# else
+#   bad "E0 could not extract file_health_findings"
+# fi
+#
 
 echo ""
 echo "$PASS passed, $FAIL failed"

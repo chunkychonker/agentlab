@@ -2,6 +2,10 @@
 # migrate_backlog_findings.sh — moves the unclaimed findings in BACKLOG.md to
 # GitHub issues (spec #6, rollout step 2 of 3).
 #
+# Not part of the plan since spec #7: findings go to the private
+# logs/findings.md, not to issues. Kept with issues.sh; it still refuses to
+# run while .pipeline/file-issues says off.
+#
 # Usage: bash .pipeline/migrate_backlog_findings.sh [--dry-run]
 #
 # A one-off a human runs by hand, never the nightly pipeline. For every

@@ -90,7 +90,9 @@ echo "=== agentlab pipeline $TS ===" | tee -a "$LOG"
 # only being exercised on the rare night each gate fires. Sourcing defines
 # functions and constants only — it runs nothing and prints nothing.
 BACKLOG_FILE="BACKLOG.md"
-for lib in backlog verdict health pipeline_health preflight postcondition schedule network_retry usage_limit auth alert metrics phase_tools review_record issues findings; do
+# issues.sh (spec #6) is commented out of this list, with its call sites below:
+# findings go to the private file instead (spec #7). Kept, not deleted.
+for lib in backlog verdict health pipeline_health preflight postcondition schedule network_retry usage_limit auth alert metrics phase_tools review_record findings; do
   if [ ! -r "$REPO/.pipeline/$lib.sh" ]; then
     echo "MISSING $REPO/.pipeline/$lib.sh — required. Aborting." | tee -a "$LOG"
     exit 1
@@ -950,38 +952,41 @@ replenish_action () {
   return 0
 }
 
-# Files one finding as a GitHub issue (issues.sh) for file_health_findings and
-# file_pipeline_findings, and logs what happened. A finding gh could not take
-# is appended to $UNFILED_FINDINGS_FILE so it is not lost.
-# rc 0 if the finding is on GitHub (opened or commented), 1 if it is not.
-file_finding_issue () {
-  local label="$1" date="$2" subject="$3" detail="$4" rc
-  issue_file_finding "$label" "$date" "$subject" "$detail" "$TS" 2>>"$LOG"
-  rc=$?
-  case "$rc" in
-    0) echo "  issue opened: $subject" | tee -a "$LOG"; return 0 ;;
-    3) echo "  issue re-observed (comment added): $subject" | tee -a "$LOG"; return 0 ;;
-  esac
-  if issue_record_unfiled "$UNFILED_FINDINGS_FILE" "$label" "$date" "$subject" "$detail"; then
-    echo "  issue NOT filed (rc=$rc), kept in $UNFILED_FINDINGS_FILE: $subject" | tee -a "$LOG"
-  else
-    echo "  issue NOT filed (rc=$rc) and $UNFILED_FINDINGS_FILE could not be written: $subject" | tee -a "$LOG"
-  fi
-  return 1
-}
-
-# Whether this night files findings as issues: rc 0 if $ISSUES_SWITCH_FILE
-# says on. Anything but a clean on/off is logged and treated as off, because
-# the issues are public.
-findings_to_issues () {
-  issues_enabled "$ISSUES_SWITCH_FILE"
-  case $? in
-    0) return 0 ;;
-    1) return 1 ;;
-  esac
-  echo "$ISSUES_SWITCH_FILE is neither 'on' nor 'off' — not filing issues tonight." | tee -a "$LOG"
-  return 1
-}
+# --- Commented out by spec #7, step 2: findings are not filed as GitHub
+# --- issues. Restore these two helpers, the issues.sh source and the call
+# --- sites in both filing functions together.
+# # Files one finding as a GitHub issue (issues.sh) for file_health_findings and
+# # file_pipeline_findings, and logs what happened. A finding gh could not take
+# # is appended to $UNFILED_FINDINGS_FILE so it is not lost.
+# # rc 0 if the finding is on GitHub (opened or commented), 1 if it is not.
+# file_finding_issue () {
+#   local label="$1" date="$2" subject="$3" detail="$4" rc
+#   issue_file_finding "$label" "$date" "$subject" "$detail" "$TS" 2>>"$LOG"
+#   rc=$?
+#   case "$rc" in
+#     0) echo "  issue opened: $subject" | tee -a "$LOG"; return 0 ;;
+#     3) echo "  issue re-observed (comment added): $subject" | tee -a "$LOG"; return 0 ;;
+#   esac
+#   if issue_record_unfiled "$UNFILED_FINDINGS_FILE" "$label" "$date" "$subject" "$detail"; then
+#     echo "  issue NOT filed (rc=$rc), kept in $UNFILED_FINDINGS_FILE: $subject" | tee -a "$LOG"
+#   else
+#     echo "  issue NOT filed (rc=$rc) and $UNFILED_FINDINGS_FILE could not be written: $subject" | tee -a "$LOG"
+#   fi
+#   return 1
+# }
+#
+# # Whether this night files findings as issues: rc 0 if $ISSUES_SWITCH_FILE
+# # says on. Anything but a clean on/off is logged and treated as off, because
+# # the issues are public.
+# findings_to_issues () {
+#   issues_enabled "$ISSUES_SWITCH_FILE"
+#   case $? in
+#     0) return 0 ;;
+#     1) return 1 ;;
+#   esac
+#   echo "$ISSUES_SWITCH_FILE is neither 'on' nor 'off' — not filing issues tonight." | tee -a "$LOG"
+#   return 1
+# }
 
 # File the health check's findings as backlog items, then commit and push
 # BACKLOG.md if anything was added.
@@ -1020,7 +1025,7 @@ file_health_findings () {
   local finding subject detail date_tag filed=0 dup=0 err=0 rc issues_on=0 unfiled=0
   local saved_new=0 saved_again=0 saved_reopened=0 unsaved=0
   date_tag="${TS%%_*}"
-  findings_to_issues && issues_on=1
+  # findings_to_issues && issues_on=1   # spec #7 step 2: issues commented out
   # A here-string, not a pipeline: `... | while` runs the loop in a subshell and
   # the counters would not survive it. bash 3.2 has <<<.
   while IFS= read -r finding; do
@@ -1051,17 +1056,18 @@ file_health_findings () {
       *) unsaved=$(( unsaved + 1 ))
          echo "  could NOT save to $FINDINGS_FILE: $subject" | tee -a "$LOG" ;;
     esac
-    # Spec #6 step 1: the issue is filed whatever the backlog said, so a
-    # finding already queued there still gets its "re-observed" comment.
-    if [ "$issues_on" -eq 1 ]; then
-      file_finding_issue health "$date_tag" "$subject" "$detail" || unfiled=$(( unfiled + 1 ))
-    fi
+    # Spec #7 step 2: issue filing commented out.
+    # # Spec #6 step 1: the issue is filed whatever the backlog said, so a
+    # # finding already queued there still gets its "re-observed" comment.
+    # if [ "$issues_on" -eq 1 ]; then
+    #   file_finding_issue health "$date_tag" "$subject" "$detail" || unfiled=$(( unfiled + 1 ))
+    # fi
   done <<< "$findings"
 
   echo "health findings: $filed filed, $dup already queued, $err failed." | tee -a "$LOG"
-  if [ "$unfiled" -gt 0 ]; then
-    send_alert "$unfiled health finding(s) could not be filed as GitHub issues — see $UNFILED_FINDINGS_FILE"
-  fi
+  # if [ "$unfiled" -gt 0 ]; then
+  #   send_alert "$unfiled health finding(s) could not be filed as GitHub issues — see $UNFILED_FINDINGS_FILE"
+  # fi
   echo "findings file: $saved_new new, $saved_again seen again, $saved_reopened reopened, $unsaved not saved." | tee -a "$LOG"
   if [ "$unsaved" -gt 0 ]; then
     send_alert "$unsaved health finding(s) could not be saved to $FINDINGS_FILE — see $LOG"
@@ -1121,7 +1127,7 @@ file_pipeline_findings () {
   local finding subject detail date_tag gap_date filed=0 dup=0 err=0 paused=0 rc issues_on=0 unfiled=0
   local saved_new=0 saved_again=0 saved_reopened=0 unsaved=0
   date_tag="${TS%%_*}"
-  findings_to_issues && issues_on=1
+  # findings_to_issues && issues_on=1   # spec #7 step 2: issues commented out
   # A here-string, not a pipeline: `... | while` runs the loop in a subshell and
   # the counters would not survive it. bash 3.2 has <<<.
   while IFS= read -r finding; do
@@ -1164,17 +1170,18 @@ file_pipeline_findings () {
       *) unsaved=$(( unsaved + 1 ))
          echo "  could NOT save to $FINDINGS_FILE: $subject" | tee -a "$LOG" ;;
     esac
-    # Spec #6 step 1: the issue is filed whatever the backlog said, so a
-    # finding already queued there still gets its "re-observed" comment.
-    if [ "$issues_on" -eq 1 ]; then
-      file_finding_issue pipeline "$date_tag" "$subject" "$detail" || unfiled=$(( unfiled + 1 ))
-    fi
+    # Spec #7 step 2: issue filing commented out.
+    # # Spec #6 step 1: the issue is filed whatever the backlog said, so a
+    # # finding already queued there still gets its "re-observed" comment.
+    # if [ "$issues_on" -eq 1 ]; then
+    #   file_finding_issue pipeline "$date_tag" "$subject" "$detail" || unfiled=$(( unfiled + 1 ))
+    # fi
   done <<< "$findings"
 
   echo "pipeline findings: $filed filed, $dup already queued, $err failed, $paused inside a declared pause." | tee -a "$LOG"
-  if [ "$unfiled" -gt 0 ]; then
-    send_alert "$unfiled pipeline finding(s) could not be filed as GitHub issues — see $UNFILED_FINDINGS_FILE"
-  fi
+  # if [ "$unfiled" -gt 0 ]; then
+  #   send_alert "$unfiled pipeline finding(s) could not be filed as GitHub issues — see $UNFILED_FINDINGS_FILE"
+  # fi
   echo "findings file: $saved_new new, $saved_again seen again, $saved_reopened reopened, $unsaved not saved." | tee -a "$LOG"
   if [ "$unsaved" -gt 0 ]; then
     send_alert "$unsaved pipeline finding(s) could not be saved to $FINDINGS_FILE — see $LOG"
