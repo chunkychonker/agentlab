@@ -90,7 +90,7 @@ echo "=== agentlab pipeline $TS ===" | tee -a "$LOG"
 # only being exercised on the rare night each gate fires. Sourcing defines
 # functions and constants only — it runs nothing and prints nothing.
 BACKLOG_FILE="BACKLOG.md"
-for lib in backlog verdict health pipeline_health preflight postcondition schedule network_retry usage_limit auth alert metrics phase_tools review_record issues; do
+for lib in backlog verdict health pipeline_health preflight postcondition schedule network_retry usage_limit auth alert metrics phase_tools review_record issues findings; do
   if [ ! -r "$REPO/.pipeline/$lib.sh" ]; then
     echo "MISSING $REPO/.pipeline/$lib.sh — required. Aborting." | tee -a "$LOG"
     exit 1
@@ -1018,6 +1018,7 @@ file_health_findings () {
   fi
 
   local finding subject detail date_tag filed=0 dup=0 err=0 rc issues_on=0 unfiled=0
+  local saved_new=0 saved_again=0 saved_reopened=0 unsaved=0
   date_tag="${TS%%_*}"
   findings_to_issues && issues_on=1
   # A here-string, not a pipeline: `... | while` runs the loop in a subshell and
@@ -1039,6 +1040,17 @@ file_health_findings () {
       *) err=$(( err + 1 ))
          echo "  could NOT file (rc=$rc): $subject" | tee -a "$LOG" ;;
     esac
+    # Spec #7 step 1: saved to the private findings file whatever the backlog
+    # said, so a finding already queued there still counts as seen again.
+    record_finding health "$date_tag" "$subject" "$detail" 2>>"$LOG"
+    case $? in
+      "$FINDING_ADDED")      saved_new=$(( saved_new + 1 )) ;;
+      "$FINDING_SEEN_AGAIN") saved_again=$(( saved_again + 1 )) ;;
+      "$FINDING_REOPENED")   saved_reopened=$(( saved_reopened + 1 ))
+                             echo "  reopened in $FINDINGS_FILE (was marked fixed): $subject" | tee -a "$LOG" ;;
+      *) unsaved=$(( unsaved + 1 ))
+         echo "  could NOT save to $FINDINGS_FILE: $subject" | tee -a "$LOG" ;;
+    esac
     # Spec #6 step 1: the issue is filed whatever the backlog said, so a
     # finding already queued there still gets its "re-observed" comment.
     if [ "$issues_on" -eq 1 ]; then
@@ -1049,6 +1061,10 @@ file_health_findings () {
   echo "health findings: $filed filed, $dup already queued, $err failed." | tee -a "$LOG"
   if [ "$unfiled" -gt 0 ]; then
     send_alert "$unfiled health finding(s) could not be filed as GitHub issues — see $UNFILED_FINDINGS_FILE"
+  fi
+  echo "findings file: $saved_new new, $saved_again seen again, $saved_reopened reopened, $unsaved not saved." | tee -a "$LOG"
+  if [ "$unsaved" -gt 0 ]; then
+    send_alert "$unsaved health finding(s) could not be saved to $FINDINGS_FILE — see $LOG"
   fi
   [ "$filed" -eq 0 ] && return 0
 
@@ -1103,6 +1119,7 @@ file_pipeline_findings () {
   fi
 
   local finding subject detail date_tag gap_date filed=0 dup=0 err=0 paused=0 rc issues_on=0 unfiled=0
+  local saved_new=0 saved_again=0 saved_reopened=0 unsaved=0
   date_tag="${TS%%_*}"
   findings_to_issues && issues_on=1
   # A here-string, not a pipeline: `... | while` runs the loop in a subshell and
@@ -1136,6 +1153,17 @@ file_pipeline_findings () {
       *) err=$(( err + 1 ))
          echo "  could NOT file (rc=$rc): $subject" | tee -a "$LOG" ;;
     esac
+    # Spec #7 step 1: saved to the private findings file whatever the backlog
+    # said, so a finding already queued there still counts as seen again.
+    record_finding pipeline "$date_tag" "$subject" "$detail" 2>>"$LOG"
+    case $? in
+      "$FINDING_ADDED")      saved_new=$(( saved_new + 1 )) ;;
+      "$FINDING_SEEN_AGAIN") saved_again=$(( saved_again + 1 )) ;;
+      "$FINDING_REOPENED")   saved_reopened=$(( saved_reopened + 1 ))
+                             echo "  reopened in $FINDINGS_FILE (was marked fixed): $subject" | tee -a "$LOG" ;;
+      *) unsaved=$(( unsaved + 1 ))
+         echo "  could NOT save to $FINDINGS_FILE: $subject" | tee -a "$LOG" ;;
+    esac
     # Spec #6 step 1: the issue is filed whatever the backlog said, so a
     # finding already queued there still gets its "re-observed" comment.
     if [ "$issues_on" -eq 1 ]; then
@@ -1146,6 +1174,10 @@ file_pipeline_findings () {
   echo "pipeline findings: $filed filed, $dup already queued, $err failed, $paused inside a declared pause." | tee -a "$LOG"
   if [ "$unfiled" -gt 0 ]; then
     send_alert "$unfiled pipeline finding(s) could not be filed as GitHub issues — see $UNFILED_FINDINGS_FILE"
+  fi
+  echo "findings file: $saved_new new, $saved_again seen again, $saved_reopened reopened, $unsaved not saved." | tee -a "$LOG"
+  if [ "$unsaved" -gt 0 ]; then
+    send_alert "$unsaved pipeline finding(s) could not be saved to $FINDINGS_FILE — see $LOG"
   fi
   [ "$filed" -eq 0 ] && return 0
 

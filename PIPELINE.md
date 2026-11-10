@@ -85,6 +85,8 @@ is how the state actually flows:
    health phase that exited clean — a partial report must not queue findings
    that were never established. When `.pipeline/file-issues` says `on`, each
    finding is *also* filed as a GitHub issue (see "Findings as GitHub issues").
+   Every finding is also saved to the private `logs/findings.md` (see "The
+   private findings file").
 8. **Pipeline observer** (`agentlab-pipeline-observer`) — the sibling of the
    health check, pointed at the machine instead of the portfolio. Phase 6 asks
    "does what we shipped still work"; this asks "did the nights actually run,
@@ -116,6 +118,7 @@ is how the state actually flows:
    wikilink vs. a run log, an abort cause, or a claim line). The observer is
    told to make its subjects self-describing so they read correctly there.
    Issues, when switched on, carry the `pipeline` label instead of `health`.
+   Saved to `logs/findings.md` the same way, under the `pipeline` label.
 
 Three gates protect code that carries your name: a mechanical parse of the
 review verdict before the maintainer runs at all, the reviewer's own judgment
@@ -194,6 +197,7 @@ handed:
 | `.pipeline/phase_tools.sh` | which tools each phase may use | `bash .pipeline/test_phase_tools.sh` |
 | `.pipeline/issues.sh` | which GitHub issue a finding belongs to, and whether to open one or comment | `bash .pipeline/test_issues.sh` |
 | `.pipeline/migrate_backlog_findings.sh` | which backlog lines are unclaimed findings, and which label each gets (a one-off you run by hand) | `bash .pipeline/test_migrate_backlog_findings.sh` |
+| `.pipeline/findings_store.py` (via `.pipeline/findings.sh`) | what the private findings file says after tonight's findings are saved | `bash .pipeline/test_findings_store.sh` |
 | `.pipeline/review_record.sh` | what the reviewer's findings look like in the PR body, and is that text safe to post | `bash .pipeline/test_review_record.sh` |
 
 Run both suites by hand after editing `run.sh` or any lib. They are on-demand
@@ -412,6 +416,41 @@ limit, only the section is cut, never the maintainer's text, and it ends with
 a note saying so. The format code is `.pipeline/review_record.sh`.
 
 External mode is not covered: it never merges, so it has no merge to gate.
+
+## The private findings file (spec #7, step 1 of 3)
+
+`BACKLOG.md` is public, and it is also the queue the nightly cycles take work
+from. So findings move to `logs/findings.md` on the runner
+(`~/agentlab-runner/logs/findings.md`). `logs/` is git-ignored and survives
+the startup scrub, so the file is never pushed and never cleaned away. A
+finding stays there until you read it: the pipeline never deletes or closes
+one. One line per finding:
+
+```
+- [ ] [pipeline] NETWORK UNREACHABLE — seen 4× (first 2026-08-02, last 2026-11-09) — <latest detail>
+```
+
+- A finding is its label plus its subject (the text before the first ` — `).
+  Seen again on a later night, its count and last date go up and the detail
+  is replaced. The same night twice counts once.
+- Mark one fixed by changing `[ ]` to `[x]`. If it comes back on a later
+  night, it is reopened with its count kept and a detail starting
+  `came back <date>:`, and the night's log says so.
+- Any line not in that format is yours, and is kept byte for byte. Write notes
+  under a finding if you like.
+- To fix one, add it to `BACKLOG.md` as a normal topic.
+- If the file cannot be written, nothing in it changes, the night continues,
+  and one alert per observer says how many findings were not saved. The log
+  line `findings file: N new, M seen again, K reopened, E not saved.` follows
+  each observer's backlog summary.
+
+The rollout:
+
+1. **(this step)** Save every finding to `logs/findings.md` **and** file it to
+   `BACKLOG.md` as before, so the two can be compared for a night or two.
+2. Comment out the GitHub-issues code (spec #6), which was never switched on.
+3. Stop filing findings to `BACKLOG.md`, and move the open `fix (health …)`
+   lines into the file.
 
 ## Findings as GitHub issues (spec #6, step 1 of 3, off by default)
 
