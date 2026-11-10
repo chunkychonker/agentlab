@@ -38,7 +38,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
 2. [done 83] Gates library: the fail-closed review-verdict parse
    (PASS / FAIL / MISSING / MALFORMED) and per-phase artifact freshness
    checks, with the edge cases from agentlab's `test_gates.sh` ported as tests.
-3. [not-started] Phase runner: runs one phase as
+3. [in-progress] Phase runner: runs one phase as
    `claude -p --agent … --permission-mode dontAsk --allowedTools … --output-format json`
    behind an interface, records one metrics JSON line per phase, and ships a
    fake runner for tests. No test calls a real model.
@@ -91,42 +91,76 @@ contradict an entry here without adding one.
   property computed from it, not a stored field. This replaces the research
   note's `outcome: str` plus `advance: bool` so that an inconsistent result
   cannot be built. The orchestrator still branches only on `advance`.
+- 2026-11-10: The freshness floor is `int(now()) - FLOOR_SLACK_S` with
+  `FLOOR_SLACK_S = 1` (one named constant in `nightloop/phase/execute.py`),
+  read once before the phase starts. Coarse filesystem mtime clocks can lag
+  `time.time()`, and without the slack a file written in the phase's first
+  instant could read STALE. Cost: an artifact written up to 1s before the
+  phase started counts as FRESH. Back-to-back phases cannot hit that window,
+  because a model call takes longer than a second.
+- 2026-11-10: `run_phase` takes the gate as a required `gate=` parameter
+  (production: `nightloop.gates.evaluate`) instead of importing it, so the
+  phase core imports no I/O module, and A4's spy is the real gate wrapped
+  rather than a mock. The status enum is `PhaseStatus`, not the research
+  note's `Outcome`, so it cannot be confused with `nightloop.gates.Outcome`.
+  The runner file is split into `runner.py` (the protocol),
+  `subprocess_runner.py` and `fake_runner.py`.
+- 2026-11-10: In the CLI's JSON, `result` and `is_error` decide the status,
+  so a missing or non-string `result` or a non-bool `is_error` makes the
+  output UNREADABLE. Every other field only feeds metrics: when it is absent
+  or the wrong type it is recorded as null and never fails the phase, the
+  same as `metrics.sh`.
+- 2026-11-10: If the runner cannot start the phase at all (`OSError`, e.g.
+  `claude` is not on PATH), `run_phase` raises and writes no metrics line.
+  In bash a missing CLI shows up as rc 127 and gets recorded as a failed
+  phase. Here it is an environment error, and it stops the night loudly
+  instead of looking like a model failure.
 
 ## Current state
 
-Milestone 2 (gates library) is built as of 2026-11-09 and awaiting
-review/merge (PR #83); research note: `research/2026-11-09-nightloop-gates-library.md`.
-Milestone 1 (config) is done (#78).
+Milestone 3 (phase runner) is built as of 2026-11-10 and awaiting
+review/merge. Research note: `research/2026-11-10-nightloop-phase-runner.md`.
+Milestones 1 (#78) and 2 (#83) are done.
 
-- `nightloop/gates/verdict.py` (pure): `parse_verdict(text | None) -> Verdict`
-  (PASS / FAIL / MISSING / MALFORMED), a port of `verdict.sh`. Lines are split
-  on `\n` only, the word after `VERDICT:` is captured whole (`PASSED` is
-  MALFORMED), and whitespace is ASCII-only, as in POSIX `[[:space:]]`.
-- `nightloop/gates/freshness.py` (pure): `classify_freshness(mtimes, floor)`
-  (FRESH / STALE / MISSING): inclusive `>=` on the float mtime, and `None`
-  (unreadable) counts as found but not fresh. Also `validate_floor`.
-- `nightloop/gates/fs.py` (the only I/O): `check_verdict(path)` opens with
-  `O_NONBLOCK`, so a FIFO cannot hang it. It requires a regular file and
-  decodes with `errors="replace"`. `check_freshness(root, pattern, floor)` and
-  `check_increment(roots, pattern, floor)` use a `scandir` walk with the
-  semantics of `find -P ... -prune -o -type f -name`: regular files only,
-  symlinks neither followed nor counted, and `.venv` / `__pycache__` /
-  `node_modules` / `.git` skipped whether they are directories or files.
-- `nightloop/gates/dispatch.py`: `evaluate(post, repo, phase_started,
-  verdict_path) -> GateResult`, the one entry point for the runner. A relative
-  `verdict_path` resolves against `repo`. The default artifact locations are in
-  `gates/constants.py`. `nightloop/gates/outcome.py` holds `Verdict`,
-  `Freshness`, `Ungated` and `GateResult` (see the decisions log).
-- Tests: `cd projects/nightloop && python3 -I -m unittest discover -v`
-  (122 tests: 47 from milestone 1 plus 75 new; stdlib only; pass on 3.11, 3.12
-  and 3.13). Ported cases: V1-V12 and PC1-PC14 (PC5/PC6 as `ValueError`). V13
-  reads the live repo, so it was dropped.
+- `nightloop/phase/` (new). `request.py`: `PhaseRequest` (phase name and
+  `Phase`, a prompt that is non-empty, does not start with `-` and has no
+  NUL, an absolute `cwd`, an int `timeout_s > 0`). `argv.py`: `build_argv`
+  builds `claude -p <prompt> --model --output-format json --permission-mode
+  dontAsk --agent --allowedTools <rule>...`, with the prompt always at
+  argv[2] and `--allowedTools` last. It never emits `--bare` (that would skip
+  m7's hook) or `--dangerously-skip-permissions`. `result.py`:
+  `parse_cli_json` returns a `CliResult` or raises `CliOutputError` (rejects
+  NaN, Infinity and over-long ints). `metrics.py`: `PhaseRecord` and
+  `to_json_line`, using the bash field names plus `outcome`. `runner.py`: the
+  `Runner` protocol and `RawRun`. `subprocess_runner.py`: the only module
+  that spawns processes. Each phase runs in its own session, and on timeout
+  the whole group gets SIGTERM, then SIGKILL after `TERM_GRACE_S` (10s), so a
+  background child holding stdout cannot hang the runner. `fake_runner.py`:
+  `FakeRunner` (scripted `RawRun`s or step functions, records the requests)
+  plus `cli_stdout` / `cli_success`. `execute.py`: `run_phase(req, runner, *,
+  now, gate, repo, verdict_path, metrics_sink) -> PhaseOutcome`. Status
+  precedence is TIMED_OUT, then CLI_ERROR (rc != 0), then UNREADABLE, then
+  CLI_ERROR (`is_error`), then GATED_PASS or GATE_FAILED. Every completed run
+  emits exactly one metrics line.
+- Gates (m2) unchanged: `parse_verdict`, `classify_freshness`, `check_*` in
+  `gates/fs.py`, and `evaluate` in `gates/dispatch.py`. See the 2026-11-09
+  decisions.
+- Tests: `cd projects/nightloop && python3 -I -m unittest discover -v`. That
+  is 164 tests (122 from m1 and m2, plus 42 new); stdlib only; they pass on
+  3.11, 3.12 and 3.13 and take about 5s, mostly the subprocess timeouts.
+  A1-A12 from the research note are covered. A12 uses Python stand-in
+  executables: echo argv/cwd, exit 3, sleep past the timeout, ignore SIGTERM,
+  and leave a background child holding stdout. No test runs `claude`.
 
-Known limits: `check_verdict` has no size cap (neither does bash). A symlinked
-*root* is followed, where bash `find -P` would not descend it. Windows is
-untested. Note for milestone 3: take the floor as `int(time.time())` *before*
-launching the phase. Linux stamps mtimes from a coarse clock that can lag
-`time.time()` by a few ms, so a floor taken right at a second boundary could
-call a file written in the same instant STALE. Consider a one-second slack
-(`floor - 1`), and record it in this log if adopted.
-Next: milestone 3 (phase runner).
+Known limits. A descendant that starts its own session escapes the group
+kill and can hold stdout open. The runner passes no `--settings`, no env
+(such as bash's `AGENTLAB_PHASE`) and no `--disallowedTools`, so m7 must add
+the hook wiring. Usage-limit detection (bash `usage_limit_reset`) is not
+ported; it belongs with m4's stop-the-night logic. Records carry no `run_ts`
+or `cycle`, which m4 adds. There is no file sink yet: `metrics_sink` is any
+`Callable[[str], None]`. POSIX only. The CLI's JSON schema is unpublished,
+so a live smoke run (a human step) should diff one real output against
+`CliResult`, e.g. `run_phase(req, SubprocessRunner(), now=time.time,
+gate=evaluate, repo=..., verdict_path=Path("logs/last-review.md"),
+metrics_sink=print)`.
+Next: milestone 4 (cycle orchestrator).
