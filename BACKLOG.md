@@ -479,3 +479,20 @@ human's call.
   `examples/memory-tool-handler/` -- a pure command dispatcher over an injected
   store, with `/memories` path-traversal rejection, plus a thin tool loop. See
   `research/2026-10-27-memory-tool-handler.md`.
+- [stranded origin/cycle/2026-09-12-unshipped-024106-1] MCP's other transport: Streamable HTTP, not stdio. Every MCP example
+  in the lab so far (`mcp-hello-world`, and the two stranded `mcp-prompts` /
+  `mcp-resources-claude-code` items above) either uses stdio or bypasses the wire
+  entirely via the SDK's in-memory `Client`; `mcp-hello-world/README.md` names
+  "HTTP transports (streamable-http, sse)" explicitly out of scope. Increment: a
+  server exposed over Streamable HTTP instead, proven at the actual wire level —
+  session-ID issuance, JSON vs SSE response framing, the DNS-rebinding
+  Host-header check — via `httpx2.ASGITransport` wired directly to
+  `MCPServer.streamable_http_app()`, no real socket, no live network, no key.
+  See `research/2026-09-12-mcp-streamable-http.md`.
+- [stranded origin/cycle/2026-10-27-unshipped-021126-1] The client-side memory tool (`memory_20250818`) with a path-safe handler.
+  No example in the lab persists anything across conversations. Filed by the
+  researcher on 2026-10-27 because the feature sections had no plain `[ ]` item
+  left (only stale health findings and stranded claims). Increment:
+  `examples/memory-tool-handler/` -- a pure command dispatcher over an injected
+  store, with `/memories` path-traversal rejection, plus a thin tool loop. See
+  `research/2026-10-27-memory-tool-handler.md`.
