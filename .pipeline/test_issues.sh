@@ -10,6 +10,8 @@ RUN_SH="$REPO/.pipeline/run.sh"
 . .pipeline/review_record.sh
 # shellcheck source=issues.sh
 . .pipeline/issues.sh
+# shellcheck source=findings.sh
+. .pipeline/findings.sh
 
 PASS=0; FAIL=0
 ok ()  { PASS=$((PASS+1)); echo "ok   $1"; }
@@ -209,6 +211,8 @@ if declare -f file_health_findings >/dev/null; then
   health_findings () { printf '%s\n' "examples/x/ — test fails" "examples/y/ — import error"; }
   health_item_subject () { printf '%s' "${1%% — *}"; }
   backlog_file_health_finding () { return 3; }
+  # The findings file is test_findings_store.sh's to cover; here it always saves.
+  record_finding () { return "$FINDING_ADDED"; }
   git () { return 0; }
   send_alert () { echo "$1" >> "$T/alerts"; }
   printf 'on\n' > "$ISSUES_SWITCH_FILE"; : > "$T/alerts"; rm -f "$UNFILED_FINDINGS_FILE"
