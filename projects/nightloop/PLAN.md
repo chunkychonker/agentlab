@@ -38,7 +38,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
 2. [done 83] Gates library: the fail-closed review-verdict parse
    (PASS / FAIL / MISSING / MALFORMED) and per-phase artifact freshness
    checks, with the edge cases from agentlab's `test_gates.sh` ported as tests.
-3. [in-progress] Phase runner: runs one phase as
+3. [done 88] Phase runner: runs one phase as
    `claude -p --agent … --permission-mode dontAsk --allowedTools … --output-format json`
    behind an interface, records one metrics JSON line per phase, and ships a
    fake runner for tests. No test calls a real model.
@@ -119,7 +119,7 @@ contradict an entry here without adding one.
 ## Current state
 
 Milestone 3 (phase runner) is built as of 2026-11-10 and awaiting
-review/merge. Research note: `research/2026-11-10-nightloop-phase-runner.md`.
+review/merge (PR #88). Research note: `research/2026-11-10-nightloop-phase-runner.md`.
 Milestones 1 (#78) and 2 (#83) are done.
 
 - `nightloop/phase/` (new). `request.py`: `PhaseRequest` (phase name and
