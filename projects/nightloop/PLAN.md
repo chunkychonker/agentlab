@@ -42,7 +42,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    `claude -p --agent … --permission-mode dontAsk --allowedTools … --output-format json`
    behind an interface, records one metrics JSON line per phase, and ships a
    fake runner for tests. No test calls a real model.
-4. [not-started] Cycle orchestrator: runs the sequence with its gates; a failed
+4. [in-progress] Cycle orchestrator: runs the sequence with its gates; a failed
    cycle is snapshotted to a recovery branch and never leaks into the next.
    End-to-end tests drive it with the fake runner.
 5. [not-started] Claim tracking: the backlog claim lifecycle
@@ -115,12 +115,102 @@ contradict an entry here without adding one.
   In bash a missing CLI shows up as rc 127 and gets recorded as a failed
   phase. Here it is an environment error, and it stops the night loudly
   instead of looking like a model failure.
+- 2026-11-11: The ship step is a `Shipper` port (`ship(run_id, cycle) ->
+  Shipped(pr) | NotShipped(reason)`), not a model phase, because the config
+  has no `maintain` phase. Milestone 4 ships only `FakeShipper`. The real
+  shipper (push, `gh pr create`, the review record, the mergeable check) is
+  left for a later decision about which milestone owns it. `NotShipped` is
+  itself a `CycleResult` case. The research note's separate `ShipRefused`
+  type was dropped because it would only have been a copy of it.
+- 2026-11-11: The usage-limit text is checked on every `CLI_ERROR`, including
+  rc 0 with `is_error: true`, not only on a non-zero exit as in bash. A
+  reported (unconfirmed) CLI bug returns a rate-limit error with exit 0. The
+  text checked is the CLI's `result` when stdout parsed as JSON, otherwise
+  the raw stdout, then stderr. No other status is checked: `GATED_PASS`,
+  `GATE_FAILED`, `TIMED_OUT` and `UNREADABLE` (rc 0 with non-JSON stdout)
+  never stop the night, even when they quote the message. The JSON `error`
+  field is not used.
+- 2026-11-11: Interface changes from the research note's layer 3, each one
+  so that a bad state cannot be represented or two things cannot drift:
+  `Recovery` is the sum type `Clean() | Snapshotted(branch, pushed)` rather
+  than `branch: str | None` plus `pushed`. The recovery branch's sequence
+  number is the cycle number, unique within a night by construction, rather
+  than a mutable counter like bash's `SNAP_SEQ`.
+  `Workspace.clear_handoff(verdict_path)` takes the same path the review
+  gate reads, so the file that gets deleted and the file that gets checked
+  cannot differ. The run id is a `RunId` value type in bash's `TS` format
+  (`YYYY-MM-DD_HHMMSS`), because it becomes both the metrics `run_ts` and a
+  git ref component. `run_night` takes `timeout_s` as a required argument
+  with no default: bash has no phase timeout, so any default would be a new
+  policy. That choice is left to milestone 6's CLI.
 
 ## Current state
 
-Milestone 3 (phase runner) is built as of 2026-11-10 and awaiting
-review/merge (PR #88). Research note: `research/2026-11-10-nightloop-phase-runner.md`.
-Milestones 1 (#78) and 2 (#83) are done.
+Milestone 4 (cycle orchestrator) is built and awaiting review as of
+2026-11-11. Research note: `research/2026-11-11-nightloop-cycle-orchestrator.md`.
+Milestones 1 (#78), 2 (#83) and 3 (#88) are done. `phase/` and `gates/` are
+unchanged.
+
+- `nightloop/cycle/` (new). `run_night(cfg, *, run_id, repo, verdict_path,
+  timeout_s, runner, gate, workspace, shipper, now, metrics_sink) ->
+  NightResult` (`night.py`) builds the three `PhaseRequest`s once, before
+  any cycle, so bad inputs fail before anything runs. It runs up to
+  `cfg.cycles` cycles and stops after a `UsageLimited` one. `run_cycle`
+  (`cycle.py`, internal) does `clear_handoff`, then research, build and
+  review through m3's `run_phase`, where the first phase that is not
+  `GATED_PASS` ends the cycle. Then `ship` only on a review `GATED_PASS`,
+  then `recover` exactly once, also when an exception is propagating (a
+  failed recovery is raised `from` that exception).
+  - `result.py`: the `CycleResult` sum type, `Shipped(pr) | NotShipped(reason)
+    | PhaseFailed(phase, status) | ReviewRefused(verdict) |
+    UsageLimited(phase, reset)`. Each case rejects its own illegal values.
+  - `report.py`: `CycleReport` and `NightResult`, where only the last report
+    may be `UsageLimited`.
+  - `ports.py`: the `Workspace`/`Shipper` protocols, `Clean | Snapshotted`
+    and `RecoveryError`.
+  - `usage_limit.py`: the pure `usage_limit_reset`, a port of bash's.
+  - `recording.py`: a `Runner` decorator that keeps the last `RawRun` for
+    the limit check.
+  - `metrics_tag.py`: puts `run_ts` and `cycle` first on each m3 line.
+  - `naming.py`: names the recovery branch
+    `cycle/<date>-unshipped-<HHMMSS>-<cycle>`.
+  - `prompts.py`: one template per phase.
+  - `run_id.py`: `RunId`.
+  - `fake_shipper.py`: `FakeShipper`.
+  - `git_workspace.py`: `GitWorkspace`, the only module that runs git.
+    Recovery runs `status`, `switch -c`, `add -A`, `commit` and `push -u`;
+    a failed push is `pushed=False`, not an error. It then runs `switch
+    main` and `pull --ff-only`, and checks the tree is clean. A failed
+    commit carries the work back to main, deletes only the empty branch it
+    created, and raises. Every git call has a timeout and runs with
+    `GIT_TERMINAL_PROMPT=0`. The constructor checks that `repo` is a
+    checkout's top level.
+- Tests: `cd projects/nightloop && python3 -I -m unittest discover -v`.
+  229 tests (164 before plus 65 new), stdlib only. They pass on 3.11, 3.12
+  and 3.13 in about 15s. B1-B12 are covered. The orchestrator tests run the
+  real gate and the real `GitWorkspace` on a temp repo with a local bare
+  `origin` (`tests/git_support.py`, which isolates the global git config).
+  Failures come from real `pre-commit`/`pre-push` hooks and real branch-name
+  collisions, not mocks. The B1 shipper is a stand-in that really commits,
+  pushes and switches back. Deliberately breaking `cycle.py` (dropping
+  `clear_handoff`, recovery on a crash, the CLI_ERROR-only scan or the
+  `result`-text scan) and removing the usage-limit `break` in `night.py`
+  each fail at least one test.
+
+Known limits (m4). There is no real shipper, so nothing opens a PR yet. A
+`RecoveryError` propagates without the earlier cycles' `CycleReport`s; the
+metrics lines already emitted are the only record. There is no log beyond
+metrics, and `RecoveryError` messages carry git's last stderr line. A
+handoff file tracked by git would dirty main every cycle, so it must be
+git-ignored (agentlab's `logs/` is). Recovery commits run the repo's
+hooks, as bash's do. Not ported: bash's untracked-stray handling and
+`scrub_artifacts`, claim marking (m5), replenish, health, observer and
+auto-merge. The rc-0 rate-limit behaviour and the real limit text under
+`--output-format json` are unconfirmed. A human smoke run should check
+one real limit hit against `usage_limit_reset`.
+Next: review of m4, then milestone 5 (claim tracking).
+
+Milestone 3 as built (kept for reference):
 
 - `nightloop/phase/` (new). `request.py`: `PhaseRequest` (phase name and
   `Phase`, a prompt that is non-empty, does not start with `-` and has no
