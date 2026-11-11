@@ -34,7 +34,14 @@ is how the state actually flows:
 3. **Reviewer** (`agentlab-reviewer`) — an independent gate: reviews the diff it
    didn't write, runs the increment's tests and lint, scans for stubs, secrets,
    and bugs, and writes a `PASS`/`FAIL` verdict to `logs/last-review.md`. It does
-   not fix code — a broken increment gets `FAIL`ed with specifics.
+   not fix code — a broken increment gets `FAIL`ed with specifics. It also
+   checks the diff against the research note's acceptance criteria (spec #9):
+   `run.sh` names that note in the review prompt (`research_note_path`, the one
+   note the research phase just wrote; none or two stops the cycle before the
+   build), and the reviewer marks every criterion `MET` (with the test that
+   proves it), `CUT` (with the builder's written reason) or `UNMET`. Any
+   `UNMET` is a `FAIL`. Before this, the reviewer never opened the note, so
+   nothing checked that the builder built what the spec asked for.
 4. **Maintainer** (`agentlab-maintainer`) — runs at all only if `run.sh` itself
    parsed `logs/last-review.md` and found exactly one `VERDICT: PASS` line
    (`.pipeline/verdict.sh`). The subagent is *also* told to read the verdict and
@@ -42,6 +49,11 @@ is how the state actually flows:
    commits under your name should not be the phase that decides whether it may.
    The parse fails closed: a missing verdict (the review phase died), a
    malformed one, or a `FAIL` all skip this phase entirely and end the cycle.
+   A `PASS` must then also clear the spec gate (`review_spec_check`, same
+   file): the verdict's Spec block must name the note `run.sh` passed, have at
+   least one `MET`, no `UNMET`, and every line in the shape the reviewer is
+   given. Anything else — including a reviewer that skipped the check — ends
+   the cycle the same way, so a PASS that lists an unmet criterion can't ship.
    Then, on `PASS`, the maintainer reads the verdict itself. Only on `PASS`
    does it branch, commit **authored as Steve Ling `<steveylingy@gmail.com>`**,
    push, and open a PR. On `FAIL` (or missing verdict) it ships nothing and logs
@@ -184,11 +196,11 @@ handed:
 | Lib | Decides | Test |
 |---|---|---|
 | `.pipeline/backlog.sh` | is the queue stocked, is a claim stranded, has this finding been filed | `bash .pipeline/test_backlog.sh` |
-| `.pipeline/verdict.sh` | does the review authorise shipping | `bash .pipeline/test_gates.sh` |
+| `.pipeline/verdict.sh` | does the review authorise shipping, and did it find the build meets its spec | `bash .pipeline/test_gates.sh` |
 | `.pipeline/health.sh` | what did the health check actually find | `bash .pipeline/test_gates.sh` |
 | `.pipeline/pipeline_health.sh` | what did the pipeline observer actually find | `bash .pipeline/test_gates.sh` |
 | `.pipeline/preflight.sh` | what does a dirty `main` mean for this run | `bash .pipeline/test_gates.sh` |
-| `.pipeline/postcondition.sh` | did a phase actually produce the artifact the next one needs | `bash .pipeline/test_gates.sh` |
+| `.pipeline/postcondition.sh` | did a phase actually produce the artifact the next one needs, and which research note is the cycle's spec | `bash .pipeline/test_gates.sh` |
 | `.pipeline/auth.sh` | which login the night uses, and did the auth probe fail on it | `bash .pipeline/test_auth_alert.sh` |
 | `.pipeline/alert.sh` | does the finished night need a human's attention | `bash .pipeline/test_auth_alert.sh` |
 | `.pipeline/runner.sh` | what launchd job runs the night from the runner clone | `bash .pipeline/test_runner.sh` |

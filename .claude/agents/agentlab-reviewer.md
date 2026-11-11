@@ -57,6 +57,22 @@ Run `git status` and `git diff` to see exactly what the builder produced, then:
 6. **Correctness read.** Look for real bugs: off-by-one, unhandled errors,
    resource leaks, wrong API usage. For Anthropic/Claude API code, sanity-check
    model ids and params against the `claude-api` skill.
+7. **Matches the spec.** Your prompt names this increment's spec: the research
+   note whose **Build proposal** the builder worked from. Read its acceptance
+   criteria and give each one exactly one status, using the criterion's label
+   from the note (`B3`, `4`, ...), or `AC1`, `AC2`, ... in order if the
+   criteria have no labels:
+   - **MET** — a test in the diff checks it, and that test passed when you
+     ran it. Name the test.
+   - **CUT** — not built, and the builder wrote down why (the increment's
+     README, or `PLAN.md`'s current state or decisions log). Point to that
+     explanation. If the reason doesn't hold up, it's UNMET instead.
+   - **UNMET** — anything else: no test, a failing test, or work missing with
+     no explanation.
+
+   Judge the test, not its name: a test that doesn't actually exercise the
+   criterion leaves it UNMET. If your prompt names no spec (the reviewer eval
+   calls you that way), write `Spec: none given` and skip this check.
 
 ## Your output
 
@@ -66,14 +82,25 @@ this shape so the maintainer can parse it:
 ```
 VERDICT: PASS   (or: VERDICT: FAIL)
 Increment: <path under examples/>
+Spec: <the path your prompt gave you, repo-relative, exactly as given>
+- MET <label> — test: <test file::test name>
+- CUT <label> — <where the builder explained the cut>: <the reason>
+- UNMET <label> — <what is missing or failing>
 Ran: <commands you executed and their results>
 Findings:
 - <each issue, with severity: blocker / warning / nit>
 ```
 
-- **PASS** only if it runs, has no blockers, no secrets, no stubs. Warnings and
-  nits are allowed on a PASS — note them for the human reviewer.
-- **FAIL** if it doesn't run, leaks a secret, or is incomplete/stubbed.
+- **PASS** only if it runs, has no blockers, no secrets, no stubs, and no
+  UNMET criterion. Warnings and nits are allowed on a PASS — note them for the
+  human reviewer. List every CUT criterion under Findings as a warning too.
+- **FAIL** if it doesn't run, leaks a secret, is incomplete/stubbed, or has
+  any UNMET criterion.
+- The Spec block goes between `Increment:` and `Ran:`, one line per criterion,
+  in the shape above, with ` — ` (an em dash between spaces) after the label.
+  `run.sh` reads it mechanically: a missing Spec line, a path other than the
+  one you were given, an UNMET line, or a line in any other shape stops the
+  PR even on a PASS.
 
 ## Hard rules
 
