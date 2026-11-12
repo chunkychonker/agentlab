@@ -117,6 +117,54 @@ research_note_fresh () {
   return $rc
 }
 
+# The research/ index, not a cycle's note. research_note_path skips it so a
+# researcher that touches the index doesn't make the night AMBIGUOUS.
+RESEARCH_INDEX="README.md"
+
+# research_note_path <floor_epoch>
+#
+# Which note is this cycle's spec (spec #9): the one research/*.md, other than
+# the index, written at or after <floor_epoch>. The reviewer checks the diff
+# against it, so "the newest note" is not enough — it has to be the note THIS
+# research phase wrote, and exactly one. Flat, not recursive: notes live
+# directly under research/ (agentlab-researcher.md, demo step 3 / project
+# step 4).
+#
+# On exactly one, prints its repo-relative path and returns 0. Otherwise prints
+# nothing on stdout, says why on stderr, and returns:
+#   2  MISSING    no such note, or <floor_epoch> is not a non-negative integer
+#   3  AMBIGUOUS  more than one; every candidate is named on stderr
+# A note whose mtime cannot be read is not a candidate, the same rule as
+# artifact_freshness: unreadable is not confirmation.
+research_note_path () {
+  local floor="$1" path mtime n=0 first="" all=""
+  case "$floor" in
+    ''|*[!0-9]*)
+      echo "research_note_path: floor '$floor' is not an epoch — MISSING" >&2
+      return 2 ;;
+  esac
+  # Unquoted glob on purpose; with no match the literal pattern fails -f.
+  for path in "$RESEARCH_DIR"/$RESEARCH_GLOB; do
+    [ -f "$path" ] || continue
+    [ "${path##*/}" = "$RESEARCH_INDEX" ] && continue
+    mtime="$(stat -f %m "$path" 2>/dev/null || true)"
+    case "$mtime" in ''|*[!0-9]*) continue ;; esac
+    [ "$mtime" -ge "$floor" ] || continue
+    n=$(( n + 1 ))
+    [ -z "$first" ] && first="$path"
+    all="$all $path"
+  done
+  if [ "$n" -eq 0 ]; then
+    echo "research_note_path: no note in $RESEARCH_DIR/ written since $floor — MISSING" >&2
+    return 2
+  fi
+  if [ "$n" -gt 1 ]; then
+    echo "research_note_path: $n notes written since $floor, expected one:$all — AMBIGUOUS" >&2
+    return 3
+  fi
+  echo "$first"
+}
+
 # increment_built <floor_epoch>
 #
 # The build phase's postcondition: a file written under one of INCREMENT_DIRS at

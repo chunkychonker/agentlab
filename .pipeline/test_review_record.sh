@@ -46,6 +46,18 @@ check "S7 no Findings block: rc 1, prints nothing" [ "$rc|$out" == "1|" ]
 out="$(review_record_section "$T/missing.md")"; rc=$?
 check "S8 a missing file: rc 1, prints nothing" [ "$rc|$out" == "1|" ]
 
+# Spec #9 puts a Spec block between Increment: and Ran:. It is run.sh's to
+# read, not the PR's, so adding one must not change the posted section at all.
+awk '{ print } /^Increment:/ {
+  print "Spec: research/2026-11-11-tool-x.md"
+  print "- MET B1 — test: examples/tool-x/test_x.py::test_retry"
+  print "- CUT B2 — explained in examples/tool-x/README.md: needs a live key"
+}' "$T/verdict.md" > "$T/verdict-spec.md"
+review_record_section "$T/verdict-spec.md" > "$T/section-spec.md"; rc=$?
+check "S9 (spec #9 C1) the verdict really gained a Spec block" [ "$(grep -c '^Spec:\|^- MET\|^- CUT' "$T/verdict-spec.md")" == 3 ]
+check "S10 (spec #9 C1) ...and the section is byte-identical with or without it" \
+  [ "$rc|$(cmp -s "$T/section.md" "$T/section-spec.md" && echo same)" == "0|same" ]
+
 # --- review_record_has_marker ---
 
 printf 'Body text\n' > "$T/body-plain"

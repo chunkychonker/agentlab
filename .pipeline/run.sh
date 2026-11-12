@@ -812,8 +812,18 @@ run_cycle () {
   rm -f logs/last-review.md logs/last-pr.txt logs/pr-body.md
 
   write_research_context "$RESEARCH_CONTEXT_FILE" || return 1
+  local research_floor spec
+  research_floor="$(date +%s)"
   run_phase sonnet research "cycle $k/$CYCLES: research" research_note_fresh \
     "Run this cycle's research end to end, following your instructions exactly. The agentlab repo is $REPO; read $REPO/$RESEARCH_CONTEXT_FILE first." || return $?
+
+  # The note just written is this increment's spec, and the reviewer checks the
+  # diff against it (spec #9). A build whose spec can't be named can't be
+  # checked, so it isn't attempted: no note, or two, stops the cycle here.
+  if ! spec="$(research_note_path "$research_floor" 2>>"$LOG")"; then
+    echo "--- gate: cannot tell which research note is cycle $k's spec (see $LOG) — cycle $k does not build. ---" | tee -a "$LOG"
+    return 1
+  fi
 
   # Rewritten so the builder's last check for a name collision sees PRs opened
   # while research ran.
@@ -827,7 +837,7 @@ run_cycle () {
   # cycle does not ship. Duplicating that as a freshness check would give the
   # same fact two enforcement points to drift apart at.
   run_phase opus review "cycle $k/$CYCLES: review" phase_no_postcondition \
-    "Independently review this cycle's working-tree diff, run its tests/lint, and write a PASS/FAIL verdict to logs/last-review.md, following your instructions exactly. The agentlab repo is $REPO. Do not modify the increment." || return $?
+    "Independently review this cycle's working-tree diff, run its tests/lint, and write a PASS/FAIL verdict to logs/last-review.md, following your instructions exactly. The agentlab repo is $REPO. The spec for this increment is $REPO/$spec: check the diff against its acceptance criteria as your instructions describe, and write the line 'Spec: $spec' in your verdict. Do not modify the increment." || return $?
 
   # The review gate, read mechanically — the same principle as the auto-merge
   # gate below, applied to the phase that actually opens the PR. The maintainer
@@ -847,7 +857,21 @@ run_cycle () {
     echo "--- gate: review verdict is $verdict — cycle $k does not ship. See $REVIEW_VERDICT_FILE and $LOG. ---" | tee -a "$LOG"
     return 1
   fi
-  echo "--- gate: review verdict PASS (parsed from $REVIEW_VERDICT_FILE) — proceeding to maintain. ---" | tee -a "$LOG"
+  echo "--- gate: review verdict PASS (parsed from $REVIEW_VERDICT_FILE) — checking the spec. ---" | tee -a "$LOG"
+
+  # The spec gate (spec #9), read mechanically for the same reason as the
+  # verdict: the reviewer is told any UNMET criterion means FAIL, but a PASS
+  # that lists one, or that skipped the check, must not ship either. Only OK
+  # proceeds; see review_spec_check in verdict.sh for the other five words.
+  local spec_out spec_word spec_detail
+  spec_out="$(review_spec_check "$REVIEW_VERDICT_FILE" "$spec")"
+  spec_word="$(printf '%s\n' "$spec_out" | sed -n 1p)"
+  spec_detail="$(printf '%s\n' "$spec_out" | sed -n 2p)"
+  if [ "$spec_word" != "OK" ]; then
+    echo "--- gate: spec check $spec_word${spec_detail:+ ($spec_detail)} against $spec — cycle $k does not ship. See $REVIEW_VERDICT_FILE. ---" | tee -a "$LOG"
+    return 1
+  fi
+  echo "--- gate: spec check OK ($spec_detail) — proceeding to maintain. ---" | tee -a "$LOG"
 
   # Last phase of the cycle; the auto-merge gate below re-reads git and the PR
   # rather than trusting this phase's word, so there is nothing here to gate.

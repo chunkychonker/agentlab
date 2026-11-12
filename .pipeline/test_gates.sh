@@ -2,7 +2,9 @@
 # Offline self-test for the pipeline's deterministic gates — every decision
 # run.sh makes with no model in the loop:
 #
-#   .pipeline/verdict.sh  — does the review authorise shipping (review_verdict)
+#   .pipeline/verdict.sh  — does the review authorise shipping (review_verdict),
+#                           and does its Spec block say the build meets the
+#                           spec (review_spec_check, spec #9)
 #   .pipeline/health.sh   — what did the health check find (health_findings,
 #                           health_item_subject)
 #   .pipeline/pipeline_health.sh — what did the pipeline observer find
@@ -17,7 +19,8 @@
 #   .pipeline/postcondition.sh — did a phase actually produce the artifact the
 #                           next one hard-depends on (artifact_freshness,
 #                           research_note_fresh, increment_built,
-#                           phase_no_postcondition)
+#                           phase_no_postcondition), and which note is the
+#                           cycle's spec (research_note_path)
 #   .pipeline/schedule.sh — does the clock say tonight's run should happen at
 #                           all (schedule_disposition, schedule_override_active)
 #   run.sh's check_reachable — is the network there (N1-N5), extracted and run
@@ -168,6 +171,88 @@ if [ -s "$REPO/$REVIEW_VERDICT_FILE" ]; then
 else
   pass "V13" "no $REVIEW_VERDICT_FILE present to cross-check (skipped, not a finding)"
 fi
+
+# --- verdict.sh: the spec block (spec #9) ----------------------------------
+#
+# review_spec_check fails closed like review_verdict: every case that is not a
+# clean, fully-MET-or-explained block must come back as something other than
+# OK. The verdict line is PASS in every case on purpose — the gate only runs on
+# PASS, and SC3 is exactly a PASS that should not ship.
+
+SC_SPEC="research/2026-11-11-some-note.md"
+
+# spec_case <id> <expected-output> <expected-rc> <what> [file-body...]
+# Output is both lines joined by '|'. An omitted body means "no file at all".
+spec_case () {
+  local id="$1" want_out="$2" want_rc="$3" what="$4"; shift 4
+  local f="$WORK/spec-$id.md"
+  if [ "$#" -gt 0 ]; then
+    printf '%s\n' "$@" > "$f"
+  fi
+  local got got_rc
+  got="$(review_spec_check "$f" "$SC_SPEC")"
+  got_rc=$?
+  assert_eq "$id" "$want_out|$want_rc" "$(printf '%s' "$got" | tr '\n' '|')|$got_rc" "$what"
+}
+
+spec_case SC1 "OK|2 met, 0 cut" 0 "every criterion MET with a named test is OK" \
+  "VERDICT: PASS" "Increment: examples/foo/" "Spec: $SC_SPEC" \
+  "- MET B1 — test: examples/foo/test_foo.py::test_one" \
+  "- MET B2 — test: examples/foo/test_foo.py::test_two" \
+  "Ran: pytest -> 2 passed" "Findings:" "- (nit) none"
+spec_case SC2 "OK|1 met, 1 cut" 0 "MET plus an explained CUT is OK" \
+  "VERDICT: PASS" "Increment: examples/foo/" "Spec: $SC_SPEC" \
+  "- MET B1 — test: examples/foo/test_foo.py::test_one" \
+  "- CUT B2 — explained in examples/foo/README.md: needs a live key" \
+  "Ran: pytest" "Findings:" "- (warning) B2 cut"
+spec_case SC3 "UNMET|B2, B4" 1 "an UNMET line under VERDICT: PASS is UNMET, labels listed" \
+  "VERDICT: PASS" "Increment: examples/foo/" "Spec: $SC_SPEC" \
+  "- MET B1 — test: examples/foo/test_foo.py::test_one" \
+  "- UNMET B2 — no test covers the retry cap" \
+  "- MET B3 — test: examples/foo/test_foo.py::test_three" \
+  "- UNMET B4 — test_four fails" \
+  "Ran: pytest" "Findings:"
+spec_case SC4 "MALFORMED" 5 "a MET line that names no test is MALFORMED" \
+  "VERDICT: PASS" "Spec: $SC_SPEC" "- MET B1 — covered by the suite" "Ran: pytest" "Findings:"
+spec_case SC5 "NO_SPEC" 3 "no Spec line at all is NO_SPEC" \
+  "VERDICT: PASS" "Increment: examples/foo/" "Ran: pytest" "Findings:"
+spec_case SC5b "NO_SPEC" 3 "'Spec: none given' is NO_SPEC, whatever follows it" \
+  "VERDICT: PASS" "Spec: none given" "- MET B1 — test: t.py::a" "Ran: pytest" "Findings:"
+spec_case SC6 "NONE_MET" 2 "only CUT lines is NONE_MET — nothing was built against the spec" \
+  "VERDICT: PASS" "Spec: $SC_SPEC" "- CUT B1 — explained in README.md: later" "Ran: pytest" "Findings:"
+spec_case SC6b "NONE_MET" 2 "a Spec line with no criteria under it is NONE_MET" \
+  "VERDICT: PASS" "Spec: $SC_SPEC" "Ran: pytest" "Findings:"
+spec_case SC7 "WRONG_SPEC" 4 "a Spec path other than the one run.sh passed is WRONG_SPEC" \
+  "VERDICT: PASS" "Spec: research/2026-11-10-yesterday.md" "- MET B1 — test: t.py::a" "Ran: pytest" "Findings:"
+spec_case SC7b "WRONG_SPEC" 4 "an absolute path is not the repo-relative one asked for" \
+  "VERDICT: PASS" "Spec: /Users/x/agentlab/$SC_SPEC" "- MET B1 — test: t.py::a" "Ran: pytest" "Findings:"
+spec_case SC8 "MALFORMED" 5 "two Spec lines are MALFORMED, not a choice" \
+  "VERDICT: PASS" "Spec: $SC_SPEC" "Spec: $SC_SPEC" "- MET B1 — test: t.py::a" "Ran: pytest" "Findings:"
+spec_case SC8b "MALFORMED" 5 "a prose line inside the block is MALFORMED" \
+  "VERDICT: PASS" "Spec: $SC_SPEC" "- MET B1 — test: t.py::a" "All the rest looked fine." "Ran: pytest" "Findings:"
+spec_case SC8c "MALFORMED" 5 "a hyphen where the em dash belongs is MALFORMED (strict by design)" \
+  "VERDICT: PASS" "Spec: $SC_SPEC" "- MET B1 - test: t.py::a" "Ran: pytest" "Findings:"
+spec_case SC8d "MALFORMED" 5 "a malformed line outranks an UNMET one" \
+  "VERDICT: PASS" "Spec: $SC_SPEC" "- UNMET B1 — missing" "- PARTIAL B2 — half done" "Ran: pytest" "Findings:"
+spec_case SC8e "MALFORMED" 5 "a block with no Ran: line runs into Findings and is MALFORMED" \
+  "VERDICT: PASS" "Spec: $SC_SPEC" "- MET B1 — test: t.py::a" "Findings:" "- (nit) x"
+spec_case SC9 "MALFORMED" 5 "an absent verdict file is MALFORMED, not OK"
+
+# Hand-written to the grammar until a real reviewer run is captured (spec #9
+# rollout step 2): numeric and AC labels, em dashes and backticks in the text,
+# a blank line, and Findings bullets that look like criteria but sit after Ran.
+spec_case SC10 "OK|3 met, 1 cut" 0 "a realistic block, as the reviewer is told to write it, is OK" \
+  "VERDICT: PASS" "Increment: projects/nightloop/" "Spec: $SC_SPEC" \
+  "- MET 1 — test: projects/nightloop/tests/cycle/test_cycle.py::test_all_pass_ships" \
+  "- MET 2 — test: projects/nightloop/tests/cycle/test_cycle.py::test_gate_stale — asserts \`FakeRunner.requests\` is empty" \
+  "" \
+  "- CUT AC3 — explained in projects/nightloop/PLAN.md current state: the GitWorkspace port waits for m5" \
+  "- MET AC4 — test: projects/nightloop/tests/cycle/test_night.py::test_usage_limit_stops" \
+  "Ran: uv run pytest projects/nightloop -q -> 41 passed" \
+  "ruff check projects/nightloop -> clean" \
+  "Findings:" \
+  "- UNMET-looking text in a finding is not a criterion — warning" \
+  "- (warning) AC3 cut, see PLAN.md"
 
 # --- health.sh -------------------------------------------------------------
 
@@ -984,6 +1069,41 @@ assert_eq "PC13" "FRESH|0" "$(pc_run venvnoise increment_built "$PC_FLOOR")" \
 # The phases that are gated elsewhere say so explicitly rather than by omission.
 assert_eq "PC14" "NONE|0" "$(pc_run nodir phase_no_postcondition "$PC_FLOOR")" \
   "phase_no_postcondition prints NONE and succeeds, ignoring the floor"
+
+# Which note is the cycle's spec (spec #9). research_note_fresh only says a
+# fresh note exists; the reviewer needs to be told WHICH one, and that has to be
+# the one this phase wrote, so anything but exactly one is a refusal.
+if declare -f research_note_path >/dev/null 2>&1; then
+  pass "PC15" "postcondition.sh defines research_note_path — PC16-PC20 are live"
+else
+  fail "PC15" "research_note_path is not defined — PC16-PC20 are vacuous"
+fi
+
+pc_b="$(pc_box onefresh)"; mkdir -p "$pc_b/research"
+: > "$pc_b/research/2026-11-10-yesterday.md"; touch -t "$PC_OLD" "$pc_b/research/2026-11-10-yesterday.md"
+: > "$pc_b/research/2026-11-11-tonight.md"
+assert_eq "PC16" "research/2026-11-11-tonight.md|0" "$(pc_run onefresh research_note_path "$PC_FLOOR")" \
+  "one fresh note among older ones: its repo-relative path, rc 0"
+
+: > "$pc_b/research/README.md"
+assert_eq "PC17" "research/2026-11-11-tonight.md|0" "$(pc_run onefresh research_note_path "$PC_FLOOR")" \
+  "a fresh README.md (the index) is not a second candidate"
+
+assert_eq "PC18" "|2" "$(pc_run oldnote research_note_path "$PC_FLOOR" 2>/dev/null)" \
+  "no fresh note: nothing on stdout, MISSING rc 2"
+
+pc_b="$(pc_box twofresh)"; mkdir -p "$pc_b/research"
+: > "$pc_b/research/2026-11-11-a.md"; : > "$pc_b/research/2026-11-11-b.md"
+pc19_err="$( { pc_run twofresh research_note_path "$PC_FLOOR" >"$WORK/pc19.out"; } 2>&1 )"
+assert_eq "PC19" "|3" "$(cat "$WORK/pc19.out")" \
+  "two fresh notes: nothing on stdout, AMBIGUOUS rc 3"
+case "$pc19_err" in
+  *2026-11-11-a.md*2026-11-11-b.md*AMBIGUOUS*) pass "PC19b" "...and stderr names both candidates" ;;
+  *) fail "PC19b" "AMBIGUOUS stderr does not name both candidates: '$pc19_err'" ;;
+esac
+
+assert_eq "PC20" "|2" "$(pc_run onefresh research_note_path "not-a-number" 2>/dev/null)" \
+  "a non-numeric floor fails closed as MISSING"
 # --- network_retry.sh: the retry policy around that probe (N6-N22) ---------
 #
 # The probe above answers "is the network there RIGHT NOW". These cases cover
@@ -1173,6 +1293,102 @@ fi
 r2="$(awk -v s="$gate_ln" 'NR>=s && NR<=s+8 && /return 1/ {print "guarded"; exit}' "$RUN_SH")"
 assert_eq "R2" "guarded" "${r2:-unguarded}" \
   "a non-PASS verdict returns from run_cycle rather than falling through to maintain"
+
+# The spec gate (spec #9) sits between the verdict gate and maintain. Ordering
+# IS the fix again: a spec check after maintain would gate nothing.
+spec_gate_ln="$(grep -n 'spec_out="\$(review_spec_check' "$RUN_SH" | head -1 | cut -d: -f1)"
+if [ -z "$spec_gate_ln" ] || [ -z "$gate_ln" ] || [ -z "$maintain_ln" ]; then
+  fail "SW5" "run.sh is missing a call site (verdict gate=${gate_ln:-none}, spec gate=${spec_gate_ln:-none}, maintain=${maintain_ln:-none})"
+elif [ "$gate_ln" -lt "$spec_gate_ln" ] && [ "$spec_gate_ln" -lt "$maintain_ln" ]; then
+  pass "SW5" "the spec gate (line $spec_gate_ln) is after the verdict gate ($gate_ln) and before maintain ($maintain_ln)"
+else
+  fail "SW5" "spec gate is mis-ordered: verdict gate=$gate_ln, spec gate=$spec_gate_ln, maintain=$maintain_ln"
+fi
+
+# SW1-SW4 and SW6 run the real run_cycle, extracted from run.sh, with every
+# phase stubbed: run_phase records which phase was asked for (and the review
+# prompt), writes tonight's note(s) for research and a verdict for review, and
+# never calls claude. The maintain stub writes no logs/last-pr.txt, so a cycle
+# that reaches it returns 1 straight after — no gh is ever reached.
+SW_FN="$(awk '/^run_cycle \(\) \{/,/^\}/' "$RUN_SH")"
+
+# sw_run <box> <notes-to-write> <verdict-file-body>
+# Runs one cycle in $WORK/sw/<box>. <notes-to-write> is a space-separated list
+# of note names (empty for none). Leaves calls, review-prompt and log there;
+# prints run_cycle's rc.
+sw_run () {
+  local box="$WORK/sw/$1" notes="$2" verdict="$3"
+  mkdir -p "$box/research" "$box/logs"
+  : > "$box/research/2026-01-01-old.md"; touch -t "$PC_OLD" "$box/research/2026-01-01-old.md"
+  (
+    cd "$box" || exit 99
+    REPO="$box" LOG="$box/log" CYCLES=1 RESEARCH_CONTEXT_FILE="logs/research-context.md"
+    SW_NOTES="$notes" SW_VERDICT="$verdict"
+    write_research_context () { :; }
+    run_phase () {
+      echo "$2" >> "$box/calls"
+      case "$2" in
+        research) local n; for n in $SW_NOTES; do : > "research/$n"; done ;;
+        review) printf '%s\n' "$5" > "$box/review-prompt"
+                printf '%b' "$SW_VERDICT" > "$REVIEW_VERDICT_FILE" ;;
+      esac
+      return 0
+    }
+    eval "$SW_FN"
+    run_cycle 1 >/dev/null 2>&1
+    echo $?
+  )
+}
+sw_called () { grep -qx "$2" "$WORK/sw/$1/calls" 2>/dev/null && echo yes || echo no; }
+
+SW_NOTE="2026-11-11-tonight.md"
+SW_OK="VERDICT: PASS\nIncrement: examples/foo/\nSpec: research/$SW_NOTE\n- MET B1 — test: t.py::a\nRan: pytest\nFindings:\n- (nit) x\n"
+SW_UNMET="VERDICT: PASS\nIncrement: examples/foo/\nSpec: research/$SW_NOTE\n- MET B1 — test: t.py::a\n- UNMET B2 — no test\nRan: pytest\nFindings:\n- (nit) x\n"
+SW_FAIL="VERDICT: FAIL\nIncrement: examples/foo/\nSpec: research/$SW_NOTE\n- UNMET B2 — no test\nRan: pytest\nFindings:\n- (blocker) B2\n"
+
+if [ -z "$SW_FN" ]; then
+  fail "SW0" "could not extract run_cycle from run.sh — SW1-SW6 are vacuous"
+else
+  sw_rc="$(sw_run ok "$SW_NOTE" "$SW_OK")"
+  if grep -qF "The spec for this increment is $WORK/sw/ok/research/$SW_NOTE" "$WORK/sw/ok/review-prompt" 2>/dev/null \
+     && grep -qF "'Spec: research/$SW_NOTE'" "$WORK/sw/ok/review-prompt"; then
+    pass "SW1" "the review prompt names tonight's note, absolute, and the exact Spec line to write"
+  else
+    fail "SW1" "the review prompt does not name the spec: '$(cat "$WORK/sw/ok/review-prompt" 2>/dev/null)'"
+  fi
+  assert_eq "SW3" "1|yes" "$sw_rc|$(sw_called ok maintain)" \
+    "PASS + spec OK reaches maintain (rc 1 only because the stub opened no PR)"
+
+  sw_rc="$(sw_run unmet "$SW_NOTE" "$SW_UNMET")"
+  assert_eq "SW2" "1|no" "$sw_rc|$(sw_called unmet maintain)" \
+    "PASS with an UNMET criterion returns 1 and never calls maintain"
+  assert_eq "SW2b" "1" "$(grep -c 'gate: spec check UNMET (B2)' "$WORK/sw/unmet/log")" \
+    "...and the log names the UNMET label"
+
+  sw_rc="$(sw_run nonote "" "$SW_OK")"
+  assert_eq "SW4" "1|no|no" "$sw_rc|$(sw_called nonote build)|$(sw_called nonote review)" \
+    "research that wrote no note stops the cycle before build"
+
+  sw_rc="$(sw_run twonotes "2026-11-11-a.md 2026-11-11-b.md" "$SW_OK")"
+  assert_eq "SW4b" "1|no" "$sw_rc|$(sw_called twonotes build)" \
+    "research that wrote two notes stops the cycle before build"
+  assert_eq "SW4c" "1" "$(grep -c 'AMBIGUOUS' "$WORK/sw/twonotes/log")" \
+    "...and the log says why"
+
+  sw_rc="$(sw_run failv "$SW_NOTE" "$SW_FAIL")"
+  assert_eq "SW6" "1|no|0" "$sw_rc|$(sw_called failv maintain)|$(grep -c 'spec check' "$WORK/sw/failv/log")" \
+    "a FAIL verdict stops at the verdict gate; the spec gate never runs"
+fi
+
+# The reviewer's half of the contract, pinned where run.sh's half is tested.
+REVIEWER_MD="$REPO/.claude/agents/agentlab-reviewer.md"
+sp1_missing=""
+for sp1_text in "**Matches the spec.**" "Spec: none given" "- MET <label> — test:" \
+                "any UNMET criterion." "between \`Increment:\` and \`Ran:\`"; do
+  grep -qF -- "$sp1_text" "$REVIEWER_MD" || sp1_missing="$sp1_missing [$sp1_text]"
+done
+assert_eq "SP1" "" "$sp1_missing" \
+  "agentlab-reviewer.md has check 7, the none-given fallback, the Spec block shape, UNMET = FAIL, and its placement"
 
 file_ln="$(grep -n '^    file_health_findings$' "$RUN_SH" | head -1 | cut -d: -f1)"
 health_ln="$(grep -n 'run_phase sonnet health ' "$RUN_SH" | head -1 | cut -d: -f1)"
