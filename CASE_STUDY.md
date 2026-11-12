@@ -15,7 +15,7 @@ Numbers are as of 2026-11-11.
 | Running since | 2026-07-27 |
 | Merged PRs | 90: 52 shipped by nightly cycles, 38 changes to the pipeline itself made outside the nightly run |
 | Output | 40 runnable examples under `examples/`, 67 dated research notes, 47 notes in the `knowledge/` base |
-| Long-running projects | `projects/nightloop/` (the pipeline itself, ported to an installable Python tool; 3 of 11 milestones done, work on the 4th merged as #89) and an external hackathon project |
+| Long-running projects | `projects/nightloop/` (the pipeline itself, ported to an installable Python tool; 4 of 13 milestones done) and an external hackathon project |
 | Review gate | Since `run.sh` began logging its gate (2026-08-16): 38 PASS, 11 FAIL, 3 MISSING. The 14 non-PASS cycles shipped nothing. |
 | Cost | About $4 per cycle (median of the last two nights; metrics recording is new, so the sample is small) |
 
