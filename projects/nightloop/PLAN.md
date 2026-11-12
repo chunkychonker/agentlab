@@ -45,7 +45,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
 4. [done 89] Cycle orchestrator: runs the sequence with its gates; a failed
    cycle is snapshotted to a recovery branch and never leaks into the next.
    End-to-end tests drive it with the fake runner.
-5. [not-started] Real shipper: a `Shipper` that pushes the cycle's branch,
+5. [in-progress] Real shipper: a `Shipper` that pushes the cycle's branch,
    opens the PR with `gh pr create`, puts the review record in the PR body,
    and runs the mergeable check. A failed push, PR creation or check is
    `NotShipped(reason)`, never a crash or a silent success. Recovery also
@@ -160,10 +160,98 @@ contradict an entry here without adding one.
   milestones 5-12 are now 6-13. Milestone numbers in decisions-log entries
   written before this date use the old numbering: for example, "milestone
   6's CLI" in the 2026-11-11 interface entry is now milestone 7.
+- 2026-11-12: `GitHubShipper` checks for an existing PR (`gh pr list
+  --head <branch> --state all`) *before* it pushes, not after as the
+  research note ordered it. If the check came after the push, a retry
+  against a branch that already has a PR would add commits to that PR
+  before refusing. The record is still composed first, so both a bad record
+  and an existing PR end with nothing committed or pushed.
+- 2026-11-12: Recovery order. Dirty work is snapshotted first, as in m4.
+  Then main is checked out and fetched, and the commits ahead of the remote
+  are counted. So a failed fetch raises `RecoveryError` with any dirty work
+  already safe on the branch, and main is not reset. If main is ahead and
+  no branch was made, the branch is made at main's tip (`git branch <name>
+  main`), so commits are caught even when HEAD was left on another branch.
+  Main is reset only after `merge-base --is-ancestor main <branch>` and a
+  clean-tree check both pass. Dirty work on a branch that does not contain
+  main's ahead commits cannot go to one branch, so that case raises and
+  leaves main unreset.
+- 2026-11-12: nightloop's PR marker is `<!-- nightloop-review -->`, named
+  once in `ship/review_record.py`. It is deliberately not bash's
+  `<!-- agentlab-review -->`, so neither tool takes the other's PRs as
+  already recorded. `Shipped(pr)` means the PR is open, carries the record
+  and reads `MERGEABLE`. A PR that is opened but then conflicting, still
+  `UNKNOWN`, or unreadable comes back as `NotShipped` with its number in
+  the reason and stays open. The result types are unchanged. The mergeable
+  poll does not sleep after its last read (bash sleeps after every
+  `UNKNOWN`). The PR body goes to `gh` on stdin (`--body-file -`), never in
+  argv. The PR title is also the commit message, and commits use the repo's
+  own git identity.
+- 2026-11-12: `GitWorkspace` is no longer the only module that runs git:
+  `ship/git_publisher.py` does too. It is the ship package's own edge,
+  behind the `BranchPublisher` port. Sharing `GitWorkspace`'s private
+  runner would have coupled publishing to `RecoveryError`. The constants
+  (`MAIN_BRANCH`, `REMOTE`, `GIT_PROGRAM`, `GIT_TIMEOUT_S`) are still
+  defined once, in `git_workspace.py`.
 
 ## Current state
 
-Milestone 4 (cycle orchestrator) is done as #89, merged 2026-11-11.
+Milestone 5 (real shipper) is built and in review as of 2026-11-12. Research
+note: `research/2026-11-12-nightloop-real-shipper.md`. `phase/`, `gates/` and
+`config` are unchanged.
+
+- `nightloop/ship/` (new). `GitHubShipper(read_verdict=, git=, gh=, sleep=,
+  mergeable_attempts=5, mergeable_wait_s=2.0)` implements the m4 `Shipper`
+  port. `ship(run_id, cycle)` does these steps in order: compose the review
+  record, `gh.find`, `git.publish`, `gh.create`, read the body back and look
+  for the marker, then poll `mergeable`. Every failure that is not an
+  environment error returns `NotShipped(reason)`, with outside text squeezed
+  onto one line. A missing `git`/`gh` or an unreadable verdict raises
+  `OSError`. Nothing in the package merges, force-pushes or pushes main
+  (`GitBranchPublisher` raises `ValueError` if asked to publish main).
+  - Pure: `review_record.py` (a port of `review_record.sh`: section,
+    credential scan, compose under 65536 bytes), `pr_text.py` (branch
+    `nightloop/<run id>-<cycle>`, title, base body, strict PR-URL parse),
+    `mergeable.py` (`READY`/`WAIT`/`BLOCKED`), `ports.py`, `shipper.py`.
+  - Edges: `git_publisher.py` (`GitBranchPublisher`: `switch -c`, `add -A`,
+    `commit`, `push -u`, then `switch main`), `gh_cli.py` (`GhCli`: `pr
+    list`, `pr create`, `pr view`, run in the repo with prompts disabled and
+    a timeout), `verdict_file.py` (`verdict_reader`).
+- `GitWorkspace.recover` now also moves commits on local `main` that are
+  ahead of `origin/main` to the recovery branch. Main is reset to
+  `origin/main` only once that branch is known to hold them. A failed fetch
+  raises `RecoveryError`. See the 2026-11-12 recovery-order decision. This
+  closes the gap #89's review found.
+- Tests: `cd projects/nightloop && python3 -I -m unittest discover -v`.
+  279 tests (229 before, plus 50 new), stdlib only. They pass on 3.11, 3.12
+  and 3.13. On an idle machine expect well under a minute. The cycle and
+  ship git tests dominate, and on a heavily loaded machine a run took about
+  3 minutes. R1/R2 were written first and failed on the m4 code
+  (Protocol §6). S1-S10 run the real `GhCli` and `GitBranchPublisher`
+  against a real clone with a local bare `origin` and `tests/fake_gh.py`, a
+  stand-in `gh` executable that records argv, stdin and cwd. Failures come
+  from real `pre-commit`/`pre-push` hooks. R5 drives `run_night` with the
+  real shipper wrapped by one that leaks a commit onto main, and checks that
+  cycle 2 starts without it. P1 (`test_ship_purity.py`) checks the core's
+  imports and scans every `ship/` source for merge, force or push-to-main
+  argv. Breaking any of these makes at least one test fail: the secret
+  scan, the marker check, `UNKNOWN`-is-not-ready, the existing-PR check,
+  no-sleep-after-last-read, recovery's ancestor check, or recovery's ahead
+  check.
+
+Known limits (m5). The `gh` flags used (`pr list --head/--state/--json`,
+`pr create --head/--base/--title/--body-file -`, `pr view --json -q`) are
+the documented ones, but the build phase cannot run `gh`, so they have not
+been checked against a real install. A human smoke run should ship one cycle
+against a scratch GitHub repo. The race where a PR is created between
+`find` and `create` is untested. Commits left on a branch other than main
+are not recovered. Retrying a cycle whose push failed hits the leftover
+local branch and returns `NotShipped("could not create branch ...")`; the
+work is safe there. No claim marking (m6) and no CLI wiring (m7): nothing
+builds a `GitHubShipper` outside the tests yet.
+Next: milestone 6 (claim tracking), once m5 merges.
+
+Milestone 4 as built (kept for reference): the cycle orchestrator, done as #89, merged 2026-11-11.
 Research note: `research/2026-11-11-nightloop-cycle-orchestrator.md`.
 Milestones 1 (#78), 2 (#83) and 3 (#88) are done. `phase/` and `gates/` are
 unchanged.
@@ -194,7 +282,7 @@ unchanged.
   - `prompts.py`: one template per phase.
   - `run_id.py`: `RunId`.
   - `fake_shipper.py`: `FakeShipper`.
-  - `git_workspace.py`: `GitWorkspace`, the only module that runs git.
+  - `git_workspace.py`: `GitWorkspace`, at m4 the only module that ran git.
     Recovery runs `status`, `switch -c`, `add -A`, `commit` and `push -u`;
     a failed push is `pushed=False`, not an error. It then runs `switch
     main` and `pull --ff-only`, and checks the tree is clean. A failed
@@ -214,10 +302,10 @@ unchanged.
   `result`-text scan) and removing the usage-limit `break` in `night.py`
   each fail at least one test.
 
-Known limits (m4). There is no real shipper, so nothing opens a PR yet
-(milestone 5). Recovery checks only for uncommitted changes, so commits left
-on local `main` ahead of `origin/main` carry into the next cycle; #89's
-reviewer reproduced this, and bash has the same gap (milestone 5). A
+Known limits (m4; the first two are closed by m5 above). There was no real
+shipper, and recovery checked only for uncommitted changes, so commits left
+on local `main` ahead of `origin/main` carried into the next cycle (#89's
+reviewer reproduced this; bash still has the same gap). A
 `RecoveryError` propagates without the earlier cycles' `CycleReport`s; the
 metrics lines already emitted are the only record. There is no log beyond
 metrics, and `RecoveryError` messages carry git's last stderr line. A

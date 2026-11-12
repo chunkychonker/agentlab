@@ -12,7 +12,8 @@ Public API::
 ``run_night`` takes every effect as a parameter. Production wiring is
 ``SubprocessRunner()``, ``nightloop.gates.evaluate``,
 ``GitWorkspace(repo, now=time.time)``, a shipper, ``time.time`` and a sink
-that appends each line to a file. Milestone 4 ships no real shipper.
+that appends each line to a file. The real shipper is
+``nightloop.ship.GitHubShipper`` (milestone 5).
 """
 
 from __future__ import annotations

@@ -145,6 +145,88 @@ class GitWorkspaceTest(GitRepoCase):
         with self.assertRaises(RecoveryError):
             self.workspace().recover(RUN, 1)
 
+    # --- recover: commits on main ahead of origin (milestone 5, R1-R3) --------
+
+    def commit_on_main(self, name: str = "LEAK.md") -> str:
+        """Commit a file on local main without pushing; returns the commit's sha."""
+        (self.repo / name).write_text("left on main by a failed shipper\n", encoding="utf-8")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "leaked commit")
+        return git(self.repo, "rev-parse", "HEAD").strip()
+
+    def reachable_from_main(self, sha: str) -> bool:
+        done = subprocess.run(["git", "-C", str(self.repo), "merge-base", "--is-ancestor", sha, "main"])
+        return done.returncode == 0
+
+    def test_r1_commits_ahead_of_origin_move_to_a_branch_and_main_is_reset(self) -> None:
+        leaked = self.commit_on_main()
+        recovery = self.workspace().recover(RUN, 3)
+        branch = f"cycle/2026-11-11-unshipped-{HHMMSS}-3"
+        self.assertEqual(recovery, Snapshotted(branch=branch, pushed=True))
+        self.assertEqual(git(self.repo, "rev-parse", branch).strip(), leaked)
+        self.assertIn(branch, self.origin_branches())
+        self.assert_clean_main_equal_to_origin()
+        self.assertFalse(self.reachable_from_main(leaked))
+        self.assertFalse((self.repo / "LEAK.md").exists())
+
+    def test_r1_ahead_commits_are_caught_when_head_was_left_elsewhere(self) -> None:
+        leaked = self.commit_on_main()
+        git(self.repo, "switch", "-q", "-c", "scratch")
+        recovery = self.workspace().recover(RUN, 1)
+        self.assertIsInstance(recovery, Snapshotted)
+        self.assertEqual(git(self.repo, "rev-parse", recovery.branch).strip(), leaked)
+        self.assert_clean_main_equal_to_origin()
+
+    def test_r2_ahead_commits_and_a_dirty_tree_go_to_one_branch(self) -> None:
+        leaked = self.commit_on_main()
+        self.make_dirty()
+        recovery = self.workspace().recover(RUN, 1)
+        self.assertIsInstance(recovery, Snapshotted)
+        self.assertEqual(self.local_branches("cycle/*"), [recovery.branch])
+        self.assertEqual(git(self.repo, "rev-parse", f"{recovery.branch}~1").strip(), leaked)
+        self.assertEqual(self.file_on(recovery.branch, "LEAK.md"), "left on main by a failed shipper\n")
+        self.assertEqual(self.file_on(recovery.branch, "projects/demo/app.py"), "print('hi')\n")
+        self.assert_clean_main_equal_to_origin()
+
+    def test_r2_ahead_commits_with_a_failed_push_are_kept_locally(self) -> None:
+        leaked = self.commit_on_main()
+        hook = self.repo / ".git" / "hooks" / "pre-push"
+        hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+        hook.chmod(0o755)
+        recovery = self.workspace().recover(RUN, 1)
+        self.assertEqual(recovery, Snapshotted(branch=recovery.branch, pushed=False))
+        self.assertEqual(git(self.repo, "rev-parse", recovery.branch).strip(), leaked)
+        self.assert_clean_main_equal_to_origin()
+
+    def test_r3_a_failed_fetch_raises_and_main_is_not_reset(self) -> None:
+        leaked = self.commit_on_main()
+        git(self.repo, "remote", "set-url", "origin", str(self.repo.parent / "gone.git"))
+        with self.assertRaises(RecoveryError):
+            self.workspace().recover(RUN, 1)
+        self.assertEqual(git(self.repo, "rev-parse", "main").strip(), leaked)
+        self.assertEqual(self.local_branches("cycle/*"), [])
+
+    def test_r3_a_failed_fetch_with_a_dirty_tree_still_snapshots_first(self) -> None:
+        self.make_dirty()
+        git(self.repo, "remote", "set-url", "origin", str(self.repo.parent / "gone.git"))
+        with self.assertRaises(RecoveryError):
+            self.workspace().recover(RUN, 1)
+        [branch] = self.local_branches("cycle/*")
+        self.assertEqual(self.file_on(branch, "projects/demo/app.py"), "print('hi')\n")
+
+    def test_ahead_commits_with_a_dirty_tree_on_another_branch_raise_without_reset(self) -> None:
+        # The dirty work is on a branch that does not contain main's leaked
+        # commit, so one recovery branch cannot hold both: refuse to reset.
+        leaked = self.commit_on_main()
+        git(self.repo, "switch", "-q", "-c", "scratch", "HEAD~1")
+        self.make_dirty()
+        with self.assertRaises(RecoveryError) as caught:
+            self.workspace().recover(RUN, 1)
+        self.assertIn("ahead", str(caught.exception))
+        self.assertEqual(git(self.repo, "rev-parse", "main").strip(), leaked)
+        [branch] = self.local_branches("cycle/*")
+        self.assertEqual(self.file_on(branch, "projects/demo/app.py"), "print('hi')\n")
+
     def test_git_that_cannot_start_fails_at_construction(self) -> None:
         with self.assertRaises(ValueError):
             GitWorkspace(self.repo, now=time.time, git="/nonexistent/git")

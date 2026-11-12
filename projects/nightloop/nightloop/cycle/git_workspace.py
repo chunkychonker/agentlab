@@ -3,7 +3,9 @@
 The only module in ``nightloop.cycle`` that runs a process or touches the
 filesystem. A port of agentlab's ``snapshot_dirty_main`` plus
 ``reset_to_clean_main`` (``.pipeline/run.sh``), with the same rule: nothing
-here ever discards work. Every git call has a timeout and runs with
+here ever discards work. Unlike bash, it also moves commits on local main
+that the remote lacks to the recovery branch, and resets main only once
+that branch is known to hold them. Every git call has a timeout and runs with
 ``GIT_TERMINAL_PROMPT=0``, so a push that wants credentials fails instead of
 hanging the night.
 """
@@ -78,13 +80,21 @@ class GitWorkspace:
         (self._repo / verdict_path).unlink(missing_ok=True)
 
     def recover(self, run_id: RunId, cycle: int) -> Recovery:
-        """Snapshot a dirty tree to ``cycle/<date>-unshipped-<HHMMSS>-<cycle>``, then restore main.
+        """Move leftover work to ``cycle/<date>-unshipped-<HHMMSS>-<cycle>``, then restore main.
 
-        Steps, as bash: if ``git status --porcelain`` is empty, skip to
-        restoring main. Else ``switch -c <branch>``, ``add -A`` (ignored
-        files stay out), ``commit``, ``push -u <remote> <branch>``. Then
-        ``switch <main>``, ``pull --ff-only <remote> <main>``, and confirm
-        the tree is clean.
+        Leftover work is uncommitted changes and, since milestone 5, commits
+        on local main that ``<remote>/<main>`` does not have. Steps:
+
+        1. If ``git status --porcelain`` is non-empty: ``switch -c <branch>``
+           from HEAD, ``add -A`` (ignored files stay out), ``commit``,
+           ``push -u <remote> <branch>`` (as bash).
+        2. ``switch <main>``, ``fetch <remote> <main>``, count
+           ``<remote>/<main>..<main>``.
+        3. If main is ahead: when step 1 made no branch, ``branch <branch>
+           <main>`` and push it. Check that the branch contains main's tip
+           (``merge-base --is-ancestor``) and that the tree is clean, then
+           ``reset --hard <remote>/<main>``.
+        4. ``pull --ff-only <remote> <main>`` and confirm the tree is clean.
 
         Failure modes:
 
@@ -94,15 +104,39 @@ class GitWorkspace:
           The changes are carried back to main (``git switch`` never drops
           them), so main is left dirty and nothing is lost; a branch this
           call created but could not commit to is deleted.
+        - The fetch fails or the ahead count cannot be read:
+          ``RecoveryError``, main is not reset (any dirty work is already on
+          the branch from step 1). Skipping the check would reopen the leak.
+        - Main is ahead but the dirty work was on a branch that does not
+          contain main's tip (one branch cannot hold both), or the branch for
+          main's commits cannot be made: ``RecoveryError``, main is not reset.
         - Main cannot be checked out or fast-forwarded, or is still dirty
           afterwards: ``RecoveryError``.
         - git cannot be started or a command times out: ``RecoveryError``.
         """
-        if not self._is_dirty():
-            self._restore_main()
-            return Clean()
         hhmmss = time.strftime("%H%M%S", time.localtime(self._now()))
         branch = recovery_branch(run_id, cycle, hhmmss)
+        snapshotted: Snapshotted | None = None
+        if self._is_dirty():
+            self._snapshot_dirty(branch, run_id, cycle)
+            snapshotted = Snapshotted(branch=branch, pushed=self._push(branch))
+        self._switch_main()
+        ahead = self._commits_ahead()
+        if ahead > 0:
+            if snapshotted is None:
+                made = self._git("branch", branch, self._main)
+                if made.returncode != 0:
+                    raise RecoveryError(
+                        f"{self._main} is {ahead} commit(s) ahead of {self._remote}/{self._main} and "
+                        f"recovery branch {branch} could not be made ({_tail(made)}); {self._main} not reset"
+                    )
+                snapshotted = Snapshotted(branch=branch, pushed=self._push(branch))
+            self._reset_main_to_remote(branch, ahead)
+        self._fast_forward_main()
+        return Clean() if snapshotted is None else snapshotted
+
+    def _snapshot_dirty(self, branch: str, run_id: RunId, cycle: int) -> None:
+        """Commit the dirty tree to new branch ``branch``; raises ``RecoveryError`` as ``recover`` says."""
         created = self._git("switch", "-c", branch)
         if created.returncode != 0:
             back = self._git("switch", self._main)
@@ -120,9 +154,6 @@ class GitWorkspace:
                 f"snapshot commit on {branch} failed ({failure}); "
                 f"the work is still uncommitted{_where(back, self._main)}; resolve it by hand"
             )
-        pushed = self._push(branch)
-        self._restore_main()
-        return Snapshotted(branch=branch, pushed=pushed)
 
     def _commit(self, run_id: RunId, cycle: int) -> str | None:
         """Stage and commit everything; ``None`` on success, else what failed."""
@@ -142,11 +173,43 @@ class GitWorkspace:
         except RecoveryError:
             return False
 
-    def _restore_main(self) -> None:
-        """Switch to main, fast-forward it, and check it is clean; raises ``RecoveryError``."""
+    def _switch_main(self) -> None:
+        """Check out main; raises ``RecoveryError`` if git refuses."""
         switched = self._git("switch", self._main)
         if switched.returncode != 0:
             raise RecoveryError(f"could not switch to {self._main}: {_tail(switched)}")
+
+    def _commits_ahead(self) -> int:
+        """Fetch main, then count commits on local main the remote's main lacks; raises ``RecoveryError``."""
+        fetched = self._git("fetch", self._remote, self._main)
+        if fetched.returncode != 0:
+            raise RecoveryError(
+                f"could not fetch {self._main} from {self._remote} ({_tail(fetched)}); "
+                f"cannot tell whether {self._main} holds unshipped commits, so it was not reset"
+            )
+        counted = self._git("rev-list", "--count", f"{self._remote}/{self._main}..{self._main}")
+        count = counted.stdout.strip()
+        if counted.returncode != 0 or not count.isascii() or not count.isdigit():
+            raise RecoveryError(f"could not count commits ahead of {self._remote}/{self._main}: {_tail(counted)}")
+        return int(count)
+
+    def _reset_main_to_remote(self, branch: str, ahead: int) -> None:
+        """Point main at the remote's main once ``branch`` is known to hold main's tip; raises ``RecoveryError``."""
+        held = self._git("merge-base", "--is-ancestor", self._main, branch)
+        if held.returncode != 0:
+            raise RecoveryError(
+                f"{self._main} is {ahead} commit(s) ahead of {self._remote}/{self._main}, but recovery "
+                f"branch {branch} does not contain them (the dirty work was on another branch); "
+                f"{self._main} not reset, resolve it by hand"
+            )
+        if self._is_dirty():
+            raise RecoveryError(f"{self._main} is dirty before its reset; {self._main} not reset")
+        reset = self._git("reset", "--hard", f"{self._remote}/{self._main}")
+        if reset.returncode != 0:
+            raise RecoveryError(f"could not reset {self._main} to {self._remote}/{self._main}: {_tail(reset)}")
+
+    def _fast_forward_main(self) -> None:
+        """Fast-forward the checked-out main and check it is clean; raises ``RecoveryError``."""
         pulled = self._git("pull", "--ff-only", self._remote, self._main)
         if pulled.returncode != 0:
             raise RecoveryError(f"could not fast-forward {self._main} from {self._remote}: {_tail(pulled)}")
