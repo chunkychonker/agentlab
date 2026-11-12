@@ -42,25 +42,33 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    `claude -p --agent … --permission-mode dontAsk --allowedTools … --output-format json`
    behind an interface, records one metrics JSON line per phase, and ships a
    fake runner for tests. No test calls a real model.
-4. [in-progress] Cycle orchestrator: runs the sequence with its gates; a failed
+4. [done 89] Cycle orchestrator: runs the sequence with its gates; a failed
    cycle is snapshotted to a recovery branch and never leaks into the next.
    End-to-end tests drive it with the fake runner.
-5. [not-started] Claim tracking: the backlog claim lifecycle
+5. [not-started] Real shipper: a `Shipper` that pushes the cycle's branch,
+   opens the PR with `gh pr create`, puts the review record in the PR body,
+   and runs the mergeable check. A failed push, PR creation or check is
+   `NotShipped(reason)`, never a crash or a silent success. Recovery also
+   catches commits left on local `main` ahead of `origin/main`, not only
+   uncommitted changes, so the shipper can never push a failed cycle's
+   commits. Tests use a local bare `origin` and a fake `gh`; no test talks
+   to GitHub.
+6. [not-started] Claim tracking: the backlog claim lifecycle
    (`[ ]` → `[building]` → `[done #N]`), including stranded-claim recovery.
-6. [not-started] CLI: `nightloop run`, `nightloop run --dry-run` (prints the
+7. [not-started] CLI: `nightloop run`, `nightloop run --dry-run` (prints the
    night's plan without calling a model), and `nightloop report` (metrics
    summary).
-7. [not-started] Plugin: phase agent templates plus the publish-guard
+8. [not-started] Plugin: phase agent templates plus the publish-guard
    PreToolUse hook, packaged as a Claude Code plugin.
-8. [not-started] Scheduler, macOS: generate and install a launchd job
+9. [not-started] Scheduler, macOS: generate and install a launchd job
    idempotently, honouring the run window.
-9. [not-started] Scheduler, GitHub Actions: a workflow template that runs
-   one night on a cron.
-10. [not-started] Reviewer benchmark: seeded-bug fixtures, a runner, and a
+10. [not-started] Scheduler, GitHub Actions: a workflow template that runs
+    one night on a cron.
+11. [not-started] Reviewer benchmark: seeded-bug fixtures, a runner, and a
     catch-rate plus false-positive report.
-11. [not-started] Docs: README, quickstart, and an architecture page that
+12. [not-started] Docs: README, quickstart, and an architecture page that
     explains each gate and the incident that motivated it.
-12. [blocked: needs a human to choose and authorise the repo] Adopt on a
+13. [blocked: needs a human to choose and authorise the repo] Adopt on a
     second repo and record the first week's metrics.
 
 ## Decisions log
@@ -143,11 +151,20 @@ contradict an entry here without adding one.
   git ref component. `run_night` takes `timeout_s` as a required argument
   with no default: bash has no phase timeout, so any default would be a new
   policy. That choice is left to milestone 6's CLI.
+- 2026-11-12 (owner): Milestone 4 is done as #89. The real shipper, left
+  unowned by the 2026-11-11 Shipper entry, is now milestone 5, ahead of claim
+  tracking and the CLI, because both need a PR to exist. Milestone 5 also
+  closes the gap #89's review found: recovery treats only uncommitted
+  changes as a leak, so commits left on local `main` would carry into the
+  next cycle (bash's `reset_to_clean_main` has the same gap). The old
+  milestones 5-12 are now 6-13. Milestone numbers in decisions-log entries
+  written before this date use the old numbering: for example, "milestone
+  6's CLI" in the 2026-11-11 interface entry is now milestone 7.
 
 ## Current state
 
-Milestone 4 (cycle orchestrator) is built and awaiting review as of
-2026-11-11. Research note: `research/2026-11-11-nightloop-cycle-orchestrator.md`.
+Milestone 4 (cycle orchestrator) is done as #89, merged 2026-11-11.
+Research note: `research/2026-11-11-nightloop-cycle-orchestrator.md`.
 Milestones 1 (#78), 2 (#83) and 3 (#88) are done. `phase/` and `gates/` are
 unchanged.
 
@@ -197,18 +214,21 @@ unchanged.
   `result`-text scan) and removing the usage-limit `break` in `night.py`
   each fail at least one test.
 
-Known limits (m4). There is no real shipper, so nothing opens a PR yet. A
+Known limits (m4). There is no real shipper, so nothing opens a PR yet
+(milestone 5). Recovery checks only for uncommitted changes, so commits left
+on local `main` ahead of `origin/main` carry into the next cycle; #89's
+reviewer reproduced this, and bash has the same gap (milestone 5). A
 `RecoveryError` propagates without the earlier cycles' `CycleReport`s; the
 metrics lines already emitted are the only record. There is no log beyond
 metrics, and `RecoveryError` messages carry git's last stderr line. A
 handoff file tracked by git would dirty main every cycle, so it must be
 git-ignored (agentlab's `logs/` is). Recovery commits run the repo's
 hooks, as bash's do. Not ported: bash's untracked-stray handling and
-`scrub_artifacts`, claim marking (m5), replenish, health, observer and
+`scrub_artifacts`, claim marking (m6), replenish, health, observer and
 auto-merge. The rc-0 rate-limit behaviour and the real limit text under
 `--output-format json` are unconfirmed. A human smoke run should check
 one real limit hit against `usage_limit_reset`.
-Next: review of m4, then milestone 5 (claim tracking).
+Next: milestone 5 (real shipper), then milestone 6 (claim tracking).
 
 Milestone 3 as built (kept for reference):
 
@@ -218,7 +238,7 @@ Milestone 3 as built (kept for reference):
   builds `claude -p <prompt> --model --output-format json --permission-mode
   dontAsk --agent --allowedTools <rule>...`, with the prompt always at
   argv[2] and `--allowedTools` last. It never emits `--bare` (that would skip
-  m7's hook) or `--dangerously-skip-permissions`. `result.py`:
+  m8's hook) or `--dangerously-skip-permissions`. `result.py`:
   `parse_cli_json` returns a `CliResult` or raises `CliOutputError` (rejects
   NaN, Infinity and over-long ints). `metrics.py`: `PhaseRecord` and
   `to_json_line`, using the bash field names plus `outcome`. `runner.py`: the
@@ -244,7 +264,7 @@ Milestone 3 as built (kept for reference):
 
 Known limits. A descendant that starts its own session escapes the group
 kill and can hold stdout open. The runner passes no `--settings`, no env
-(such as bash's `AGENTLAB_PHASE`) and no `--disallowedTools`, so m7 must add
+(such as bash's `AGENTLAB_PHASE`) and no `--disallowedTools`, so m8 must add
 the hook wiring. Usage-limit detection (bash `usage_limit_reset`) is not
 ported; it belongs with m4's stop-the-night logic. Records carry no `run_ts`
 or `cycle`, which m4 adds. There is no file sink yet: `metrics_sink` is any
