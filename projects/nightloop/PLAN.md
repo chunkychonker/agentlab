@@ -45,7 +45,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
 4. [done 89] Cycle orchestrator: runs the sequence with its gates; a failed
    cycle is snapshotted to a recovery branch and never leaks into the next.
    End-to-end tests drive it with the fake runner.
-5. [not-started] Real shipper: a `Shipper` that pushes the cycle's branch,
+5. [in-progress] Real shipper: a `Shipper` that pushes the cycle's branch,
    opens the PR with `gh pr create`, puts the review record in the PR body,
    and runs the mergeable check. A failed push, PR creation or check is
    `NotShipped(reason)`, never a crash or a silent success. Recovery also
@@ -160,9 +160,109 @@ contradict an entry here without adding one.
   milestones 5-12 are now 6-13. Milestone numbers in decisions-log entries
   written before this date use the old numbering: for example, "milestone
   6's CLI" in the 2026-11-11 interface entry is now milestone 7.
+- 2026-11-13: Milestone 5 interfaces, as the research note proposes.
+  `compose_pr_body(summary, verdict_text)` takes the verdict's text, not a
+  path, so the file read stays in `GhShipper`. The ship branch is
+  `cycle/<date>-<HHMMSS>-<cycle>-ship`, which cannot collide with the
+  `-unshipped-` recovery branch. The PR number is parsed from the URL that
+  `gh pr create` prints, because `gh pr create` has no JSON output. Where
+  the build differs from the note: (1) `ship` switches back to main right
+  after the commit, before the push, and does not run `pull --ff-only`.
+  `recover` always runs next and does the pull, so a second pull would only
+  add a failure mode. (2) Divergence (main both ahead of and behind
+  `origin/main`) is now recovered instead of raising. The ahead path moves
+  the local commits to the recovery branch and runs `branch -f main
+  origin/main` after the ancestor check, so the following `pull --ff-only`
+  succeeds. Nothing is discarded. The note's item 7 expected
+  `RecoveryError` to remain for this case. (3) `ship` also returns
+  `NotShipped` when HEAD is not on main or the tree is clean, and treats a
+  timed-out git or `gh` call as a failed step. It raises only `OSError`
+  (a program that cannot start), and the constructor checks that `gh` is
+  on PATH. (4) The credential scan covers the summary as well as the review
+  section. The section's intro line says nightloop posted it and nothing
+  merges it, where bash's says `run.sh` posted it before the merge. (5) A
+  second `Ran:` or `Findings:` line inside a block is kept once, verbatim.
+  Bash's `awk` prints it twice.
 
 ## Current state
 
+Milestone 5 (real shipper) is in progress and built (2026-11-13), waiting
+for review. Research note: `research/2026-11-13-nightloop-real-shipper.md`.
+Milestone 4 is done as #89. `phase/` and `gates/` are unchanged.
+
+- `GhShipper` (`nightloop/cycle/gh_shipper.py`) is the second module in
+  `cycle/` that runs processes. `ship(run_id, cycle)` steps:
+  - reads the verdict file and composes the PR body, before any git call;
+  - checks HEAD is main, fetches, and refuses if main is ahead of
+    `origin/main` or the tree is clean;
+  - `switch -c cycle/<date>-<HHMMSS>-<cycle>-ship`, `add -A`, `commit`,
+    `switch main`;
+  - `push -u` the ship branch only, never main and never forced;
+  - `gh pr create --head --base --title= --body-file -`, with the body on
+    stdin;
+  - up to 5 reads of `gh pr view <n> --json body,mergeable`, 2s apart
+    through the injected `sleep`. Each read checks the record marker.
+
+  Only `MERGEABLE` is `Shipped(pr)`. Every refused or failed step is
+  `NotShipped(reason)`, and the checkout ends on main. Before the commit the
+  work is still uncommitted, so `recover` snapshots it. After the commit it
+  is on the ship branch, pushed unless the push failed. A failed commit
+  deletes only its own empty branch. A branch-name collision is
+  `NotShipped`, and the existing branch is not touched. Only `OSError` is
+  raised. Nothing merges.
+- Pure helpers:
+  - `review_record.py`: `compose_pr_body -> PrBody | RecordRefused`, a port
+    of `.pipeline/review_record.sh`. `PrBody` cannot be built without the
+    marker or at or over the 65536-byte limit.
+  - `gh_parse.py`: `parse_pr_number` and `parse_pr_view`. Both return
+    `None` for output they do not recognise.
+  - `mergeable.py`: `decide -> MergeCheck`.
+  - `naming.py`: gained `ship_branch`.
+- `GitWorkspace.recover` now fetches first and counts `origin/main..main`.
+  If main is ahead, it runs `switch -c <recovery> main` and commits any
+  dirty files there. Then it pushes, checks `merge-base --is-ancestor
+  <old main> <branch>`, runs `branch -f main origin/main`, and restores main
+  as before. A failed fetch, ancestor check or `branch -f` is a
+  `RecoveryError`, and main is left at its old tip. The dirty-only and
+  clean paths are unchanged, except that the fetch now runs first.
+- Tests: `cd projects/nightloop && python3 -I -m unittest discover -v`. There
+  are 293 tests (229 before, 64 new), standard library only. They pass on
+  3.11, 3.12 and 3.13 in about 30s. A1-A10 from the note are covered.
+  - Shipper tests run the real `GhShipper` on a temp repo with a local bare
+    `origin` and a fake `gh` (`tests/gh_support.py`). The fake is a Python
+    script that records argv and stdin and answers from a scripted state
+    file.
+  - A8 uses a stand-in git that refuses `merge-base --is-ancestor` or
+    `branch -f`.
+  - Two `run_night` seam tests drive the real `GhShipper`. In one, a build
+    that commits on main is `NotShipped`, and recovery moves the commit and
+    the work to a branch.
+  - A11: breaking any one of six guards fails at least one test. The six
+    are the ahead check in `ship`, the marker read-back, the `UNKNOWN`
+    retry, the credential scan, the ahead check in `recover`, and the
+    ancestor check.
+
+Known limits (m5). Nothing calls `gh` for real yet. A human smoke run
+should check three open questions:
+- what `gh pr create` does when a PR for the branch already exists (any
+  non-zero exit is `NotShipped`);
+- whether `mergeable` can take values beyond MERGEABLE, CONFLICTING and
+  UNKNOWN (anything else is refused);
+- that `--title=` and `--body-file -` behave as the manual implies.
+
+Other limits:
+- The title is an injected callable. m7's CLI must supply a real one.
+- A `NotShipped` after the push leaves the pushed branch (and possibly an
+  open PR) for a human, and nothing tracks it until m6.
+- `ship` and `recover` each fetch, so a cycle makes two network round
+  trips to `origin`.
+- The duplicated `_tail` helper in `gh_shipper.py` and `git_workspace.py`
+  was not factored out, to keep `git_workspace.py`'s change to the recovery
+  fix.
+
+Next: milestone 6 (claim tracking).
+
+Milestone 4 as built (kept for reference; m5 changed `recover` as above).
 Milestone 4 (cycle orchestrator) is done as #89, merged 2026-11-11.
 Research note: `research/2026-11-11-nightloop-cycle-orchestrator.md`.
 Milestones 1 (#78), 2 (#83) and 3 (#88) are done. `phase/` and `gates/` are

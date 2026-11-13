@@ -2,8 +2,8 @@
 
 Pure: no I/O. ``Workspace`` is everything the orchestrator asks of the
 checkout (``GitWorkspace`` implements it on real git); ``Shipper`` turns a
-passed review into a PR (milestone 4 ships only ``FakeShipper``; the real
-one is a later milestone).
+passed review into a PR (``GhShipper`` implements it on git and the GitHub
+CLI; ``FakeShipper`` is the test double).
 """
 
 from __future__ import annotations
@@ -66,9 +66,11 @@ class Workspace(Protocol):
         ...
 
     def recover(self, run_id: RunId, cycle: int) -> Recovery:
-        """Move any uncommitted work to one recovery branch, then return to a clean, current main.
+        """Move any leftover work to one recovery branch, then return to a clean, current main.
 
-        ``Clean()`` if there was nothing to move. Raises ``RecoveryError`` if
+        Leftover work is uncommitted changes and commits on local main that
+        the remote's main does not have. ``Clean()`` if there was nothing to
+        move. Raises ``RecoveryError`` if
         the work could not be committed (main is left dirty, nothing is
         discarded) or main could not be restored.
         """

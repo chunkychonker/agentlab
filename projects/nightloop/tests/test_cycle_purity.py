@@ -1,4 +1,7 @@
-"""Milestone 4, B12: the cycle core imports no I/O; only ``git_workspace.py`` may.
+"""Milestone 4, B12 and milestone 5, A10: the cycle core imports no I/O.
+
+Only ``git_workspace.py`` and ``gh_shipper.py`` may: the record composer,
+the output parsers and the mergeable decision are pure.
 
 Parses the source with ``ast`` (reusing the gates purity checker), so
 imports inside functions count too. Imports from sibling packages are
@@ -17,14 +20,15 @@ from .test_gates_purity import imports_of
 
 CYCLE = Path(__file__).resolve().parent.parent / "nightloop" / "cycle"
 PURE_MODULES = (
-    "cycle.py", "fake_shipper.py", "metrics_tag.py", "naming.py", "night.py", "ports.py",
-    "prompts.py", "recording.py", "report.py", "result.py", "run_id.py", "usage_limit.py",
+    "cycle.py", "fake_shipper.py", "gh_parse.py", "mergeable.py", "metrics_tag.py", "naming.py",
+    "night.py", "ports.py", "prompts.py", "recording.py", "report.py", "result.py",
+    "review_record.py", "run_id.py", "usage_limit.py",
 )
-IO_MODULE = "git_workspace.py"
+IO_MODULES = ("git_workspace.py", "gh_shipper.py")
 FORBIDDEN_STDLIB = {
     "os", "subprocess", "signal", "time", "shutil", "io", "socket", "urllib", "http", "datetime",
 }
-FORBIDDEN_SIBLINGS = {"git_workspace"}
+FORBIDDEN_SIBLINGS = {"git_workspace", "gh_shipper"}
 # (package, module) pairs under nightloop that do I/O, or re-export modules that do.
 FORBIDDEN_PARENT = {
     ("phase", None), ("phase", "subprocess_runner"),
@@ -46,7 +50,7 @@ def parent_imports(source: str) -> set[tuple[str, str | None]]:
 class CyclePurityTest(unittest.TestCase):
     def test_the_module_list_is_complete(self) -> None:
         on_disk = {p.name for p in CYCLE.glob("*.py")} - {"__init__.py"}
-        self.assertEqual(on_disk, set(PURE_MODULES) | {IO_MODULE})
+        self.assertEqual(on_disk, set(PURE_MODULES) | set(IO_MODULES))
 
     def test_pure_modules_import_no_io(self) -> None:
         for name in PURE_MODULES:
@@ -58,9 +62,11 @@ class CyclePurityTest(unittest.TestCase):
                 impure = parent_imports(source) & FORBIDDEN_PARENT
                 self.assertFalse(impure, f"{name} imports {impure}")
 
-    def test_the_io_module_is_the_one_that_runs_git(self) -> None:
-        absolute, _ = imports_of((CYCLE / IO_MODULE).read_text(encoding="utf-8"))
-        self.assertIn("subprocess", absolute)
+    def test_the_io_modules_are_the_ones_that_run_processes(self) -> None:
+        for name in IO_MODULES:
+            with self.subTest(module=name):
+                absolute, _ = imports_of((CYCLE / name).read_text(encoding="utf-8"))
+                self.assertIn("subprocess", absolute)
 
     def test_the_parent_checker_sees_an_impure_import(self) -> None:
         self.assertEqual(

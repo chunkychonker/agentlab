@@ -3,7 +3,8 @@
 The only module in ``nightloop.cycle`` that runs a process or touches the
 filesystem. A port of agentlab's ``snapshot_dirty_main`` plus
 ``reset_to_clean_main`` (``.pipeline/run.sh``), with the same rule: nothing
-here ever discards work. Every git call has a timeout and runs with
+here ever discards work. Unlike bash, it also moves commits left on local
+main ahead of the remote's main to the recovery branch. Every git call has a timeout and runs with
 ``GIT_TERMINAL_PROMPT=0``, so a push that wants credentials fails instead of
 hanging the night.
 """
@@ -78,26 +79,43 @@ class GitWorkspace:
         (self._repo / verdict_path).unlink(missing_ok=True)
 
     def recover(self, run_id: RunId, cycle: int) -> Recovery:
-        """Snapshot a dirty tree to ``cycle/<date>-unshipped-<HHMMSS>-<cycle>``, then restore main.
+        """Snapshot leftover work to ``cycle/<date>-unshipped-<HHMMSS>-<cycle>``, then restore main.
 
-        Steps, as bash: if ``git status --porcelain`` is empty, skip to
-        restoring main. Else ``switch -c <branch>``, ``add -A`` (ignored
-        files stay out), ``commit``, ``push -u <remote> <branch>``. Then
-        ``switch <main>``, ``pull --ff-only <remote> <main>``, and confirm
-        the tree is clean.
+        Leftover work is uncommitted changes, commits on local main that
+        ``<remote>/<main>`` does not have, or both. First ``fetch <remote>
+        <main>`` and count ``<remote>/<main>..<main>``.
 
-        Failure modes:
+        Main ahead: ``switch -c <branch> <main>`` (it holds the commits),
+        commit any dirty files on it, ``push -u``, confirm with
+        ``merge-base --is-ancestor`` that the branch contains main's old
+        tip, and only then ``branch -f <main> <remote>/<main>``. This also
+        recovers a main that has diverged from the remote's.
 
+        Main not ahead, as bash: if ``git status --porcelain`` is empty, skip
+        to restoring main. Else ``switch -c <branch>``, ``add -A`` (ignored
+        files stay out), ``commit``, ``push -u <remote> <branch>``.
+
+        Both then ``switch <main>``, ``pull --ff-only <remote> <main>``, and
+        confirm the tree is clean.
+
+        Failure modes (nothing is ever discarded):
+
+        - The fetch fails, or the count cannot be read: ``RecoveryError``
+          (an ahead check on a stale ref cannot be trusted).
         - Push fails or times out: not raised; ``Snapshotted(pushed=False)``
           and the work is safe on the local branch.
         - Branch creation, ``add`` or ``commit`` fails: ``RecoveryError``.
           The changes are carried back to main (``git switch`` never drops
           them), so main is left dirty and nothing is lost; a branch this
-          call created but could not commit to is deleted.
+          call created but could not commit to is deleted. Main is not moved.
+        - The ancestor check fails or ``branch -f`` fails: ``RecoveryError``,
+          and main still points at its old tip.
         - Main cannot be checked out or fast-forwarded, or is still dirty
           afterwards: ``RecoveryError``.
         - git cannot be started or a command times out: ``RecoveryError``.
         """
+        if self._commits_ahead() > 0:
+            return self._snapshot_ahead(run_id, cycle)
         if not self._is_dirty():
             self._restore_main()
             return Clean()
@@ -121,6 +139,60 @@ class GitWorkspace:
                 f"the work is still uncommitted{_where(back, self._main)}; resolve it by hand"
             )
         pushed = self._push(branch)
+        self._restore_main()
+        return Snapshotted(branch=branch, pushed=pushed)
+
+    def _commits_ahead(self) -> int:
+        """Fetch, then count commits on main that the remote's main lacks; raises ``RecoveryError``."""
+        fetched = self._git("fetch", "--quiet", self._remote, self._main)
+        if fetched.returncode != 0:
+            raise RecoveryError(f"could not fetch {self._remote}/{self._main}: {_tail(fetched)}")
+        counted = self._git("rev-list", "--count", f"{self._remote}/{self._main}..{self._main}")
+        ahead = counted.stdout.strip()
+        if counted.returncode != 0 or not ahead.isdigit():
+            raise RecoveryError(
+                f"could not count commits on {self._main} ahead of {self._remote}: {_tail(counted)}"
+            )
+        return int(ahead)
+
+    def _snapshot_ahead(self, run_id: RunId, cycle: int) -> Snapshotted:
+        """Move main's unpushed commits (and any dirty files) to the recovery branch, then reset main."""
+        tip = self._git("rev-parse", "--verify", f"{self._main}^{{commit}}")
+        if tip.returncode != 0:
+            raise RecoveryError(f"could not read {self._main}'s tip: {_tail(tip)}")
+        old_main = tip.stdout.strip()
+        hhmmss = time.strftime("%H%M%S", time.localtime(self._now()))
+        branch = recovery_branch(run_id, cycle, hhmmss)
+        created = self._git("switch", "-c", branch, self._main)
+        if created.returncode != 0:
+            raise RecoveryError(
+                f"could not create recovery branch {branch} ({_tail(created)}); "
+                f"{self._main} still holds its unpushed commits at {old_main}"
+            )
+        if self._is_dirty():
+            failure = self._commit(run_id, cycle)
+            if failure is not None:
+                back = self._git("switch", self._main)
+                if back.returncode == 0:
+                    # It points at main's tip, which main still holds: nothing is lost.
+                    self._git("branch", "-D", branch)
+                raise RecoveryError(
+                    f"snapshot commit on {branch} failed ({failure}); {self._main} was not moved "
+                    f"and the work is still uncommitted{_where(back, self._main)}; resolve it by hand"
+                )
+        pushed = self._push(branch)
+        contains = self._git("merge-base", "--is-ancestor", old_main, branch)
+        if contains.returncode != 0:
+            raise RecoveryError(
+                f"{branch} does not contain {self._main}'s old tip {old_main} ({_tail(contains)}); "
+                f"{self._main} was not moved and the checkout is on {branch}"
+            )
+        moved = self._git("branch", "-f", self._main, f"{self._remote}/{self._main}")
+        if moved.returncode != 0:
+            raise RecoveryError(
+                f"could not reset {self._main} to {self._remote}/{self._main} ({_tail(moved)}); "
+                f"{self._main} still points at {old_main} and the checkout is on {branch}"
+            )
         self._restore_main()
         return Snapshotted(branch=branch, pushed=pushed)
 

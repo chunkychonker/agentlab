@@ -6,18 +6,20 @@ Public API::
         run_night, NightResult, CycleReport, RunId,
         Shipped, NotShipped, PhaseFailed, ReviewRefused, UsageLimited,
         Workspace, Shipper, Clean, Snapshotted, RecoveryError,
-        GitWorkspace, FakeShipper, usage_limit_reset,
+        GitWorkspace, GhShipper, FakeShipper, usage_limit_reset,
     )
 
 ``run_night`` takes every effect as a parameter. Production wiring is
 ``SubprocessRunner()``, ``nightloop.gates.evaluate``,
-``GitWorkspace(repo, now=time.time)``, a shipper, ``time.time`` and a sink
-that appends each line to a file. Milestone 4 ships no real shipper.
+``GitWorkspace(repo, now=time.time)``, ``GhShipper(repo, verdict_path=...,
+title=..., now=time.time, sleep=time.sleep)``, ``time.time`` and a sink
+that appends each line to a file.
 """
 
 from __future__ import annotations
 
 from .fake_shipper import FakeShipper, FakeShipperExhausted
+from .gh_shipper import GhShipper
 from .git_workspace import GitWorkspace
 from .night import run_night
 from .ports import Clean, Recovery, RecoveryError, Shipper, Snapshotted, Workspace
@@ -32,6 +34,7 @@ __all__ = [
     "CycleResult",
     "FakeShipper",
     "FakeShipperExhausted",
+    "GhShipper",
     "GitWorkspace",
     "NightResult",
     "NotShipped",

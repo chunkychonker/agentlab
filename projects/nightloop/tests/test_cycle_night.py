@@ -20,6 +20,7 @@ from typing import Callable
 from nightloop.cycle import (
     Clean,
     FakeShipper,
+    GhShipper,
     GitWorkspace,
     NightResult,
     NotShipped,
@@ -35,6 +36,8 @@ from nightloop.cycle import (
 from nightloop.gates import Verdict, evaluate
 from nightloop.phase import FakeRunner, PhaseRequest, PhaseStatus, RawRun, cli_stdout, cli_success
 
+from .gh_support import VERDICT as GH_VERDICT
+from .gh_support import FakeGh
 from .git_support import GitRepoCase, git
 from .phase_support import example_config
 
@@ -352,6 +355,41 @@ class NightTest(GitRepoCase):
         self.assert_clean_main_equal_to_origin()
 
     # --- invariant 9 and input checks -------------------------------------------
+
+    # --- milestone 5: the real shipper at the orchestrator seam ---------------
+
+    def gh_shipper(self, fake: FakeGh) -> GhShipper:
+        return GhShipper(self.repo, verdict_path=VERDICT, title=lambda: "Nightly increment",
+                         now=lambda: STARTED, sleep=lambda _s: None, gh=str(fake.path))
+
+    def test_m5_a_passing_night_ships_through_gh_shipper(self) -> None:
+        fake = FakeGh(self.repo.parent / "gh")
+        night, _, _ = self.night(self.cycle(GH_VERDICT), shipper=self.gh_shipper(fake))
+        self.assertEqual(self.results(night), [Shipped(7)])
+        self.assertEqual(night.reports[0].recovery, Clean())
+        branch = f"cycle/2026-11-11-{time.strftime('%H%M%S', time.localtime(STARTED))}-1-ship"
+        self.assertEqual(git(self.origin, "show", f"{branch}:projects/demo/app.py"), "print('hi')\n")
+        self.assertEqual(self.local_branches("cycle/*-unshipped-*"), [])
+        self.assert_clean_main_equal_to_origin()
+
+    def test_m5_a_build_that_commits_to_main_is_not_shipped_and_is_recovered(self) -> None:
+        def commit_on_main() -> None:
+            self.write("STRAY.md", "committed by the build\n")
+            git(self.repo, "add", "STRAY.md")
+            git(self.repo, "commit", "-q", "-m", "build committed on main")
+
+        build = self.phase("build", writes={"projects/demo/app.py": "print('hi')\n"}, check=commit_on_main)
+        fake = FakeGh(self.repo.parent / "gh")
+        night, _, _ = self.night([self.research(), build, self.review(GH_VERDICT)], shipper=self.gh_shipper(fake))
+        [result] = self.results(night)
+        self.assertIsInstance(result, NotShipped)
+        self.assertIn("ahead of origin/main", result.reason)
+        self.assertEqual(fake.calls(), [])
+        recovery = night.reports[0].recovery
+        self.assertIsInstance(recovery, Snapshotted)
+        self.assertEqual(self.file_on(recovery.branch, "STRAY.md"), "committed by the build\n")
+        self.assertEqual(self.file_on(recovery.branch, "projects/demo/app.py"), "print('hi')\n")
+        self.assert_clean_main_equal_to_origin()
 
     def test_never_more_cycles_than_configured(self) -> None:
         steps = self.cycle("VERDICT: FAIL\n") * 1 + self.cycle("VERDICT: FAIL\n")
