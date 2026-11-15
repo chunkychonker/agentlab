@@ -45,7 +45,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
 4. [done 89] Cycle orchestrator: runs the sequence with its gates; a failed
    cycle is snapshotted to a recovery branch and never leaks into the next.
    End-to-end tests drive it with the fake runner.
-5. [in-progress] Real shipper: a `Shipper` that pushes the cycle's branch,
+5. [done 93] Real shipper: a `Shipper` that pushes the cycle's branch,
    opens the PR with `gh pr create`, puts the review record in the PR body,
    and runs the mergeable check. A failed push, PR creation or check is
    `NotShipped(reason)`, never a crash or a silent success. Recovery also
@@ -210,10 +210,10 @@ contradict an entry here without adding one.
 
 ## Current state
 
-Milestone 5 (real shipper) is built and in progress as of 2026-11-15,
-waiting for review and for the live check below. Research note:
+Milestone 5 (real shipper) is done as of 2026-11-15 (PR #93, review PASS).
+The human live check below against real GitHub is still outstanding. Research note:
 `research/2026-11-15-nightloop-real-shipper.md`. Milestones 1 (#78),
-2 (#83), 3 (#88) and 4 (#89) are done. `phase/` and `gates/` are unchanged.
+2 (#83), 3 (#88), 4 (#89) and 5 (#93) are done. `phase/` and `gates/` are unchanged.
 
 - `nightloop/ship/` (new). `GhShipper` (`gh_shipper.py`) implements the
   `Shipper` port and runs these steps in order:
