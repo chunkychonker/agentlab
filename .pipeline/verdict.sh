@@ -23,6 +23,36 @@
 # phase and reads it after; nothing else may write it.
 REVIEW_VERDICT_FILE="logs/last-review.md"
 
+# How many times one cycle may hand a failed review back to the builder. One:
+# a second failure on the same increment is evidence the plan is wrong, not
+# the patch, and every extra round is two more opus phases. Stripe caps its CI
+# rounds at two for the same reason (diminishing returns per round).
+MAX_FIX_ROUNDS=1
+
+# Where run.sh puts the failed review for the fix phase to read. A copy, not
+# the verdict file itself: that file must not exist when the next review
+# starts, or a dead reviewer would leave the old verdict standing.
+FIX_FEEDBACK_FILE="logs/fix-feedback.md"
+
+# review_fixable <verdict-word> <spec-word>
+#
+# Is this review outcome something the builder can fix? Takes the words
+# review_verdict and review_spec_check print (<spec-word> is empty when the
+# spec check never ran). Pure: reads nothing, prints nothing.
+#   0  fixable      verdict FAIL, or verdict PASS with spec UNMET — the
+#                   reviewer read the increment and found it wanting
+#   1  not fixable  everything else. A shipping review (PASS + OK) needs no
+#                   fix. MISSING / MALFORMED verdicts and NONE_MET / NO_SPEC /
+#                   WRONG_SPEC / MALFORMED spec blocks are the reviewer's
+#                   faults: there are no findings the builder could act on, so
+#                   a fix round would spend an opus phase on nothing.
+review_fixable () {
+  case "${1:-}|${2:-}" in
+    "FAIL|"*|"PASS|UNMET") return 0 ;;
+  esac
+  return 1
+}
+
 # The verdict recorded in <path>, on stdout, as exactly one of
 # PASS / FAIL / MISSING / MALFORMED.
 #
