@@ -34,9 +34,11 @@ from nightloop.cycle import (
 )
 from nightloop.gates import Verdict, evaluate
 from nightloop.phase import FakeRunner, PhaseRequest, PhaseStatus, RawRun, cli_stdout, cli_success
+from nightloop.ship import MARKER, GhShipper
 
 from .git_support import GitRepoCase, git
 from .phase_support import example_config
+from .ship_support import FakeGh, verdict_text
 
 RUN = RunId("2026-11-11_020001")
 STARTED = 1780000000  # every clock in these tests says this second
@@ -243,6 +245,42 @@ class NightTest(GitRepoCase):
         self.assertEqual(night.reports[0].result, PhaseFailed("research", PhaseStatus.CLI_ERROR))
         self.assertEqual(night.reports[0].recovery, Clean())
         self.assertEqual(self.local_branches("cycle/*"), [])
+
+    # --- milestone 5 -----------------------------------------------------------
+
+    def test_r1_a_commit_a_failed_cycle_left_on_main_never_reaches_the_next(self) -> None:
+        def committing_build(_req: PhaseRequest) -> RawRun:
+            self.events.append("build")
+            self.write("projects/demo/app.py", "print('hi')\n")
+            git(self.repo, "add", "-A")
+            git(self.repo, "commit", "-q", "-m", "the builder committed on main")
+            return cli_success()
+
+        def starts_at_origin() -> None:
+            self.assertEqual(git(self.repo, "rev-parse", "main"), git(self.origin, "rev-parse", "main"))
+            self.assertFalse((self.repo / "projects" / "demo" / "app.py").exists())
+
+        steps = [self.research(), committing_build, self.review("VERDICT: FAIL\n"),
+                 self.research(check=starts_at_origin), self.build(), self.review("VERDICT: FAIL\n")]
+        night, _, _ = self.night(steps, cycles=2)
+        self.assertEqual(self.results(night), [ReviewRefused(Verdict.FAIL)] * 2)
+        first = night.reports[0].recovery
+        self.assertIsInstance(first, Snapshotted)
+        self.assertTrue(first.pushed)
+        self.assertIn(first.branch, self.origin_branches())
+        self.assertEqual(git(self.origin, "show", f"{first.branch}:projects/demo/app.py"), "print('hi')\n")
+        self.assert_clean_main_equal_to_origin()
+
+    def test_a_passing_cycle_ships_through_the_real_gh_shipper(self) -> None:
+        gh = FakeGh(self.repo.parent)
+        shipper = GhShipper(self.repo, VERDICT, sleep=lambda _s: None, gh=gh.program)
+        night, _, _ = self.night(self.cycle(verdict_text()), shipper=shipper)
+        self.assertEqual(self.results(night), [Shipped(pr=7)])
+        self.assertEqual(night.reports[0].recovery, Clean())
+        branch = "cycle/2026-11-11-020001-1-ship"
+        self.assertEqual(git(self.origin, "show", f"{branch}:projects/demo/app.py"), "print('hi')\n")
+        self.assertIn(MARKER, gh.created_bodies()[0])
+        self.assert_clean_main_equal_to_origin()
 
     # --- B7 --------------------------------------------------------------------
 

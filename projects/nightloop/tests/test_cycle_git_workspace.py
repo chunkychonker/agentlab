@@ -145,6 +145,77 @@ class GitWorkspaceTest(GitRepoCase):
         with self.assertRaises(RecoveryError):
             self.workspace().recover(RUN, 1)
 
+    # --- recover: commits ahead of origin (milestone 5) ------------------------
+
+    def commit_on_main(self, name: str = "lib.py") -> str:
+        (self.repo / name).write_text("X = 1\n", encoding="utf-8")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", f"a phase committed {name} on main")
+        return git(self.repo, "rev-parse", "HEAD").strip()
+
+    def reject_pushes(self) -> None:
+        hook = self.repo / ".git" / "hooks" / "pre-push"
+        hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+        hook.chmod(0o755)
+
+    def test_r1_commits_ahead_of_origin_go_to_a_pushed_branch_and_main_is_rewound(self) -> None:
+        commit = self.commit_on_main()
+        recovery = self.workspace().recover(RUN, 1)
+        branch = f"cycle/2026-11-11-unshipped-{HHMMSS}-1"
+        self.assertEqual(recovery, Snapshotted(branch=branch, pushed=True))
+        self.assertEqual(git(self.origin, "rev-parse", branch).strip(), commit)
+        self.assert_clean_main_equal_to_origin()
+        self.assertFalse((self.repo / "lib.py").exists())
+
+    def test_r2_dirty_files_and_commits_ahead_share_one_branch(self) -> None:
+        commit = self.commit_on_main()
+        self.make_dirty()
+        recovery = self.workspace().recover(RUN, 1)
+        self.assertEqual(self.local_branches("cycle/*"), [recovery.branch])
+        self.assertTrue(recovery.pushed)
+        self.assertEqual(self.file_on(recovery.branch, "lib.py"), "X = 1\n")
+        self.assertEqual(self.file_on(recovery.branch, "projects/demo/app.py"), "print('hi')\n")
+        self.assertEqual(git(self.repo, "rev-parse", f"{recovery.branch}~1").strip(), commit)
+        self.assert_clean_main_equal_to_origin()
+
+    def test_r3_a_failed_push_with_commits_ahead_raises_and_loses_nothing(self) -> None:
+        commit = self.commit_on_main()
+        self.reject_pushes()
+        with self.assertRaises(RecoveryError) as caught:
+            self.workspace().recover(RUN, 1)
+        self.assertIn("nothing was lost", str(caught.exception))
+        self.assertEqual(self.current_branch(), "main")
+        self.assertEqual(git(self.repo, "rev-parse", "main").strip(), commit, "main still holds the commit")
+        self.assertEqual(self.origin_branches(), ["main"])
+
+    def test_r3_dirty_work_and_commits_ahead_with_a_failed_push_are_both_kept(self) -> None:
+        commit = self.commit_on_main()
+        self.make_dirty()
+        self.reject_pushes()
+        with self.assertRaises(RecoveryError):
+            self.workspace().recover(RUN, 1)
+        self.assertEqual(git(self.repo, "rev-parse", "main").strip(), commit)
+        (branch,) = self.local_branches("cycle/*")
+        self.assertEqual(self.file_on(branch, "projects/demo/app.py"), "print('hi')\n")
+
+    def test_r4_a_missing_tracking_ref_raises_before_changing_anything(self) -> None:
+        git(self.repo, "update-ref", "-d", "refs/remotes/origin/main")
+        self.make_dirty()
+        with self.assertRaises(RecoveryError) as caught:
+            self.workspace().recover(RUN, 1)
+        self.assertIn("ahead", str(caught.exception))
+        self.assertEqual(self.local_branches("cycle/*"), [])
+        self.assertNotEqual(self.porcelain(), "")
+
+    def test_commits_on_main_that_head_lacks_are_never_rewound_away(self) -> None:
+        commit = self.commit_on_main()
+        git(self.repo, "switch", "-q", "-c", "scratch", "origin/main")
+        self.make_dirty()
+        with self.assertRaises(RecoveryError) as caught:
+            self.workspace().recover(RUN, 1)
+        self.assertIn("was not moved", str(caught.exception))
+        self.assertEqual(git(self.repo, "rev-parse", "main").strip(), commit)
+
     def test_git_that_cannot_start_fails_at_construction(self) -> None:
         with self.assertRaises(ValueError):
             GitWorkspace(self.repo, now=time.time, git="/nonexistent/git")

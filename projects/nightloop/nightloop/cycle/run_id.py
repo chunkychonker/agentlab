@@ -37,3 +37,8 @@ class RunId:
     def date(self) -> str:
         """The ``YYYY-MM-DD`` part."""
         return self.value.split("_", 1)[0]
+
+    @property
+    def hhmmss(self) -> str:
+        """The ``HHMMSS`` part: when the run started."""
+        return self.value.split("_", 1)[1]

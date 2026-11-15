@@ -45,7 +45,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
 4. [done 89] Cycle orchestrator: runs the sequence with its gates; a failed
    cycle is snapshotted to a recovery branch and never leaks into the next.
    End-to-end tests drive it with the fake runner.
-5. [not-started] Real shipper: a `Shipper` that pushes the cycle's branch,
+5. [in-progress] Real shipper: a `Shipper` that pushes the cycle's branch,
    opens the PR with `gh pr create`, puts the review record in the PR body,
    and runs the mergeable check. A failed push, PR creation or check is
    `NotShipped(reason)`, never a crash or a silent success. Recovery also
@@ -160,15 +160,156 @@ contradict an entry here without adding one.
   milestones 5-12 are now 6-13. Milestone numbers in decisions-log entries
   written before this date use the old numbering: for example, "milestone
   6's CLI" in the 2026-11-11 interface entry is now milestone 7.
+- 2026-11-15: The ship branch keeps the research note's shape,
+  `cycle/<date>-<HHMMSS>-<cycle>-ship`, but both time parts come from the
+  run id (new `RunId.hhmmss`), not from a clock. So `ship_branch(run_id,
+  cycle)` takes no `hhmmss`, and `GhShipper` takes no `now`. With a clock,
+  a retried `ship` gets a new branch, and so a second PR, unless the retry
+  lands in the same second. Then the note's invariant "ship again reuses the
+  open PR" would not actually hold. A run id plus a cycle is unique by
+  construction.
+- 2026-11-15: `GhShipper(repo, verdict_path, *, sleep, main, remote, git,
+  gh, timeout_s)` takes program names and builds its own `GitRunner` and
+  `Gh`, instead of the note's layer-3 `git: GitRunner, gh: Gh`. Taking the
+  objects would mean giving the repo three times (shipper, runner, gh), and
+  the three copies could disagree. This matches `GitWorkspace`'s
+  `git: str`. `GitRunner` lives in `nightloop/git_runner.py` (shared, not
+  in `cycle/` or `ship/`). `GitWorkspace` now runs git through it with the
+  same behaviour, except that a non-positive `timeout_s` is now a
+  `ValueError` at construction rather than a failure at the first git call.
+- 2026-11-15: Recovery decisions the note left to the builder.
+  (a) No `fetch` before the ahead count. `rev-list --count
+  <remote>/<main>..<main>` reads the tracking ref the last pull left, so
+  recovery stays offline-safe.
+  (b) A failed push while main is ahead raises `RecoveryError` and leaves
+  main where it is, instead of a quiet carry-over. This differs from the
+  dirty-only case, where a failed push is still `Snapshotted(pushed=False)`
+  as in m4.
+  (c) A missing tracking ref raises (R4). That changes one m4 path: a clean
+  tree whose `origin/main` ref was deleted used to be `Clean()`.
+  (d) Not in the note: before any `git branch -f main`, both the shipper and
+  recovery count `rev-list main ^HEAD ^<remote>/main`, the commits on main
+  that neither the branch nor the remote holds. If that count is not zero,
+  main is not moved (recovery raises; ship is `NotShipped`). This makes
+  "never discards work" hold when a phase leaves HEAD on another branch.
+  `merge-base --is-ancestor main HEAD` was rejected because it refuses
+  wrongly once the remote's main has moved since the branch was made.
+- 2026-11-15: Shipper choices where the note was silent or bash differs.
+  A missing verdict file at ship time is `NotShipped` (bash: no section, no
+  merge); any other read error is an `OSError` and propagates. The review
+  record goes into the body when the PR is created and is only read back.
+  There is no `gh pr edit`, so a reused PR whose body lacks the marker is
+  `NotShipped`, not repaired. The mergeable poll sleeps only between reads,
+  so five `UNKNOWN`s sleep 4 times (bash sleeps 5). The port takes `Ran:` and
+  `Findings:` from the first such line. Bash's awk prints a repeated label
+  line twice, and that quirk is not kept. `gh help environment` could not
+  be checked: the publish guard blocks every `gh` call in the build phase.
+  So `GH_PROMPT_DISABLED=1` is set only as a second line of defence. The
+  first is passing `--title`, `--body-file -`, `--base` and `--head`
+  explicitly.
 
 ## Current state
 
-Milestone 4 (cycle orchestrator) is done as #89, merged 2026-11-11.
-Research note: `research/2026-11-11-nightloop-cycle-orchestrator.md`.
-Milestones 1 (#78), 2 (#83) and 3 (#88) are done. `phase/` and `gates/` are
-unchanged.
+Milestone 5 (real shipper) is built and in progress as of 2026-11-15,
+waiting for review and for the live check below. Research note:
+`research/2026-11-15-nightloop-real-shipper.md`. Milestones 1 (#78),
+2 (#83), 3 (#88) and 4 (#89) are done. `phase/` and `gates/` are unchanged.
 
-- `nightloop/cycle/` (new). `run_night(cfg, *, run_id, repo, verdict_path,
+- `nightloop/ship/` (new). `GhShipper` (`gh_shipper.py`) implements the
+  `Shipper` port and runs these steps in order:
+  1. Read the verdict and build the body. No `Findings:` line, a credential
+     hit or no room means `NotShipped`, before any git or gh call.
+  2. Switch to `cycle/<date>-<HHMMSS>-<cycle>-ship`. It is made from HEAD,
+     or reused on a retry. Commit any uncommitted work there. If the branch
+     holds nothing beyond `<remote>/main`, that is `NotShipped("no changes to
+     ship")`. If main has unpushed commits the branch lacks, that is
+     `NotShipped` too.
+  3. Push exactly `refs/heads/<b>:refs/heads/<b>`, never main and never
+     forced.
+  4. `git branch -f main <remote>/main`.
+  5. Reuse the branch's open PR (`gh pr list --head`), or else create one
+     with `--title --body-file - --base --head` and take the number from
+     the printed URL.
+  6. Read the body back and check it for the marker.
+  7. Poll `mergeable` up to 5 times, 2s apart while `UNKNOWN`. Only
+     `MERGEABLE` gives `Shipped(pr)`.
+
+  Any step failing, exiting non-zero or timing out gives `NotShipped`. The
+  reason is one line and quotes only the last output line. `git`/`gh` that
+  cannot start raises `OSError`.
+
+  The pure modules are:
+  - `review_section.py`: a port of `review_record.sh`'s section, secret scan
+    and compose. It uses the same `<!-- agentlab-review -->` marker and
+    65536 limit, and cuts only the section, never mid-character.
+  - `mergeable.py`: `classify` and `poll`. Unknown values fail closed.
+  - `pr_url.py`: `pr_number`.
+  - `pr_list.py`: `open_pr`. More than one open PR is an error.
+  - `naming.py`: `ship_branch`.
+  - `pr_text.py`: the generic title, body intro and commit message.
+
+  `gh.py` is the only module that runs `gh`. It passes every flag
+  explicitly, sets `GH_PROMPT_DISABLED=1`, applies a per-call timeout, and
+  sends the body on stdin.
+- `nightloop/git_runner.py` (new): `GitRunner`, shared by the shipper and
+  `GitWorkspace`. Every git call has a timeout and runs with
+  `GIT_TERMINAL_PROMPT=0`. `nightloop/process_tail.py` (new, pure) holds
+  `last_line`.
+- `GitWorkspace.recover` now also counts `<remote>/main..main`, with no
+  fetch. Dirty files and commits ahead go to one
+  `cycle/<date>-unshipped-<HHMMSS>-<cycle>` branch, which is pushed. Main is
+  then moved back with `branch -f`, and only after the push succeeds and no
+  commit would be orphaned. A failed push while main is ahead, a missing
+  tracking ref, or orphaned commits raise `RecoveryError` and leave main
+  untouched. The dirty-only path is unchanged from m4.
+- Tests: `cd projects/nightloop && python3 -I -m unittest discover -v`.
+  291 tests: the 229 from before, all still passing, plus 62 new. Stdlib
+  only. They pass on 3.11, 3.12 and 3.13 in about 30s; the fake `gh` and git
+  wrapper are Python processes, and one test waits out a 2s gh timeout.
+  - S1-S9 and R1-R6 are covered on a temp repo with a local bare `origin`.
+  - The fake `gh` (`tests/ship_support.py`) is a scripted executable over a
+    JSON state file. It records argv and stdin.
+  - S9 asserts on the argv of a git wrapper that records each call and then
+    runs the real git.
+  - One night test runs `run_night` with the real `GhShipper` end to end.
+  - Mutation checks: each of these breaks fails at least one test.
+    - dropping the marker check
+    - pushing main too
+    - skipping the secret scan
+    - ignoring commits ahead in recovery
+    - removing either orphaned-commit guard
+    - accepting any `mergeable`
+    - creating a PR without listing first
+
+Known limits (m5):
+- Nothing has talked to real GitHub. The live check is a human step: run
+  `GhShipper(repo, Path("logs/last-review.md"), sleep=time.sleep).ship(RunId(...), 1)`
+  once against a throwaway GitHub repo, then diff real PR-create and
+  `gh pr view --json mergeable` output against the fake's.
+- Still unconfirmed: the `mergeable` value set, what PR creation does for a
+  branch that already has a PR (the shipper lists first instead), and
+  whether `GH_PROMPT_DISABLED` covers every prompt.
+- The PR title is generic. It never merges, and there is no claim marking
+  (m6) and no CLI (m7).
+- The ship commit and recovery commits use the repo's git identity and run
+  its hooks.
+- A remote ship branch that diverged (pushed from elsewhere) is
+  `NotShipped` on a non-fast-forward push, never forced.
+- A phase that leaves HEAD on its own branch with commits that main does
+  not have, on a clean tree, is still `Clean()`. Those commits stay on that
+  local branch, unpushed. This gap predates m5, and m5 does not widen it.
+- Earlier limits that remain: a `RecoveryError` propagates without the
+  earlier cycles' `CycleReport`s; there is no log beyond metrics; handoff
+  files must be git-ignored; untracked-stray handling and `scrub_artifacts`
+  are not ported. The rc-0 rate-limit behaviour and the real limit text are
+  unconfirmed.
+Next: review this milestone and do the live check, then milestone 6 (claim
+tracking).
+
+Milestone 4 as built (kept for reference; recovery's ahead check above
+supersedes its "uncommitted changes only" behaviour):
+
+- `nightloop/cycle/`. `run_night(cfg, *, run_id, repo, verdict_path,
   timeout_s, runner, gate, workspace, shipper, now, metrics_sink) ->
   NightResult` (`night.py`) builds the three `PhaseRequest`s once, before
   any cycle, so bad inputs fail before anything runs. It runs up to
@@ -177,58 +318,12 @@ unchanged.
   review through m3's `run_phase`, where the first phase that is not
   `GATED_PASS` ends the cycle. Then `ship` only on a review `GATED_PASS`,
   then `recover` exactly once, also when an exception is propagating (a
-  failed recovery is raised `from` that exception).
-  - `result.py`: the `CycleResult` sum type, `Shipped(pr) | NotShipped(reason)
-    | PhaseFailed(phase, status) | ReviewRefused(verdict) |
-    UsageLimited(phase, reset)`. Each case rejects its own illegal values.
-  - `report.py`: `CycleReport` and `NightResult`, where only the last report
-    may be `UsageLimited`.
-  - `ports.py`: the `Workspace`/`Shipper` protocols, `Clean | Snapshotted`
-    and `RecoveryError`.
-  - `usage_limit.py`: the pure `usage_limit_reset`, a port of bash's.
-  - `recording.py`: a `Runner` decorator that keeps the last `RawRun` for
-    the limit check.
-  - `metrics_tag.py`: puts `run_ts` and `cycle` first on each m3 line.
-  - `naming.py`: names the recovery branch
-    `cycle/<date>-unshipped-<HHMMSS>-<cycle>`.
-  - `prompts.py`: one template per phase.
-  - `run_id.py`: `RunId`.
-  - `fake_shipper.py`: `FakeShipper`.
-  - `git_workspace.py`: `GitWorkspace`, the only module that runs git.
-    Recovery runs `status`, `switch -c`, `add -A`, `commit` and `push -u`;
-    a failed push is `pushed=False`, not an error. It then runs `switch
-    main` and `pull --ff-only`, and checks the tree is clean. A failed
-    commit carries the work back to main, deletes only the empty branch it
-    created, and raises. Every git call has a timeout and runs with
-    `GIT_TERMINAL_PROMPT=0`. The constructor checks that `repo` is a
-    checkout's top level.
-- Tests: `cd projects/nightloop && python3 -I -m unittest discover -v`.
-  229 tests (164 before plus 65 new), stdlib only. They pass on 3.11, 3.12
-  and 3.13 in about 15s. B1-B12 are covered. The orchestrator tests run the
-  real gate and the real `GitWorkspace` on a temp repo with a local bare
-  `origin` (`tests/git_support.py`, which isolates the global git config).
-  Failures come from real `pre-commit`/`pre-push` hooks and real branch-name
-  collisions, not mocks. The B1 shipper is a stand-in that really commits,
-  pushes and switches back. Deliberately breaking `cycle.py` (dropping
-  `clear_handoff`, recovery on a crash, the CLI_ERROR-only scan or the
-  `result`-text scan) and removing the usage-limit `break` in `night.py`
-  each fail at least one test.
-
-Known limits (m4). There is no real shipper, so nothing opens a PR yet
-(milestone 5). Recovery checks only for uncommitted changes, so commits left
-on local `main` ahead of `origin/main` carry into the next cycle; #89's
-reviewer reproduced this, and bash has the same gap (milestone 5). A
-`RecoveryError` propagates without the earlier cycles' `CycleReport`s; the
-metrics lines already emitted are the only record. There is no log beyond
-metrics, and `RecoveryError` messages carry git's last stderr line. A
-handoff file tracked by git would dirty main every cycle, so it must be
-git-ignored (agentlab's `logs/` is). Recovery commits run the repo's
-hooks, as bash's do. Not ported: bash's untracked-stray handling and
-`scrub_artifacts`, claim marking (m6), replenish, health, observer and
-auto-merge. The rc-0 rate-limit behaviour and the real limit text under
-`--output-format json` are unconfirmed. A human smoke run should check
-one real limit hit against `usage_limit_reset`.
-Next: milestone 5 (real shipper), then milestone 6 (claim tracking).
+  failed recovery is raised `from` that exception). Modules: `result.py`
+  (the `CycleResult` sum type), `report.py`, `ports.py`, `usage_limit.py`,
+  `recording.py`, `metrics_tag.py`, `naming.py` (recovery branch name),
+  `prompts.py`, `run_id.py`, `fake_shipper.py` and `git_workspace.py` (the
+  only cycle module that runs git; the constructor checks `repo` is a
+  checkout's top level).
 
 Milestone 3 as built (kept for reference):
 

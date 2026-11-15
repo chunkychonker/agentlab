@@ -30,6 +30,7 @@ FORBIDDEN_PARENT = {
     ("phase", None), ("phase", "subprocess_runner"),
     ("gates", None), ("gates", "fs"), ("gates", "dispatch"),
     ("cycle", None),
+    ("git_runner", None), ("ship", None),
 }
 
 
