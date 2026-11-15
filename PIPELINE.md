@@ -141,6 +141,31 @@ model whether to proceed. One greps a file the reviewer wrote; the other asks
 GitHub. The health check is not a gate — it's a separate, non-blocking
 observability pass over what's already shipped.
 
+## CI and the merge gate
+
+`.github/workflows/ci.yml` runs every `.pipeline/test_*.sh` and nightloop's
+unit tests on each pull request and on push to `main`, on a macOS runner
+(the suites are bash 3.2 and BSD `stat`). It is the one check in the system
+that does not run on this Mac, in this working tree, at the pipeline's own
+choosing.
+
+The auto-merge gate waits for it. After the review record is posted and
+GitHub says the PR is MERGEABLE, `ci_wait` (`.pipeline/ci.sh`) polls the
+PR's checks every 20 s:
+
+| Result | Meaning | What happens |
+|---|---|---|
+| GREEN | at least one check passed, none failed or still running | merge |
+| RED | a check failed or was cancelled | PR left open |
+| PENDING | still running after 15 minutes | PR left open |
+| NONE | no check reported within 2 minutes | PR left open |
+| ERROR | `gh` could not answer | PR left open |
+
+Only GREEN merges. A red CI is not fed back to the builder: by then the PR
+is open under your name, and the fix is a morning decision. If GitHub
+Actions is down, PRs open and wait; nothing is lost. Tests:
+`bash .pipeline/test_ci.sh`.
+
 ## The verify gate
 
 Between build and review (and again after a fix phase), `run.sh` runs the
