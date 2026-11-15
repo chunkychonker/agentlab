@@ -85,14 +85,14 @@ echo "=== agentlab pipeline $TS ===" | tee -a "$LOG"
 # usage_limit.sh (did a phase die on a Claude usage limit),
 # auth.sh (which login to use, and did the probe fail on it),
 # alert.sh (does the finished night need a human's attention).
-# All eleven live outside this script so they can be unit-tested offline
+# All of them live outside this script so they can be unit-tested offline
 # (`bash .pipeline/test_backlog.sh`, `bash .pipeline/test_gates.sh`) instead of
 # only being exercised on the rare night each gate fires. Sourcing defines
 # functions and constants only — it runs nothing and prints nothing.
 BACKLOG_FILE="BACKLOG.md"
 # issues.sh (spec #6) is commented out of this list, with its call sites below:
 # findings go to the private file instead (spec #7). Kept, not deleted.
-for lib in backlog verdict health pipeline_health preflight postcondition schedule network_retry usage_limit auth alert metrics phase_tools review_record findings; do
+for lib in backlog verdict health pipeline_health preflight postcondition schedule network_retry usage_limit auth alert metrics phase_tools review_record findings verify; do
   if [ ! -r "$REPO/.pipeline/$lib.sh" ]; then
     echo "MISSING $REPO/.pipeline/$lib.sh — required. Aborting." | tee -a "$LOG"
     exit 1
@@ -831,82 +831,106 @@ run_cycle () {
   run_phase opus build "cycle $k/$CYCLES: build" increment_built \
     "Build this cycle's increment from the newest research note, following your instructions exactly. Verify it runs. The agentlab repo is $REPO; open PRs and branches are in $REPO/$RESEARCH_CONTEXT_FILE." || return $?
 
-  # Review, and at most MAX_FIX_ROUNDS times: hand a failed review back to the
-  # builder and review again. Until 2026-11-15 a FAIL ended the cycle, so one
-  # fixable finding cost the whole night. The loop leaves by `break` only on
-  # PASS + spec OK; every other exit is a `return`.
-  local fix_round=0 verdict spec_out spec_word spec_detail
+  # Verify, then review, and at most MAX_FIX_ROUNDS times: hand a red test
+  # run or a failed review back to the builder and go round again. Until
+  # 2026-11-15 a FAIL ended the cycle, so one fixable finding cost the whole
+  # night. The loop leaves by `break` only on PASS + spec OK; every other exit
+  # is a `return`.
+  local fix_round=0 verify_word feedback verdict spec_out spec_word spec_detail
   while :; do
-    # The verdict file must not exist when a review starts. The first review is
-    # covered by the `rm -f` at the top of the cycle; this covers the second.
-    rm -f "$REVIEW_VERDICT_FILE"
-
-    # No artifact postcondition here on purpose: the review gate 15 lines down is
-    # already one, and a stricter one. last-review.md was `rm -f`d above, so a
-    # review phase that died wrote nothing, review_verdict returns MISSING, and the
-    # cycle does not ship. Duplicating that as a freshness check would give the
-    # same fact two enforcement points to drift apart at.
-    run_phase opus review "cycle $k/$CYCLES: review" phase_no_postcondition \
-      "Independently review this cycle's working-tree diff, run its tests/lint, and write a PASS/FAIL verdict to logs/last-review.md, following your instructions exactly. The agentlab repo is $REPO. The spec for this increment is $REPO/$spec: check the diff against its acceptance criteria as your instructions describe, and write the line 'Spec: $spec' in your verdict. Do not modify the increment." || return $?
-
-    # The review gate, read mechanically — the same principle as the auto-merge
-    # gate below, applied to the phase that actually opens the PR. The maintainer
-    # is also instructed to check the verdict and that instruction stays, but an
-    # instruction is not a gate: it is one more model deciding, on the cheapest
-    # model in the pipeline, whether to ship code under a human's name. Here the
-    # maintain phase does not RUN unless a deterministic parse says PASS.
-    #
-    # Fails closed. MISSING (the review phase died, or wrote nothing after the
-    # pre-review `rm -f` above), MALFORMED (no verdict line, or two) and FAIL all
-    # take the same branch: no PR tonight, reason in the log. See verdict.sh for
-    # why an unreadable verdict must never be treated as permission.
-    verdict="$(review_verdict "$REVIEW_VERDICT_FILE")"
-    spec_word=""
+    # Verify first (verify.sh): the increment's own tests, run mechanically. A
+    # red run goes straight to the fix round with the test output as feedback,
+    # so no review is spent on code that does not pass its tests. NONE means no
+    # rule in $VERIFY_CONF covers what changed (every demo-mode night) and is
+    # not a failure. Anything else, ERROR included, ends the cycle: an
+    # unreadable conf is not evidence the tests are green.
+    verify_word="$(verify_increment "$LOG")"
     echo "" | tee -a "$LOG"
-    if [ "$verdict" != "PASS" ]; then
-      echo "--- gate: review verdict is $verdict — cycle $k does not ship as built. See $REVIEW_VERDICT_FILE and $LOG. ---" | tee -a "$LOG"
-    else
-      echo "--- gate: review verdict PASS (parsed from $REVIEW_VERDICT_FILE) — checking the spec. ---" | tee -a "$LOG"
+    case "$verify_word" in
+      PASS|NONE)
+        echo "--- gate: verify $verify_word — proceeding to review. ---" | tee -a "$LOG"
+        feedback="$REVIEW_VERDICT_FILE" ;;
+      FAIL)
+        echo "--- gate: verify FAIL — the increment's tests are red, so it is not reviewed as built. See $VERIFY_REPORT_FILE. ---" | tee -a "$LOG"
+        feedback="$VERIFY_REPORT_FILE" ;;
+      *)
+        echo "--- gate: verify ${verify_word:-printed nothing} — could not run the checks (see $LOG) — cycle $k does not ship. ---" | tee -a "$LOG"
+        return 1 ;;
+    esac
 
-      # The spec gate (spec #9), read mechanically for the same reason as the
-      # verdict: the reviewer is told any UNMET criterion means FAIL, but a PASS
-      # that lists one, or that skipped the check, must not ship either. Only OK
-      # proceeds; see review_spec_check in verdict.sh for the other five words.
-      spec_out="$(review_spec_check "$REVIEW_VERDICT_FILE" "$spec")"
-      spec_word="$(printf '%s\n' "$spec_out" | sed -n 1p)"
-      spec_detail="$(printf '%s\n' "$spec_out" | sed -n 2p)"
-      if [ "$spec_word" = "OK" ]; then
-        echo "--- gate: spec check OK ($spec_detail) — proceeding to maintain. ---" | tee -a "$LOG"
-        break
+    if [ "$verify_word" != "FAIL" ]; then
+      # The verdict file must not exist when a review starts. The first review is
+      # covered by the `rm -f` at the top of the cycle; this covers the second.
+      rm -f "$REVIEW_VERDICT_FILE"
+
+      # No artifact postcondition here on purpose: the review gate 15 lines down is
+      # already one, and a stricter one. last-review.md was `rm -f`d above, so a
+      # review phase that died wrote nothing, review_verdict returns MISSING, and the
+      # cycle does not ship. Duplicating that as a freshness check would give the
+      # same fact two enforcement points to drift apart at.
+      run_phase opus review "cycle $k/$CYCLES: review" phase_no_postcondition \
+        "Independently review this cycle's working-tree diff, run its tests/lint, and write a PASS/FAIL verdict to logs/last-review.md, following your instructions exactly. The agentlab repo is $REPO. The spec for this increment is $REPO/$spec: check the diff against its acceptance criteria as your instructions describe, and write the line 'Spec: $spec' in your verdict. Do not modify the increment." || return $?
+
+      # The review gate, read mechanically — the same principle as the auto-merge
+      # gate below, applied to the phase that actually opens the PR. The maintainer
+      # is also instructed to check the verdict and that instruction stays, but an
+      # instruction is not a gate: it is one more model deciding, on the cheapest
+      # model in the pipeline, whether to ship code under a human's name. Here the
+      # maintain phase does not RUN unless a deterministic parse says PASS.
+      #
+      # Fails closed. MISSING (the review phase died, or wrote nothing after the
+      # pre-review `rm -f` above), MALFORMED (no verdict line, or two) and FAIL all
+      # take the same branch: no PR tonight, reason in the log. See verdict.sh for
+      # why an unreadable verdict must never be treated as permission.
+      verdict="$(review_verdict "$REVIEW_VERDICT_FILE")"
+      spec_word=""
+      echo "" | tee -a "$LOG"
+      if [ "$verdict" != "PASS" ]; then
+        echo "--- gate: review verdict is $verdict — cycle $k does not ship as built. See $REVIEW_VERDICT_FILE and $LOG. ---" | tee -a "$LOG"
+      else
+        echo "--- gate: review verdict PASS (parsed from $REVIEW_VERDICT_FILE) — checking the spec. ---" | tee -a "$LOG"
+
+        # The spec gate (spec #9), read mechanically for the same reason as the
+        # verdict: the reviewer is told any UNMET criterion means FAIL, but a PASS
+        # that lists one, or that skipped the check, must not ship either. Only OK
+        # proceeds; see review_spec_check in verdict.sh for the other five words.
+        spec_out="$(review_spec_check "$REVIEW_VERDICT_FILE" "$spec")"
+        spec_word="$(printf '%s\n' "$spec_out" | sed -n 1p)"
+        spec_detail="$(printf '%s\n' "$spec_out" | sed -n 2p)"
+        if [ "$spec_word" = "OK" ]; then
+          echo "--- gate: spec check OK ($spec_detail) — proceeding to maintain. ---" | tee -a "$LOG"
+          break
+        fi
+        echo "--- gate: spec check $spec_word${spec_detail:+ ($spec_detail)} against $spec — cycle $k does not ship as built. See $REVIEW_VERDICT_FILE. ---" | tee -a "$LOG"
       fi
-      echo "--- gate: spec check $spec_word${spec_detail:+ ($spec_detail)} against $spec — cycle $k does not ship as built. See $REVIEW_VERDICT_FILE. ---" | tee -a "$LOG"
+
+      # Not shipping as built. Whether the builder gets another go is decided here,
+      # mechanically, from the two words above: only a review that actually found
+      # the increment wanting earns one (review_fixable in verdict.sh), and only
+      # while a round is left.
+      if ! review_fixable "$verdict" "$spec_word"; then
+        echo "--- gate: nothing here for the builder to fix (verdict $verdict${spec_word:+, spec $spec_word}) — cycle $k does not ship. ---" | tee -a "$LOG"
+        return 1
+      fi
     fi
 
-    # Not shipping as built. Whether the builder gets another go is decided here,
-    # mechanically, from the two words above: only a review that actually found
-    # the increment wanting earns one (review_fixable in verdict.sh), and only
-    # while a round is left.
-    if ! review_fixable "$verdict" "$spec_word"; then
-      echo "--- gate: nothing here for the builder to fix (verdict $verdict${spec_word:+, spec $spec_word}) — cycle $k does not ship. ---" | tee -a "$LOG"
-      return 1
-    fi
     if [ "$fix_round" -ge "$MAX_FIX_ROUNDS" ]; then
       echo "--- gate: no fix round left ($fix_round of $MAX_FIX_ROUNDS used) — cycle $k does not ship. ---" | tee -a "$LOG"
       return 1
     fi
     fix_round=$(( fix_round + 1 ))
-    if ! cp "$REVIEW_VERDICT_FILE" "$FIX_FEEDBACK_FILE" 2>>"$LOG"; then
-      echo "--- gate: could not copy the review to $FIX_FEEDBACK_FILE — cycle $k does not ship. ---" | tee -a "$LOG"
+    if ! cp "$feedback" "$FIX_FEEDBACK_FILE" 2>>"$LOG"; then
+      echo "--- gate: could not copy $feedback to $FIX_FEEDBACK_FILE — cycle $k does not ship. ---" | tee -a "$LOG"
       return 1
     fi
-    echo "--- fix round $fix_round of $MAX_FIX_ROUNDS: handing the review back to the builder ($FIX_FEEDBACK_FILE). ---" | tee -a "$LOG"
+    echo "--- fix round $fix_round of $MAX_FIX_ROUNDS: handing $feedback back to the builder (as $FIX_FEEDBACK_FILE). ---" | tee -a "$LOG"
 
     # Same agent, model and permissions as build. increment_built with this
     # phase's own floor is the postcondition: a fix that changed no increment
     # file fixed nothing, and reviewing the same tree again would only buy the
     # same verdict.
     run_phase opus build "cycle $k/$CYCLES: fix" increment_built \
-      "This is a fix round, not a new build: follow the 'Fix round' section of your instructions exactly. The agentlab repo is $REPO. The independent review of the increment you built this cycle did not pass; it is in $REPO/$FIX_FEEDBACK_FILE. The spec is $REPO/$spec. Fix what the review names, verify it runs, and change nothing else." || return $?
+      "This is a fix round, not a new build: follow the 'Fix round' section of your instructions exactly. The agentlab repo is $REPO. The increment you built this cycle did not pass its checks; what failed (the independent review, or the output of a failed test run) is in $REPO/$FIX_FEEDBACK_FILE. The spec is $REPO/$spec. Fix what the review names, verify it runs, and change nothing else." || return $?
   done
 
   # Last phase of the cycle; the auto-merge gate below re-reads git and the PR

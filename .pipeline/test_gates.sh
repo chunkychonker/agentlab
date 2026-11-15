@@ -105,6 +105,7 @@ assert_eq "INV1" "0|" "$src_rc|$src_noise" \
 . "$REPO/.pipeline/usage_limit.sh"
 . "$REPO/.pipeline/metrics.sh"
 . "$REPO/.pipeline/phase_tools.sh"
+. "$REPO/.pipeline/verify.sh"
 
 # --- verdict.sh ------------------------------------------------------------
 #
@@ -1318,24 +1319,41 @@ fi
 # that reaches it returns 1 straight after — no gh is ever reached.
 SW_FN="$(awk '/^run_cycle \(\) \{/,/^\}/' "$RUN_SH")"
 
-# sw_run <box> <notes-to-write> <verdict-file-body> [<second-verdict-body>] [<fix-rc>]
+# sw_run <box> <notes-to-write> <verdict-file-body> [<second-verdict-body>] [<fix-rc>] [<verify-words>]
 # Runs one cycle in $WORK/sw/<box>. <notes-to-write> is a space-separated list
 # of note names (empty for none). The review stub writes <verdict-file-body>
 # the first time it is called and <second-verdict-body> (default: the same)
-# every time after; the fix stub returns <fix-rc> (default 0). Leaves calls
+# every time after; the fix stub returns <fix-rc> (default 0). The
+# verify_increment stub prints the n-th word of <verify-words> on its n-th
+# call (default: NONE every time) and, for FAIL, writes a report. Leaves calls
 # (phase keys), names (phase names), review-prompt, fix-prompt, fix-post,
 # fix-feedback (the feedback file as the fix phase saw it), stale-verdict (one
 # line per review that started with a verdict file already present) and log
 # there; prints run_cycle's rc.
 sw_run () {
-  local box="$WORK/sw/$1" notes="$2" verdict="$3" verdict2="${4:-$3}" fix_rc="${5:-0}"
+  local box="$WORK/sw/$1" notes="$2" verdict="$3" verdict2="${4:-$3}" fix_rc="${5:-0}" verify_words="${6:-}"
   mkdir -p "$box/research" "$box/logs"
   : > "$box/research/2026-01-01-old.md"; touch -t "$PC_OLD" "$box/research/2026-01-01-old.md"
   (
     cd "$box" || exit 99
     REPO="$box" LOG="$box/log" CYCLES=1 RESEARCH_CONTEXT_FILE="logs/research-context.md"
     SW_NOTES="$notes" SW_VERDICT="$verdict" SW_VERDICT2="$verdict2" SW_FIX_RC="$fix_rc" SW_REVIEWS=0
+    SW_VERIFY="$verify_words"
     write_research_context () { :; }
+    # Called in a command substitution, so the call count lives in a file.
+    verify_increment () {
+      echo verify >> "$box/names"
+      local n word
+      n="$(grep -cx verify "$box/names")"
+      word="$(printf '%s\n' $SW_VERIFY | sed -n "${n}p")"
+      word="${word:-NONE}"
+      rm -f "$VERIFY_REPORT_FILE"
+      [ "$word" = "FAIL" ] && echo "verify report $n: test_x failed" > "$VERIFY_REPORT_FILE"
+      echo "$word"
+      [ "$word" = "FAIL" ] && return 1
+      [ "$word" = "ERROR" ] && return 2
+      return 0
+    }
     run_phase () {
       echo "$2" >> "$box/calls"
       echo "${3#*: }" >> "$box/names"
@@ -1413,8 +1431,8 @@ else
   sw_rc="$(sw_run fixfail "$SW_NOTE" "$SW_FAIL" "$SW_OK")"
   assert_eq "SW7" "1|yes|1|2" "$sw_rc|$(sw_called fixfail maintain)|$(sw_times fixfail fix)|$(sw_times fixfail review)" \
     "FAIL, then PASS + spec OK after the fix, reaches maintain (A2, A3)"
-  assert_eq "SW7b" "research build review fix review maintain" "$(tr '\n' ' ' < "$WORK/sw/fixfail/names" | sed 's/ $//')" \
-    "...and the phases run in that order"
+  assert_eq "SW7b" "research build verify review fix verify review maintain" "$(tr '\n' ' ' < "$WORK/sw/fixfail/names" | sed 's/ $//')" \
+    "...and the phases run in that order, with verify before every review (B4)"
 
   sw_rc="$(sw_run fixunmet "$SW_NOTE" "$SW_UNMET" "$SW_OK")"
   assert_eq "SW8" "1|yes|1" "$sw_rc|$(sw_called fixunmet maintain)|$(sw_times fixunmet fix)" \
@@ -1445,6 +1463,39 @@ else
   assert_eq "SW11b" "75|1" "$sw_rc|$(sw_times fixlimit review)" \
     "a fix phase stopped by a usage limit returns 75 from the cycle (A6)"
 fi
+
+if [ -n "$SW_FN" ]; then
+  # The verify gate (gap 3): a red test run goes back to the builder without
+  # spending a review on it.
+  sw_rc="$(sw_run vfail "$SW_NOTE" "$SW_OK" "$SW_OK" 0 "FAIL PASS")"
+  assert_eq "SWV1" "research build verify fix verify review maintain" "$(tr '\n' ' ' < "$WORK/sw/vfail/names" | sed 's/ $//')" \
+    "verify FAIL skips the review, takes the fix round, and a PASS after it is reviewed and shipped (B4)"
+  assert_eq "SWV1b" "verify report 1: test_x failed" "$(cat "$WORK/sw/vfail/fix-feedback" 2>/dev/null)" \
+    "...and the fix phase is handed the verify report, not a review"
+
+  sw_rc="$(sw_run vfail2 "$SW_NOTE" "$SW_OK" "$SW_OK" 0 "FAIL FAIL")"
+  assert_eq "SWV2" "1|0|1|no" "$sw_rc|$(sw_times vfail2 review)|$(sw_times vfail2 fix)|$(sw_called vfail2 maintain)" \
+    "verify FAIL before and after the one fix round ends the cycle with no review at all (A7)"
+
+  sw_rc="$(sw_run verr "$SW_NOTE" "$SW_OK" "$SW_OK" 0 "ERROR")"
+  assert_eq "SWV3" "1|0|0|no" "$sw_rc|$(sw_times verr review)|$(sw_times verr fix)|$(sw_called verr maintain)" \
+    "verify ERROR ends the cycle: no review, no fix round, no maintain (B4)"
+  sw_rc="$(sw_run vweird "$SW_NOTE" "$SW_OK" "$SW_OK" 0 "MAYBE")"
+  assert_eq "SWV3b" "1|0|no" "$sw_rc|$(sw_times vweird review)|$(sw_called vweird maintain)" \
+    "a word verify should never print is treated as ERROR, not as a pass"
+
+  sw_rc="$(sw_run vpass "$SW_NOTE" "$SW_OK" "$SW_OK" 0 "PASS")"
+  assert_eq "SWV4" "research build verify review maintain" "$(tr '\n' ' ' < "$WORK/sw/vpass/names" | sed 's/ $//')" \
+    "verify PASS goes on to review"
+  assert_eq "SWV4b" "research build verify review maintain" "$(tr '\n' ' ' < "$WORK/sw/ok/names" | sed 's/ $//')" \
+    "verify NONE goes on to review too (a demo-mode night has no rule)"
+
+  sw_rc="$(sw_run vthenfail "$SW_NOTE" "$SW_FAIL" "$SW_OK" 0 "PASS FAIL")"
+  assert_eq "SWV5" "1|1|1|no" "$sw_rc|$(sw_times vthenfail review)|$(sw_times vthenfail fix)|$(sw_called vthenfail maintain)" \
+    "a fix that breaks the tests ends the cycle: the round is spent and the second review never runs"
+fi
+assert_eq "SWV6" "1" "$(grep -c '^for lib in .* verify' "$RUN_SH" || true)" \
+  "run.sh sources verify.sh alongside the other libs"
 
 # review_fixable: which review outcomes earn a fix round (A2, A4).
 vf () { review_fixable "$1" "$2" && echo fix || echo stop; }
