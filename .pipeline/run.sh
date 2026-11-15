@@ -495,8 +495,8 @@ run_phase () {
   # --disallowedTools take every following word up to the next flag, and a
   # prompt after them is swallowed as one more rule.
   local tool_args=() arg args_text
-  if ! args_text="$(phase_tool_args "$key")"; then
-    echo "run_phase: unknown phase key '$key' for phase '$name' — aborting phase." | tee -a "$LOG"
+  if ! args_text="$(phase_tool_args "$key" "$REPO")"; then
+    echo "run_phase: unknown phase key '$key' (or a repo root that is not absolute: '$REPO') for phase '$name' — aborting phase." | tee -a "$LOG"
     return 1
   fi
   while IFS= read -r arg; do tool_args+=("$arg"); done <<< "$args_text"

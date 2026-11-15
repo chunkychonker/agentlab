@@ -66,29 +66,44 @@ gh secret
 gh variable
 gh label"
 
-# Edit and Write rules for each path, so either file tool works on it.
+# _phase_file_rules <repo-root> <path>...
+#   Edit and Write rules for each path, so either file tool works on it.
+#   Each rule is anchored to the repo root (`//` starts an absolute path in a
+#   permission rule). A bare `logs/x.md` is matched against the session's
+#   CURRENT directory, so it stopped matching as soon as a phase ran `cd`:
+#   on 2026-11-12 and 11-13 the reviewer had moved into projects/nightloop,
+#   its Write of logs/last-review.md was denied, and a PASS did not ship.
 _phase_file_rules () {
-  local p
+  local root="$1" p
+  shift
   for p in "$@"; do
-    printf 'Edit(%s)\nWrite(%s)\n' "$p" "$p"
+    printf 'Edit(/%s/%s)\nWrite(/%s/%s)\n' "$root" "$p" "$root" "$p"
   done
 }
 
-# phase_tool_args <phase-key>
+# phase_tool_args <phase-key> <repo-root>
 #   Prints the CLI arguments for one phase, one argument per line, for run.sh
 #   to read into an array. Every phase gets --permission-mode dontAsk.
 #   Keys: research build review maintain replenish health observe.
-#   rc 1 and no output on any other key, so a typo fails the phase instead of
-#   running it with no restrictions.
+#   <repo-root> is the absolute path of the checkout the phase runs in; the
+#   file rules are anchored to it.
+#   rc 1 and no output on any other key, or on a repo root that is missing or
+#   not absolute, so a typo fails the phase instead of running it with no
+#   restrictions or with rules that match nothing.
 phase_tool_args () {
-  local key="$1"
+  local key="$1" root="${2:-}"
+  case "$root" in
+    /*) root="${root%/}" ;;
+    *) return 1 ;;
+  esac
+  [ -n "$root" ] || return 1
   case "$key" in
     research)
       printf '%s\n' --permission-mode dontAsk --agent agentlab-researcher \
         --tools "Read,Glob,Grep,Edit,Write,WebSearch,WebFetch,mcp__hn-search__search_stories,mcp__hn-search__get_story" \
         --allowedTools Read Glob Grep WebSearch WebFetch \
         mcp__hn-search__search_stories mcp__hn-search__get_story
-      _phase_file_rules "research/**" "knowledge/**" "BACKLOG.md" "projects/*/PLAN.md"
+      _phase_file_rules "$root" "research/**" "knowledge/**" "BACKLOG.md" "projects/*/PLAN.md"
       printf '%s\n' --disallowedTools Bash
       ;;
     build)
@@ -100,7 +115,7 @@ phase_tool_args () {
     review)
       printf '%s\n' --permission-mode dontAsk --agent agentlab-reviewer \
         --allowedTools Read Glob Grep Bash
-      _phase_file_rules "logs/last-review.md"
+      _phase_file_rules "$root" "logs/last-review.md"
       printf '%s\n' --disallowedTools
       printf '%s\n' "$_PHASE_PUBLISH_CMDS" | _phase_deny_forms
       ;;
@@ -117,7 +132,7 @@ phase_tool_args () {
         "Bash(rtk git *)" \
         "Bash(gh pr create *)" "Bash(gh pr view *)" "Bash(gh pr list *)" \
         "Bash(echo *)" "Bash(pwd)" "Bash(cd *)"
-      _phase_file_rules "projects/*/PLAN.md" "logs/last-pr.txt" "logs/pr-body.md"
+      _phase_file_rules "$root" "projects/*/PLAN.md" "logs/last-pr.txt" "logs/pr-body.md"
       printf '%s\n' --disallowedTools WebSearch WebFetch
       printf '%s\n' "gh pr merge" "git push --force" "git push -f" | _phase_deny_forms
       ;;
@@ -125,18 +140,18 @@ phase_tool_args () {
       printf '%s\n' --permission-mode dontAsk \
         --tools "Read,Glob,Grep,Edit,Write" \
         --allowedTools Read Glob Grep
-      _phase_file_rules "BACKLOG.md"
+      _phase_file_rules "$root" "BACKLOG.md"
       printf '%s\n' --disallowedTools Bash WebSearch WebFetch
       ;;
     health|observe)
       if [ "$key" = health ]; then
         printf '%s\n' --permission-mode dontAsk --agent agentlab-health \
           --allowedTools Read Glob Grep Bash
-        _phase_file_rules "logs/lab-health-*" "logs/last-health.md"
+        _phase_file_rules "$root" "logs/lab-health-*" "logs/last-health.md"
       else
         printf '%s\n' --permission-mode dontAsk --agent agentlab-pipeline-observer \
           --allowedTools Read Glob Grep Bash
-        _phase_file_rules "logs/lab-pipeline-*" "logs/last-pipeline-health.md"
+        _phase_file_rules "$root" "logs/lab-pipeline-*" "logs/last-pipeline-health.md"
       fi
       printf '%s\n' --disallowedTools
       printf '%s\n' "git commit" "git push" "$_PHASE_GH_WRITE_CMDS" | _phase_deny_forms

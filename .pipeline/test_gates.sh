@@ -1518,7 +1518,7 @@ while IFS= read -r key_line; do
   [ -n "$key_line" ] || continue
   key_n=$(( key_n + 1 ))
   key_name="$(echo "$key_line" | sed 's/.*run_phase [a-z][a-z]*  *//' | awk '{print $1}')"
-  phase_tool_args "$key_name" >/dev/null 2>&1 || key_bad="$key_bad ${key_line%%:*}:${key_name:-<none>}"
+  phase_tool_args "$key_name" "$REPO" >/dev/null 2>&1 || key_bad="$key_bad ${key_line%%:*}:${key_name:-<none>}"
 done <<EOF
 $(grep -n '^[[:space:]]*\(if \)\{0,1\}run_phase ' "$RUN_SH" "$REPO/.pipeline/external_night.sh" | grep -v 'run_phase ()')
 EOF
@@ -1637,7 +1637,7 @@ EOF
     "the prompt is the CLI's first argument, ahead of the variadic tool flags"
   assert_eq "S2" "research" "$(cat "$WORK/s-args.phase")" \
     "the phase key reaches the CLI as AGENTLAB_PHASE, for publish_guard.py"
-  assert_eq "S3" "$(phase_tool_args research | tr '\n' '|')" \
+  assert_eq "S3" "$(phase_tool_args research "$REPO" | tr '\n' '|')" \
     "$(awk 'f; $0 == "'"$PHASE_SETTINGS"'" { f = 1 }' "$WORK/s-args" | tr '\n' '|')" \
     "the phase's own tool arguments follow --settings, unchanged and in order"
   assert_eq "S4" "--settings" "$(grep -B1 -xF "$PHASE_SETTINGS" "$WORK/s-args" | head -1)" \

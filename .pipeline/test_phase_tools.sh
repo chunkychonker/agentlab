@@ -19,7 +19,10 @@ KEYS="research build review maintain replenish health observe"
 values_of () {
   awk -v f="$1" '$0 ~ /^--/ { on = ($0 == f); next } on { print }'
 }
-args_of () { phase_tool_args "$1"; }
+# The repo root the rules are anchored to in these tests. Deliberately not the
+# real checkout: the rules must come from the argument, not from the cwd.
+ROOT=/srv/lab
+args_of () { phase_tool_args "$1" "$ROOT"; }
 # rc 0 if <rule> is among the values of <flag> for <key>.
 has () { args_of "$1" | values_of "$2" | grep -qxF -- "$3"; }
 
@@ -32,9 +35,9 @@ for k in $KEYS; do
   check "P3 $k: never bypassPermissions" [ -z "$(printf '%s\n' "$out" | grep -F bypassPermissions)" ]
 done
 
-out="$(phase_tool_args bogus)"; rc=$?
+out="$(phase_tool_args bogus "$ROOT")"; rc=$?
 check "P4 an unknown key fails closed: rc 1, no output" [ "$rc|$out" == "1|" ]
-out="$(phase_tool_args "")"; rc=$?
+out="$(phase_tool_args "" "$ROOT")"; rc=$?
 check "P4b an empty key fails closed" [ "$rc|$out" == "1|" ]
 
 tools="$(args_of research | values_of --tools)"
@@ -43,7 +46,7 @@ check "P5b research: Bash is also denied" has research --disallowedTools Bash
 check "P5c research: no Bash(...) rule is allowed" [ -z "$(args_of research | values_of --allowedTools | grep '^Bash')" ]
 check "P5d research: may search the web" has research --allowedTools WebSearch
 check "P5e research: may use hn-search" has research --allowedTools mcp__hn-search__search_stories
-check "P5f research: may write research notes" has research --allowedTools "Write(research/**)"
+check "P5f research: may write research notes" has research --allowedTools "Edit(//srv/lab/research/**)"
 check "P5g research: no unrestricted Write" [ -z "$(args_of research | values_of --allowedTools | grep -xE 'Write|Edit')" ]
 
 # Only maintain may publish.
@@ -81,8 +84,24 @@ check "P8c maintain: never force-pushes" has maintain --disallowedTools "Bash(gi
 check "P8d maintain: no unrestricted Bash" [ -z "$(args_of maintain | values_of --allowedTools | grep -x Bash)" ]
 check "P9 replenish: no Bash" has replenish --disallowedTools Bash
 check "P9b replenish: edits only BACKLOG.md" \
-  [ "$(args_of replenish | values_of --allowedTools | grep -E '^(Edit|Write)' | sort | tr '\n' ' ')" == "Edit(BACKLOG.md) Write(BACKLOG.md) " ]
-check "P10 review: may write its verdict" has review --allowedTools "Write(logs/last-review.md)"
+  [ "$(args_of replenish | values_of --allowedTools | grep -E '^(Edit|Write)' | sort | tr '\n' ' ')" == "Edit(//srv/lab/BACKLOG.md) Write(//srv/lab/BACKLOG.md) " ]
+check "P10 review: may write its verdict" has review --allowedTools "Edit(//srv/lab/logs/last-review.md)"
+
+# A file rule that is not anchored to the repo root is matched against the
+# session's current directory, so it stops matching once a phase runs `cd`.
+# That denied the reviewer's verdict on 2026-11-12 and 11-13.
+for k in $KEYS; do
+  loose="$(args_of "$k" | values_of --allowedTools | grep -E '^(Edit|Write)\(' | grep -vE '^(Edit|Write)\(//srv/lab/')"
+  check "P13 $k: every file rule is anchored to the repo root" [ -z "$loose" ]
+done
+out="$(phase_tool_args review)"; rc=$?
+check "P14 a missing repo root fails closed: rc 1, no output" [ "$rc|$out" == "1|" ]
+out="$(phase_tool_args review lab)"; rc=$?
+check "P14b a relative repo root fails closed" [ "$rc|$out" == "1|" ]
+out="$(phase_tool_args review /)"; rc=$?
+check "P14c a bare / as the repo root fails closed" [ "$rc|$out" == "1|" ]
+check "P14d a trailing slash on the repo root is dropped" \
+  [ -n "$(phase_tool_args review /srv/lab/ | grep -xF 'Edit(//srv/lab/logs/last-review.md)')" ]
 
 # Each phase with an agent names the agent file that exists.
 for k in $KEYS; do
@@ -98,7 +117,7 @@ check "P11c the maintainer's agent file lists Write" \
 # File rules are passed literally: a glob must never expand against real files.
 mkdir -p logs
 touch logs/lab-health-PHASE-TOOLS-TEST.log
-check "P12 globs in file rules are not expanded" has health --allowedTools "Write(logs/lab-health-*)"
+check "P12 globs in file rules are not expanded" has health --allowedTools "Edit(//srv/lab/logs/lab-health-*)"
 rm -f logs/lab-health-PHASE-TOOLS-TEST.log
 
 # --- D3: the publish guard hook ---
