@@ -1384,11 +1384,12 @@ fi
 REVIEWER_MD="$REPO/.claude/agents/agentlab-reviewer.md"
 sp1_missing=""
 for sp1_text in "**Matches the spec.**" "Spec: none given" "- MET <label> — test:" \
-                "any UNMET criterion." "between \`Increment:\` and \`Ran:\`"; do
+                "any UNMET criterion." "between \`Increment:\` and \`Ran:\`" \
+                "Never copy a credential-shaped string into this file"; do
   grep -qF -- "$sp1_text" "$REVIEWER_MD" || sp1_missing="$sp1_missing [$sp1_text]"
 done
 assert_eq "SP1" "" "$sp1_missing" \
-  "agentlab-reviewer.md has check 7, the none-given fallback, the Spec block shape, UNMET = FAIL, and its placement"
+  "agentlab-reviewer.md has check 7, the none-given fallback, the Spec block shape, UNMET = FAIL, its placement, and the no-credential-shaped-text rule"
 
 file_ln="$(grep -n '^    file_health_findings$' "$RUN_SH" | head -1 | cut -d: -f1)"
 health_ln="$(grep -n 'run_phase sonnet health ' "$RUN_SH" | head -1 | cut -d: -f1)"

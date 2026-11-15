@@ -49,6 +49,9 @@ review_record_has_marker () {
   [ -r "$1" ] && grep -qF -- "$REVIEW_RECORD_MARKER" "$1"
 }
 
+# The credential patterns, named once. See review_record_secret_hit.
+REVIEW_RECORD_SECRET_PATTERN='sk-ant-[A-Za-z0-9_-]{8,}|sk-[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|xox[abposr]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|(API_KEY|OAUTH_TOKEN|SECRET|PASSWORD|ACCESS_TOKEN)[A-Z_]*[[:space:]]*=[[:space:]]*[^[:space:]$<]{8,}'
+
 # review_record_secret_hit <text-file>
 #   rc 0 if the text matches a credential pattern, 1 if not, 2 if the file
 #   cannot be read (callers treat anything but 1 as "do not post").
@@ -61,7 +64,18 @@ review_record_has_marker () {
 review_record_secret_hit () {
   local file="$1"
   [ -r "$file" ] || return 2
-  grep -qE -- 'sk-ant-[A-Za-z0-9_-]{8,}|sk-[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|xox[abposr]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|(API_KEY|OAUTH_TOKEN|SECRET|PASSWORD|ACCESS_TOKEN)[A-Z_]*[[:space:]]*=[[:space:]]*[^[:space:]$<]{8,}' "$file"
+  grep -qE -- "$REVIEW_RECORD_SECRET_PATTERN" "$file"
+}
+
+# review_record_secret_lines <text-file>
+#   Prints the numbers of the lines that match a credential pattern, joined
+#   by ", " (e.g. "12, 35"), so a refusal can say where to look. Prints the
+#   line numbers only, never the matching text: the caller writes this to a
+#   log. Prints nothing if no line matches or the file cannot be read.
+review_record_secret_lines () {
+  local file="$1"
+  [ -r "$file" ] || return 0
+  grep -nE -- "$REVIEW_RECORD_SECRET_PATTERN" "$file" | cut -d: -f1 | paste -sd, - | sed 's/,/, /g'
 }
 
 # review_record_compose <body-file> <section-file>
