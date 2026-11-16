@@ -430,6 +430,7 @@ Full detail is in the dated `logs/lab-health-*.log` for that date.
   unverifiable offline; a `citations_delta` accumulator; offline fixtures plus one
   cheap live call. See `research/2026-11-06-citations-verifier.md`.
 - [ ] fix (health 2026-11-09): run-2026-11-07_020002 — NETWORK UNREACHABLE (api.anthropic.com / github.com) after 3 attempts — check VPN. Aborting. (last action: retry 2/3 of the reachability probe; no phase ran)
+- [ ] fix (health 2026-11-16): knowledge/README.md:26 -> [[wikilink]] (no such file) — low severity: this is the literal syntax example in the Conventions text ("Link notes with `[[wikilink]]` syntax"), not a real cross-link. Counted as broken by the mechanical check; likely a false pos...
 
 ## Stranded work (unshipped branches)
 Appended by `.pipeline/run.sh` when a failed cycle's claim names an item
