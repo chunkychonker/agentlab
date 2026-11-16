@@ -45,7 +45,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
 4. [done 89] Cycle orchestrator: runs the sequence with its gates; a failed
    cycle is snapshotted to a recovery branch and never leaks into the next.
    End-to-end tests drive it with the fake runner.
-5. [not-started] Real shipper: a `Shipper` that pushes the cycle's branch,
+5. [in-progress: built, awaiting merge of PR #93] Real shipper: a `Shipper` that pushes the cycle's branch,
    opens the PR with `gh pr create`, puts the review record in the PR body,
    and runs the mergeable check. A failed push, PR creation or check is
    `NotShipped(reason)`, never a crash or a silent success. Recovery also
@@ -162,6 +162,27 @@ contradict an entry here without adding one.
   6's CLI" in the 2026-11-11 interface entry is now milestone 7.
 
 ## Current state
+
+2026-11-16: Milestone 5 (real shipper) is in progress: its build is open as
+PR #93 (`cycle/2026-11-15-nightloop-real-shipper`), not yet merged. The
+researcher did not re-research it, and did not skip to milestone 6, because
+m6 edits the same `PLAN.md` and cycle code and would conflict with #93. See
+`research/2026-11-16-nightloop-real-shipper-awaiting-merge.md`. Next: a human
+merges or rejects #93; then the next cycle resumes at m6 (claim tracking).
+
+The builder (2026-11-16) built nothing. The research note has no build
+proposal. The builder did check the note's unverified claim against #93's
+branch, read from local git with no `gh` call: one feature commit and one
+docs commit on top of `main`. The branch adds `nightloop/ship/`
+(`GhShipper`, `gh.py`, `mergeable.py`, `review_section.py`) and the
+branch-safe recovery in `cycle/git_workspace.py`. Its tests are S1-S9 in
+`tests/test_ship_gh_shipper.py` (bare `origin`, fake `gh`; a failed push,
+PR creation or mergeable check gives `NotShipped`; the review record is read
+back from the PR body) and R2-R4 in `tests/test_cycle_git_workspace.py`.
+Exported with `git archive` to a temp dir, the branch passes `python3 -m
+unittest discover -s tests -t .`: 291 tests, OK. `main` passes 229, OK.
+Everything in the "Known limits (m4)" list below stays true on `main` until
+#93 merges.
 
 Milestone 4 (cycle orchestrator) is done as #89, merged 2026-11-11.
 Research note: `research/2026-11-11-nightloop-cycle-orchestrator.md`.
