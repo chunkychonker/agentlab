@@ -431,6 +431,12 @@ Full detail is in the dated `logs/lab-health-*.log` for that date.
   cheap live call. See `research/2026-11-06-citations-verifier.md`.
 - [ ] fix (health 2026-11-09): run-2026-11-07_020002 — NETWORK UNREACHABLE (api.anthropic.com / github.com) after 3 attempts — check VPN. Aborting. (last action: retry 2/3 of the reachability probe; no phase ran)
 - [ ] fix (health 2026-11-16): knowledge/README.md:26 -> [[wikilink]] (no such file) — low severity: this is the literal syntax example in the Conventions text ("Link notes with `[[wikilink]]` syntax"), not a real cross-link. Counted as broken by the mechanical check; likely a false pos...
+- [ ] fix (health 2026-11-16): run-2026-11-12_020002 — shipped 0/1, review verdict MISSING (permission rules refused 7 tool calls incl. "VERDICT: PASS"); work snapshotted to cycle/2026-11-12-unshipped-023955-1. Not a clean VERDICT: FAIL
+- [ ] fix (health 2026-11-16): run-2026-11-13_020001 — shipped 0/1, review verdict MISSING (permission rules refused 6 tool calls incl. "VERDICT: PASS"); work snapshotted to cycle/2026-11-13-unshipped-022718-1. Not a clean VERDICT: FAIL
+- [ ] fix (health 2026-11-16): run-2026-11-14_020000 — shipped 0/1, network unreachable mid-night: "write_research_context: 'gh pr list' failed" (api.github.com i/o timeout), then push failed "Could not resolve host: github.com" and "could not return to a...
+- [ ] fix (health 2026-11-16): run-2026-11-15_020003 — shipped 0/1, review was VERDICT: PASS and spec check OK, but auto-merge stopped: "review record: the review text matches a credential pattern — NOT posted, PR #93 left open." PR #93 still OPEN
+- [ ] fix (health 2026-11-16): review verdict MISSING after permission refusals on the review phase — 2× on 2026-11-12, 2026-11-13 (cycle did not ship; "VERDICT: PASS" listed among denied calls)
+- [ ] fix (health 2026-11-16): 0/1 shipped on 4 consecutive nights 2026-11-12 through 2026-11-15 — 4 different stated causes (2× verdict missing, 1× network, 1× credential-pattern block); window too small to say if they are linked
 
 ## Stranded work (unshipped branches)
 Appended by `.pipeline/run.sh` when a failed cycle's claim names an item
