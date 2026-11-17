@@ -141,15 +141,47 @@ model whether to proceed. One greps a file the reviewer wrote; the other asks
 GitHub. The health check is not a gate — it's a separate, non-blocking
 observability pass over what's already shipped.
 
+## The verify gate
+
+Between build and review (and again after a fix phase), `run.sh` runs the
+increment's tests itself: `verify_increment` in `.pipeline/verify.sh`. No
+model is involved. Until 2026-11-15 the only test runs in a cycle were the
+ones an agent chose to do.
+
+- **What runs is data.** `.pipeline/verify.conf` maps a path prefix to a
+  command (`prefix | label | command`). A rule runs when the cycle changed a
+  path under its prefix. Today: `projects/nightloop/` runs nightloop's unit
+  tests; `.pipeline/` and `.claude/hooks/` run every `.pipeline/test_*.sh`.
+- **Four outcomes.** PASS and NONE (no rule matched, which is every
+  demo-mode night: `examples/` has no common test command) go on to review.
+  FAIL skips the review and takes the fix round with the test output as the
+  feedback, so an opus review is never spent on a red suite. ERROR (the conf
+  is missing or malformed, or `git status` failed) ends the cycle: an
+  unreadable conf is not evidence the tests are green.
+- **Small output.** A passing command is one `✓` line in the run log. A
+  failing one is a `✗` line plus the last 200 lines of its output in
+  `logs/last-verify.md`, which is what the fix phase reads.
+- **Bounded.** Each rule has 600 s; a command still running then is killed
+  with its whole process group and counts as a failure (rc 124).
+- Tests: `bash .pipeline/test_verify.sh` (the library) and SWV1–SWV6 in
+  `test_gates.sh` (the cycle).
+
+Failure domain: verify executes builder-written test code in the pipeline's
+own shell, as the reviewer's test run already does. Adding a rule for a new
+project is one line in the conf.
+
 ## The fix round
 
-A review that does not pass no longer ends the cycle outright. When the
-verdict is FAIL, or PASS with an UNMET criterion, `run.sh` copies the review
-to `logs/fix-feedback.md`, removes the verdict file, runs the builder once
+A review that does not pass no longer ends the cycle outright, and neither
+does a red verify run. When verify says FAIL, the verdict is FAIL, or the
+verdict is PASS with an UNMET criterion, `run.sh` copies the test output or
+the review to `logs/fix-feedback.md`, removes the verdict file, runs the builder once
 more as a `fix` phase (same agent, model and permissions as build, following
 the "Fix round" section of `agentlab-builder.md`), and then reviews again
 from scratch. The second review is final: PASS with the spec OK goes to
-maintain, anything else leaves the night unshipped.
+maintain, anything else leaves the night unshipped. Verify runs again
+before that second review; if the fix left the tests red, the round is spent
+and the cycle ends without one.
 
 - **One round** (`MAX_FIX_ROUNDS` in `verdict.sh`). A second failure on the
   same increment says the plan is wrong, and each round costs two opus
