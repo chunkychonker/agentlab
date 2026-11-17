@@ -57,15 +57,20 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    (`[ ]` → `[building]` → `[done #N]`), including stranded-claim recovery.
 7. [not-started] CLI: `nightloop run`, `nightloop run --dry-run` (prints the
    night's plan without calling a model), and `nightloop report` (metrics
-   summary).
+   summary). The report also prints, for each gate, how many nights it ran
+   and how many it blocked, so a gate that never fires can be retired.
 8. [not-started] Plugin: phase agent templates plus the publish-guard
-   PreToolUse hook, packaged as a Claude Code plugin.
+   PreToolUse hook, packaged as a Claude Code plugin. Includes a
+   `run_silent` wrapper for the agents' test commands: one line on success,
+   the full output on failure.
 9. [not-started] Scheduler, macOS: generate and install a launchd job
    idempotently, honouring the run window.
 10. [not-started] Scheduler, GitHub Actions: a workflow template that runs
     one night on a cron.
-11. [not-started] Reviewer benchmark: seeded-bug fixtures, a runner, and a
-    catch-rate plus false-positive report.
+11. [not-started] Reviewer benchmark: seeded-bug fixtures and clean-diff
+    fixtures, a runner, and a report that states the false-positive rate
+    next to the catch rate. The runner is run whenever the reviewer
+    template changes.
 12. [not-started] Docs: README, quickstart, and an architecture page that
     explains each gate and the incident that motivated it.
 13. [blocked: needs a human to choose and authorise the repo] Adopt on a
@@ -207,6 +212,17 @@ contradict an entry here without adding one.
   So `GH_PROMPT_DISABLED=1` is set only as a second line of defence. The
   first is passing `--title`, `--body-file -`, `--base` and `--head`
   explicitly.
+- 2026-11-16 (owner): Milestones 7, 8 and 11 gain one requirement each,
+  from a comparison with published self-driving agent pipelines. Milestone
+  7's report counts, per gate, the nights it ran and the nights it blocked:
+  a gate with no blocks over a long window is a candidate to remove.
+  Milestone 8 ships a `run_silent` wrapper so a passing test run costs an
+  agent one line of context. Milestone 11's fixtures include clean diffs,
+  because a reviewer that fails everything has a perfect catch rate; the
+  benchmark is re-run on every reviewer-template change. Sandboxing the
+  phases is not added here: milestone 10's ephemeral runner gives it for
+  the Actions path, and a local container would be a new milestone to
+  propose before milestone 13.
 
 ## Current state
 
