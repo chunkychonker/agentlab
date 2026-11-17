@@ -154,6 +154,45 @@ check "H16 build: git status is allowed" [ "$(guard build "$(bash_payload 'git s
 check "H17 build: a commit message mentioning push is allowed" [ "$(guard build "$(bash_payload 'git log --grep "git push"')")" == 0 ]
 check "H18 build: a heredoc with an apostrophe is allowed" \
   [ "$(guard build "$(bash_payload "$(printf "cat > notes.md <<'EOF'\nit's fine\nEOF")")")" == 0 ]
+# A quoted heredoc fed to cat or tee is text being written to a file, not
+# commands. On 2026-11-12 and 11-13 the reviewer's verdict, written this way,
+# was blocked because its findings mentioned pushing and gh.
+VERDICT_BODY="$(printf 'VERDICT: PASS\nFindings:\n- nit: the shipper runs\ngh pr create --fill\nand then\ngit push origin HEAD\n')"
+check "H29 review: a quoted cat heredoc whose text mentions gh and git push is allowed" \
+  [ "$(guard review "$(bash_payload "$(printf "mkdir -p logs && cat > logs/last-review.md <<'EOF'\n%s\nEOF" "$VERDICT_BODY")")")" == 0 ]
+check "H30 review: the same with an apostrophe in the text is allowed" \
+  [ "$(guard review "$(bash_payload "$(printf "cat > logs/last-review.md <<'EOF'\nit's fine\n%s\nEOF" "$VERDICT_BODY")")")" == 0 ]
+check "H31 review: tee with a quoted heredoc is allowed" \
+  [ "$(guard review "$(bash_payload "$(printf 'tee logs/last-review.md <<"EOF"\ngit push\nEOF')")")" == 0 ]
+check "H32 build: a heredoc fed to a shell still blocks" \
+  [ "$(guard build "$(bash_payload "$(printf "bash <<'EOF'\ngit push\nEOF")")")" == 2 ]
+check "H33 build: a cat heredoc piped onward still blocks" \
+  [ "$(guard build "$(bash_payload "$(printf "cat <<'EOF' | bash\ngit push\nEOF")")")" == 2 ]
+check "H34 build: an unquoted heredoc still blocks (its text is expanded)" \
+  [ "$(guard build "$(bash_payload "$(printf 'cat > f <<EOF\n$(git push)\nEOF')")")" == 2 ]
+check "H35 build: a push after the heredoc ends still blocks" \
+  [ "$(guard build "$(bash_payload "$(printf "cat > f <<'EOF'\nhello\nEOF\ngit push")")")" == 2 ]
+check "H36 build: a push on the heredoc's own line still blocks" \
+  [ "$(guard build "$(bash_payload "$(printf "cat > f <<'EOF' && git push\nhello\nEOF")")")" == 2 ]
+check "H37 build: a heredoc that never ends still blocks" \
+  [ "$(guard build "$(bash_payload "$(printf "cat > f <<'EOF'\ngit push\n")")")" == 2 ]
+check "H38 build: an indented end word does not end a plain heredoc" \
+  [ "$(guard build "$(bash_payload "$(printf "cat > f <<'EOF'\nhello\n  EOF\ngit push\nEOF")")")" == 0 ]
+check "H39 build: a second heredoc on one line is left alone, so it still blocks" \
+  [ "$(guard build "$(bash_payload "$(printf "cat <<'A' <<'B'\ngit push\nA\ngit push\nB")")")" == 2 ]
+check "H40 build: a here-string is not a heredoc" \
+  [ "$(guard build "$(bash_payload "$(printf "cat <<< 'EOF'\ngit push\nEOF")")")" == 2 ]
+check "H41 build: a commented-out heredoc operator does not hide a push" \
+  [ "$(guard build "$(bash_payload "$(printf "cat f # <<'EOF'\ngit push\nEOF")")")" == 2 ]
+check "H42 build: a heredoc line continued from a shell line still blocks" \
+  [ "$(guard build "$(bash_payload "$(printf "bash -s \\\\\ncat <<'EOF'\ngit push\nEOF")")")" == 2 ]
+check "H43 build: a cat heredoc inside bash -c is still only text" \
+  [ "$(guard build "$(bash_payload "$(printf "bash -c '\ncat > f <<\"EOF\"\ngit push\nEOF\n'")")")" == 0 ]
+check "H44 build: a push on the line after a comment blocks" \
+  [ "$(guard build "$(bash_payload "$(printf 'ls # a note\ngit push')")")" == 2 ]
+check "H45 build: a comment with no push in it is allowed" \
+  [ "$(guard build "$(bash_payload "$(printf 'ls # list the files\ngit status')")")" == 0 ]
+
 check "H19 unset phase blocks (fails closed)" [ "$(guard - "$(bash_payload 'ls')")" == 2 ]
 check "H20 empty phase blocks" [ "$(guard "" "$(bash_payload 'ls')")" == 2 ]
 check "H21 malformed payload blocks" [ "$(guard build 'not json')" == 2 ]

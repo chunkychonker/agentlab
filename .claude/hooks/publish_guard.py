@@ -27,6 +27,10 @@ object, or a Bash call with no string command all block (exit 2). A command
 the tokenizer cannot parse (an unclosed quote, a heredoc body) blocks only if
 its raw text looks like `git ... push` or `gh`, so a builder's heredoc with an
 apostrophe is not stopped for nothing.
+
+The text of a heredoc fed to `cat` or `tee` is dropped before any of that,
+because it is written to a file, not run. See _drop_data_heredocs for the
+narrow conditions; anything outside them is checked as before.
 """
 
 import json
@@ -53,6 +57,14 @@ _GH_READ_ONLY = {
     ("issue", "list"), ("issue", "view"), ("issue", "status"),
     ("repo", "view"), ("run", "list"), ("run", "view"), ("auth", "status"),
 }
+
+# Commands that only copy a heredoc's text to a file or to stdout.
+_HEREDOC_DATA_SINKS = {"cat", "tee"}
+# A heredoc operator with a quoted end word: <<'EOF', <<"EOF", <<-'EOF'.
+# Quoting matters: the shell expands $( ) inside an unquoted heredoc, so its
+# text can run a command. `<<<` (a here-string) is excluded.
+_QUOTED_HEREDOC = re.compile(r"""(?<!<)<<(-?)[ \t]*(?:'([^'\n]+)'|"([^"\n]+)")""")
+_ANY_HEREDOC = re.compile(r"(?<!<)<<(?!<)")
 
 _RAW_PUBLISH = re.compile(r"\bgit\b[^\n;&|]*\bpush\b|(^|[\s;&|(`$])gh\s")
 
@@ -89,6 +101,86 @@ def _git_subcommand(args: List[str]) -> Optional[str]:
     return None
 
 
+def _tokens(text: str) -> List[str]:
+    """Splits shell text into words and punctuation runs. Raises ValueError on an unclosed quote."""
+    lexer = shlex.shlex(text, posix=True, punctuation_chars=_PUNCTUATION)
+    lexer.whitespace_split = True
+    lexer.whitespace = " \t\r"
+    # shlex's own comment handling eats the newline that ends the comment, so
+    # `ls # note` followed by `git push` on the next line read as one harmless
+    # command. With it off, a comment's words are checked like any others.
+    lexer.commenters = ""
+    return list(lexer)
+
+
+def _is_data_heredoc_line(line: str, match: "re.Match[str]") -> bool:
+    """True if the heredoc opened on this line only feeds text to cat or tee.
+
+    The command that owns the heredoc must be `cat` or `tee` (after the usual
+    prefixes), and nothing after the operator may pipe its output onward.
+    Any doubt, including a line that does not tokenize, is False. So is a `#`
+    before the operator: the tokenizer drops a comment, and a commented-out
+    operator opens no heredoc.
+    """
+    if "#" in line[: match.start()]:
+        return False
+    try:
+        before = _tokens(line[: match.start()])
+        after = _tokens(line[match.end():])
+    except ValueError:
+        return False
+    if any("|" in t for t in after if t and set(t) <= set(_PUNCTUATION)):
+        return False
+    owner: List[str] = []
+    for tok in before:
+        if tok and set(tok) <= set(_PUNCTUATION):
+            owner = []
+        else:
+            owner.append(tok)
+    owner = _strip_prefixes(owner)
+    return bool(owner) and os.path.basename(owner[0]) in _HEREDOC_DATA_SINKS
+
+
+def _drop_data_heredocs(command: str) -> str:
+    """Returns the command without the text of heredocs that are only data.
+
+    A heredoc's text is dropped only when all of these hold: the line opens
+    exactly one heredoc, its end word is quoted, _is_data_heredoc_line is
+    true, the lines above it leave no quote or backslash open (so the line
+    really starts a command), and the end word is found on a later line. The opening line itself
+    and everything after the end word stay, and are checked as usual. A
+    heredoc that fails any condition is left in place untouched. Pure; never
+    raises.
+    """
+    lines = command.split("\n")
+    out: List[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        out.append(line)
+        i += 1
+        if len(_ANY_HEREDOC.findall(line)) != 1:
+            continue
+        match = _QUOTED_HEREDOC.search(line)
+        if match is None or not _is_data_heredoc_line(line, match):
+            continue
+        above = "\n".join(out[:-1])
+        if above.endswith("\\"):
+            continue
+        try:
+            _tokens(above)
+        except ValueError:
+            continue
+        strip_tabs = match.group(1) == "-"
+        end_word = match.group(2) or match.group(3)
+        for j in range(i, len(lines)):
+            candidate = lines[j].lstrip("\t") if strip_tabs else lines[j]
+            if candidate == end_word:
+                i = j + 1
+                break
+    return "\n".join(out)
+
+
 def _check_simple(words: List[str], depth: int) -> None:
     """Raises _Blocked if one simple command publishes."""
     words = _strip_prefixes(words)
@@ -113,13 +205,11 @@ def _check_command(command: str, depth: int) -> None:
     """Raises _Blocked if any part of a shell command line publishes."""
     if depth > MAX_NESTING:
         raise _Blocked("shell nesting deeper than %d" % MAX_NESTING)
+    command = _drop_data_heredocs(command)
     # Backticks run a command just like $( ), so they split words the same way.
     command = command.replace("`", " ; ")
     try:
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=_PUNCTUATION)
-        lexer.whitespace_split = True
-        lexer.whitespace = " \t\r"
-        tokens = list(lexer)
+        tokens = _tokens(command)
     except ValueError:
         if _RAW_PUBLISH.search(command):
             raise _Blocked("unparseable command that mentions git push or gh")
