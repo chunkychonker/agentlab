@@ -92,7 +92,7 @@ echo "=== agentlab pipeline $TS ===" | tee -a "$LOG"
 BACKLOG_FILE="BACKLOG.md"
 # issues.sh (spec #6) is commented out of this list, with its call sites below:
 # findings go to the private file instead (spec #7). Kept, not deleted.
-for lib in backlog verdict health pipeline_health preflight postcondition schedule network_retry usage_limit auth alert metrics phase_tools review_record findings verify; do
+for lib in backlog verdict health pipeline_health preflight postcondition schedule network_retry usage_limit auth alert metrics phase_tools review_record findings verify ci; do
   if [ ! -r "$REPO/.pipeline/$lib.sh" ]; then
     echo "MISSING $REPO/.pipeline/$lib.sh — required. Aborting." | tee -a "$LOG"
     exit 1
@@ -967,6 +967,16 @@ run_cycle () {
     echo "PR #$pr_num left open for manual merge (mergeable=$mergeable)." | tee -a "$LOG"
     return 1
   fi
+  # The CI gate (ci.sh): the suites, run on a clean checkout by GitHub
+  # Actions, must be green before anything merges. Mechanical again: the
+  # answer comes from GitHub, and only GREEN proceeds.
+  local ci_word
+  ci_word="$(ci_wait "$pr_num")"
+  if [ "$ci_word" != "GREEN" ]; then
+    echo "PR #$pr_num left open: CI is ${ci_word:-unknown}, and only GREEN auto-merges (see .pipeline/ci.sh)." | tee -a "$LOG"
+    return 1
+  fi
+  echo "--- gate: CI GREEN for PR #$pr_num. ---" | tee -a "$LOG"
   if ! gh pr merge "$pr_num" --merge --delete-branch >>"$LOG" 2>&1; then
     echo "PR #$pr_num was MERGEABLE but 'gh pr merge' failed (branch protection? re-check manually) — left open." | tee -a "$LOG"
     return 1

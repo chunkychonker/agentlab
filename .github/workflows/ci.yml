@@ -1,0 +1,49 @@
+# The outside check on every PR, and what the nightly auto-merge waits for
+# (.pipeline/ci.sh). Runs the same offline suites a human runs by hand.
+#
+# macOS, not Linux: the suites are bash 3.2 and use BSD `stat -f`, because the
+# pipeline they test runs on one Mac under launchd.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Pipeline suites
+        run: |
+          # The suites build throwaway git repos; give git an identity to use.
+          git config --global user.name "ci"
+          git config --global user.email "ci@example.invalid"
+          rc=0
+          for t in .pipeline/test_*.sh; do
+            if out="$(bash "$t" 2>&1)"; then
+              echo "✓ $t"
+            else
+              echo "✗ $t"
+              printf '%s\n' "$out" | grep -v -e '^PASS' -e '^ok ' || true
+              rc=1
+            fi
+          done
+          exit "$rc"
+      - name: nightloop unit tests
+        working-directory: projects/nightloop
+        run: python3 -I -m unittest discover
