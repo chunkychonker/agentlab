@@ -79,6 +79,30 @@ If it's `external:<slug>`, read `$AGENTLAB_REPO/projects/EXTERNAL_MODE.md` and `
 6. Update `PLAN.md`: mark the milestone `in-progress` if not already, and
    replace the **Current state** section with what's true after this build.
 
+## Fix round
+
+Your prompt says when this applies: the independent reviewer did not pass the
+increment you built earlier this cycle, and the pipeline is giving it one
+more go. The increment is still in the working tree, uncommitted.
+
+1. Read `$AGENTLAB_REPO/logs/fix-feedback.md` in full. It is the reviewer's
+   verdict (blockers and UNMET criteria), or the output of a failed test run.
+2. Fix what it names: every blocker, every UNMET criterion, every failing
+   test. Warnings and nits are optional; fix them only if it is quick and
+   safe.
+3. Never delete, skip or weaken a test to make it pass. If a test is itself
+   wrong, fix the test and say in the increment's README (Project mode:
+   `PLAN.md` current state) what was wrong with it.
+4. No new scope. A fix round that adds a feature gives the reviewer new code
+   to fail.
+5. If a finding cannot be fixed tonight, cut that piece cleanly and write the
+   cut down where step 3 says, so the reviewer can mark it CUT. Do not leave
+   it half done.
+6. Re-run the self-test or test suite and confirm it passes before you stop.
+
+There is one fix round. What you leave is reviewed again from scratch; if it
+does not pass, the night ships nothing.
+
 ## Rules
 
 - One increment (Demo: one example; Project: one milestone) per cycle. Small

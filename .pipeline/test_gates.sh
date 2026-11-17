@@ -1290,9 +1290,15 @@ else
   fail "R1" "verdict gate is mis-ordered: review=$review_ln, gate=$gate_ln, maintain=$maintain_ln"
 fi
 
-r2="$(awk -v s="$gate_ln" 'NR>=s && NR<=s+8 && /return 1/ {print "guarded"; exit}' "$RUN_SH")"
-assert_eq "R2" "guarded" "${r2:-unguarded}" \
-  "a non-PASS verdict returns from run_cycle rather than falling through to maintain"
+# Between the verdict gate and maintain sits the review loop, and the only way
+# out of it toward maintain is one `break`, directly under the spec-OK line.
+# (What a non-PASS verdict actually does is run in SW6 and SW10 below.)
+r2="$(awk -v s="$gate_ln" -v e="$maintain_ln" '
+  NR>s && NR<e && /^[[:space:]]*break$/ { n++; if (prev ~ /gate: spec check OK/) ok++ }
+  { prev=$0 }
+  END { print (n==1 && ok==1) ? "guarded" : "unguarded (" n+0 " break, " ok+0 " under spec OK)" }' "$RUN_SH")"
+assert_eq "R2" "guarded" "$r2" \
+  "the review loop's only exit toward maintain is the break under spec check OK"
 
 # The spec gate (spec #9) sits between the verdict gate and maintain. Ordering
 # IS the fix again: a spec check after maintain would gate nothing.
@@ -1312,25 +1318,38 @@ fi
 # that reaches it returns 1 straight after — no gh is ever reached.
 SW_FN="$(awk '/^run_cycle \(\) \{/,/^\}/' "$RUN_SH")"
 
-# sw_run <box> <notes-to-write> <verdict-file-body>
+# sw_run <box> <notes-to-write> <verdict-file-body> [<second-verdict-body>] [<fix-rc>]
 # Runs one cycle in $WORK/sw/<box>. <notes-to-write> is a space-separated list
-# of note names (empty for none). Leaves calls, review-prompt and log there;
-# prints run_cycle's rc.
+# of note names (empty for none). The review stub writes <verdict-file-body>
+# the first time it is called and <second-verdict-body> (default: the same)
+# every time after; the fix stub returns <fix-rc> (default 0). Leaves calls
+# (phase keys), names (phase names), review-prompt, fix-prompt, fix-post,
+# fix-feedback (the feedback file as the fix phase saw it), stale-verdict (one
+# line per review that started with a verdict file already present) and log
+# there; prints run_cycle's rc.
 sw_run () {
-  local box="$WORK/sw/$1" notes="$2" verdict="$3"
+  local box="$WORK/sw/$1" notes="$2" verdict="$3" verdict2="${4:-$3}" fix_rc="${5:-0}"
   mkdir -p "$box/research" "$box/logs"
   : > "$box/research/2026-01-01-old.md"; touch -t "$PC_OLD" "$box/research/2026-01-01-old.md"
   (
     cd "$box" || exit 99
     REPO="$box" LOG="$box/log" CYCLES=1 RESEARCH_CONTEXT_FILE="logs/research-context.md"
-    SW_NOTES="$notes" SW_VERDICT="$verdict"
+    SW_NOTES="$notes" SW_VERDICT="$verdict" SW_VERDICT2="$verdict2" SW_FIX_RC="$fix_rc" SW_REVIEWS=0
     write_research_context () { :; }
     run_phase () {
       echo "$2" >> "$box/calls"
-      case "$2" in
+      echo "${3#*: }" >> "$box/names"
+      case "${3#*: }" in
         research) local n; for n in $SW_NOTES; do : > "research/$n"; done ;;
         review) printf '%s\n' "$5" > "$box/review-prompt"
-                printf '%b' "$SW_VERDICT" > "$REVIEW_VERDICT_FILE" ;;
+                [ -e "$REVIEW_VERDICT_FILE" ] && echo stale >> "$box/stale-verdict"
+                SW_REVIEWS=$(( SW_REVIEWS + 1 ))
+                if [ "$SW_REVIEWS" -eq 1 ]; then printf '%b' "$SW_VERDICT" > "$REVIEW_VERDICT_FILE"
+                else printf '%b' "$SW_VERDICT2" > "$REVIEW_VERDICT_FILE"; fi ;;
+        fix) printf '%s\n' "$5" > "$box/fix-prompt"
+             printf '%s|%s|%s\n' "$1" "$2" "$4" > "$box/fix-post"
+             cat "$FIX_FEEDBACK_FILE" > "$box/fix-feedback" 2>/dev/null
+             return "$SW_FIX_RC" ;;
       esac
       return 0
     }
@@ -1340,6 +1359,8 @@ sw_run () {
   )
 }
 sw_called () { grep -qx "$2" "$WORK/sw/$1/calls" 2>/dev/null && echo yes || echo no; }
+# sw_times <box> <phase-name>: how many times that phase ran.
+sw_times () { grep -cx "$2" "$WORK/sw/$1/names" 2>/dev/null || true; }
 
 SW_NOTE="2026-11-11-tonight.md"
 SW_OK="VERDICT: PASS\nIncrement: examples/foo/\nSpec: research/$SW_NOTE\n- MET B1 — test: t.py::a\nRan: pytest\nFindings:\n- (nit) x\n"
@@ -1359,11 +1380,16 @@ else
   assert_eq "SW3" "1|yes" "$sw_rc|$(sw_called ok maintain)" \
     "PASS + spec OK reaches maintain (rc 1 only because the stub opened no PR)"
 
+  assert_eq "SW3b" "0|1" "$(sw_times ok fix)|$(sw_times ok review)" \
+    "...with no fix phase and one review (A1)"
+
   sw_rc="$(sw_run unmet "$SW_NOTE" "$SW_UNMET")"
   assert_eq "SW2" "1|no" "$sw_rc|$(sw_called unmet maintain)" \
-    "PASS with an UNMET criterion returns 1 and never calls maintain"
-  assert_eq "SW2b" "1" "$(grep -c 'gate: spec check UNMET (B2)' "$WORK/sw/unmet/log")" \
-    "...and the log names the UNMET label"
+    "PASS with an UNMET criterion, twice, returns 1 and never calls maintain"
+  assert_eq "SW2b" "2" "$(grep -c 'gate: spec check UNMET (B2)' "$WORK/sw/unmet/log")" \
+    "...and the log names the UNMET label for each review"
+  assert_eq "SW2c" "1|2" "$(sw_times unmet fix)|$(sw_times unmet review)" \
+    "...after exactly one fix phase and a second review (A2, A7)"
 
   sw_rc="$(sw_run nonote "" "$SW_OK")"
   assert_eq "SW4" "1|no|no" "$sw_rc|$(sw_called nonote build)|$(sw_called nonote review)" \
@@ -1377,8 +1403,67 @@ else
 
   sw_rc="$(sw_run failv "$SW_NOTE" "$SW_FAIL")"
   assert_eq "SW6" "1|no|0" "$sw_rc|$(sw_called failv maintain)|$(grep -c 'spec check' "$WORK/sw/failv/log")" \
-    "a FAIL verdict stops at the verdict gate; the spec gate never runs"
+    "a FAIL verdict, twice, stops at the verdict gate; the spec gate never runs"
+  assert_eq "SW6b" "1|2" "$(sw_times failv fix)|$(sw_times failv review)" \
+    "...after exactly one fix phase: MAX_FIX_ROUNDS caps it whatever the reviews say (A7)"
+  assert_eq "SW6c" "1" "$(grep -c 'no fix round left' "$WORK/sw/failv/log")" \
+    "...and the log says the fix rounds are spent"
+
+  # The fix round (gap 1): one failed review is fed back to the builder once.
+  sw_rc="$(sw_run fixfail "$SW_NOTE" "$SW_FAIL" "$SW_OK")"
+  assert_eq "SW7" "1|yes|1|2" "$sw_rc|$(sw_called fixfail maintain)|$(sw_times fixfail fix)|$(sw_times fixfail review)" \
+    "FAIL, then PASS + spec OK after the fix, reaches maintain (A2, A3)"
+  assert_eq "SW7b" "research build review fix review maintain" "$(tr '\n' ' ' < "$WORK/sw/fixfail/names" | sed 's/ $//')" \
+    "...and the phases run in that order"
+
+  sw_rc="$(sw_run fixunmet "$SW_NOTE" "$SW_UNMET" "$SW_OK")"
+  assert_eq "SW8" "1|yes|1" "$sw_rc|$(sw_called fixunmet maintain)|$(sw_times fixunmet fix)" \
+    "PASS with an UNMET criterion, then OK after the fix, reaches maintain (A2)"
+
+  assert_eq "SW9" "$(printf '%b' "$SW_FAIL")" "$(cat "$WORK/sw/fixfail/fix-feedback" 2>/dev/null)" \
+    "the fix phase finds the first review, whole, in the feedback file (A2)"
+  assert_eq "SW9b" "no" "$( [ -e "$WORK/sw/fixfail/stale-verdict" ] && echo yes || echo no )" \
+    "no review ever starts with a verdict file already on disk (A9)"
+  assert_eq "SW9c" "opus|build|increment_built" "$(cat "$WORK/sw/fixfail/fix-post" 2>/dev/null)" \
+    "the fix phase runs on opus with build permissions, gated by increment_built (A5)"
+  assert_eq "SW9d" "1" "$(grep -c 'logs/fix-feedback.md' "$WORK/sw/fixfail/fix-prompt" 2>/dev/null || true)" \
+    "the fix prompt names the feedback file"
+
+  # Reviewer faults are not the builder's to fix (A4).
+  sw_rc="$(sw_run garbled "$SW_NOTE" "the reviewer wrote prose\n")"
+  assert_eq "SW10" "1|0|1|no" "$sw_rc|$(sw_times garbled fix)|$(sw_times garbled review)|$(sw_called garbled maintain)" \
+    "a MALFORMED verdict ends the cycle with no fix round"
+  sw_rc="$(sw_run nospec "$SW_NOTE" "VERDICT: PASS\nIncrement: examples/foo/\nRan: pytest\nFindings:\n- (nit) x\n")"
+  assert_eq "SW10b" "1|0|1|no" "$sw_rc|$(sw_times nospec fix)|$(sw_times nospec review)|$(sw_called nospec maintain)" \
+    "a PASS with no Spec line ends the cycle with no fix round"
+
+  # A fix phase that fails ends the cycle; a usage limit is passed through.
+  sw_rc="$(sw_run fixdied "$SW_NOTE" "$SW_FAIL" "$SW_OK" 1)"
+  assert_eq "SW11" "1|1|no" "$sw_rc|$(sw_times fixdied review)|$(sw_called fixdied maintain)" \
+    "a fix phase that fails (rc 1, e.g. it changed nothing) ends the cycle before a second review (A5)"
+  sw_rc="$(sw_run fixlimit "$SW_NOTE" "$SW_FAIL" "$SW_OK" 75)"
+  assert_eq "SW11b" "75|1" "$sw_rc|$(sw_times fixlimit review)" \
+    "a fix phase stopped by a usage limit returns 75 from the cycle (A6)"
 fi
+
+# review_fixable: which review outcomes earn a fix round (A2, A4).
+vf () { review_fixable "$1" "$2" && echo fix || echo stop; }
+assert_eq "VF1" "fix" "$(vf FAIL "")" "a FAIL verdict is fixable"
+assert_eq "VF2" "fix" "$(vf PASS UNMET)" "a PASS with an UNMET criterion is fixable"
+assert_eq "VF3" "stop|stop" "$(vf MISSING "")|$(vf MALFORMED "")" "a missing or unreadable verdict is not"
+assert_eq "VF4" "stop|stop|stop|stop" "$(vf PASS NONE_MET)|$(vf PASS NO_SPEC)|$(vf PASS WRONG_SPEC)|$(vf PASS MALFORMED)" \
+  "a PASS whose Spec block is absent, wrong or unreadable is not"
+assert_eq "VF5" "stop|stop" "$(vf PASS OK)|$(vf "" "")" "a shipping review, and no input at all, are not"
+assert_eq "VF6" "1" "$MAX_FIX_ROUNDS" "one fix round per cycle"
+
+# The builder's half of the contract (A10).
+BUILDER_MD="$REPO/.claude/agents/agentlab-builder.md"
+fx_missing=""
+for fx_text in "## Fix round" "logs/fix-feedback.md" "Never delete, skip or weaken a test"; do
+  grep -qF -- "$fx_text" "$BUILDER_MD" || fx_missing="$fx_missing [$fx_text]"
+done
+assert_eq "FX1" "" "$fx_missing" \
+  "agentlab-builder.md has the Fix round section, the feedback file, and the no-weakened-tests rule"
 
 # The reviewer's half of the contract, pinned where run.sh's half is tested.
 REVIEWER_MD="$REPO/.claude/agents/agentlab-reviewer.md"

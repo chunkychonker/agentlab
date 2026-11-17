@@ -141,6 +141,36 @@ model whether to proceed. One greps a file the reviewer wrote; the other asks
 GitHub. The health check is not a gate — it's a separate, non-blocking
 observability pass over what's already shipped.
 
+## The fix round
+
+A review that does not pass no longer ends the cycle outright. When the
+verdict is FAIL, or PASS with an UNMET criterion, `run.sh` copies the review
+to `logs/fix-feedback.md`, removes the verdict file, runs the builder once
+more as a `fix` phase (same agent, model and permissions as build, following
+the "Fix round" section of `agentlab-builder.md`), and then reviews again
+from scratch. The second review is final: PASS with the spec OK goes to
+maintain, anything else leaves the night unshipped.
+
+- **One round** (`MAX_FIX_ROUNDS` in `verdict.sh`). A second failure on the
+  same increment says the plan is wrong, and each round costs two opus
+  phases, about 10 more minutes on a night that needs one.
+- **Only fixable reviews** (`review_fixable` in `verdict.sh`). A missing or
+  unreadable verdict, or a Spec block that is absent, names the wrong note or
+  cannot be parsed, is the reviewer's fault and gives the builder nothing to
+  act on, so the cycle ends as before.
+- **A fix must change something.** The phase's postcondition is
+  `increment_built` with its own start time; a fix that touched no increment
+  file fails the phase.
+- **No stale verdict.** The verdict file is removed before every review, so a
+  second reviewer that dies leaves MISSING, never the first review's words.
+- The fix phase has its own line in `logs/metrics.jsonl` (phase `fix`). The
+  review record posted on the PR is the final review only.
+
+Why: before 2026-11-15 one fixable finding cost the whole night. Spotify
+reports its judge vetoes about a quarter of agent sessions and the agent
+recovers about half the time when told why; Stripe sends CI failures back
+once and then stops.
+
 ## Cycles per night
 
 `.pipeline/cycles` (an integer, default 1) sets how many increments a night
