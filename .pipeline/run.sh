@@ -781,7 +781,7 @@ attach_review_to_pr () {
   elif ! review_record_section "$REVIEW_VERDICT_FILE" > "$section"; then
     echo "review record: $REVIEW_VERDICT_FILE has no Findings block — nothing to post, not merging PR #$pr." | tee -a "$LOG"
   elif review_record_secret_hit "$section" || [ $? -ne 1 ]; then
-    echo "review record: the review text matches a credential pattern — NOT posted, PR #$pr left open. Check $REVIEW_VERDICT_FILE by hand." | tee -a "$LOG"
+    echo "review record: the review text matches a credential pattern — NOT posted, PR #$pr left open. Check $REVIEW_VERDICT_FILE by hand (line(s): $(review_record_secret_lines "$REVIEW_VERDICT_FILE"))." | tee -a "$LOG"
   elif ! review_record_compose "$body" "$section" > "$new"; then
     echo "review record: PR #$pr's body leaves no room for the review section — not merging." | tee -a "$LOG"
   elif ! gh pr edit "$pr" --body-file "$new" >>"$LOG" 2>&1; then

@@ -86,6 +86,14 @@ secret_case 8 1 "- warning: task-runner retries forever"
 secret_case 9 1 "Ran: export ANTHROPIC_API_KEY=\$KEY from the env (no value inline)"
 review_record_secret_hit "$T/nope"; check "X10 an unreadable file is not 'clean' (rc 2)" [ $? -eq 2 ]
 
+# --- review_record_secret_lines ---
+
+printf 'VERDICT: PASS\nkey sk-ant-api03-abcdefghijklmnop here\nclean line\nAKIAIOSFODNN7EXAMPLE\n' > "$T/lines"
+check "X11 names every matching line, by number" [ "$(review_record_secret_lines "$T/lines")" == "2, 4" ]
+check "X12 never prints the matching text" [ -z "$(review_record_secret_lines "$T/lines" | grep -E 'sk-ant|AKIA')" ]
+check "X13 a clean file prints nothing" [ -z "$(review_record_secret_lines "$T/s-8")" ]
+check "X14 an unreadable file prints nothing and returns 0" [ "$(review_record_secret_lines "$T/nope"; echo "rc=$?")" == "rc=0" ]
+
 # --- review_record_compose (E3 at the unit level) ---
 
 review_record_compose "$T/body-plain" "$T/section.md" > "$T/composed"; rc=$?
@@ -153,6 +161,9 @@ else
   check "A10 (E5) a review quoting an sk-ant- key returns 1" [ "$rc" -eq 1 ]
   check "A11 (E5) ...and nothing was posted" [ "$(edits)|$(grep -c 'sk-ant' "$GH_BODY")" == "0|0" ]
   check "A12 (E5) ...and the log says why" grep -q "matches a credential pattern — NOT posted, PR #45 left open" "$LOG"
+  secret_ln="$(wc -l < "$T/verdict-secret.md" | tr -d ' ')"
+  check "A12b ...and names the verdict line to look at" grep -qF "by hand (line(s): $secret_ln)." "$LOG"
+  check "A12c ...without writing the key into the log" [ "$(grep -c 'SECRETSECRET' "$LOG")" -eq 0 ]
 
   printf 'Body.\n' > "$GH_BODY"; : > "$GH_CALLS"
   REVIEW_VERDICT_FILE="$T/nofindings.md" attach_review_to_pr 46; rc=$?

@@ -96,6 +96,12 @@ Findings:
   human reviewer. List every CUT criterion under Findings as a warning too.
 - **FAIL** if it doesn't run, leaks a secret, is incomplete/stubbed, or has
   any UNMET criterion.
+- **Never copy a credential-shaped string into this file**, not even an
+  obviously fake one from a test fixture or from the secret-scan patterns you
+  searched for. `run.sh` scans this file for credentials before it posts your
+  findings to the PR, and one match leaves a PASS unmerged. Say where the
+  string is instead (`tests/test_x.py:41, a fake Anthropic-style key`), and
+  describe what you grepped for in words (`the usual key prefixes`).
 - The Spec block goes between `Increment:` and `Ran:`, one line per criterion,
   in the shape above, with ` — ` (an em dash between spaces) after the label.
   `run.sh` reads it mechanically: a missing Spec line, a path other than the
