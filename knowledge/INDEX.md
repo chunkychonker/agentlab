@@ -221,4 +221,5 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
 - [[mcp-streamable-http]] — serving MCP over HTTP in SDK 2.x: `streamable_http_app()`, the localhost-only Host allowlist that 421s a first deploy, mounted-lifespan trap, sessionless vs legacy eras, `httpx2` client
 - [[gates-port-python]] - verdict and freshness gate edge cases for the Python port (nightloop m2): line-split trap, no mtime truncation, STALE vs MISSING
 - [[cycle-orchestration-gates]] - what a night loop must guarantee (nightloop m4): clear handoff files first, recover after every cycle to a unique branch, stop on usage limit by text on `CLI_ERROR` only
+- [[shipping-a-cycle]] - push only your own branch, `branch -f main` after a pushed snapshot, ahead-of-origin leak, `gh pr create` flags, mergeable values unverified (nightloop m5)
 - [[claude-p-phase-contract]] - what a runner may rely on from `claude -p --output-format json` (nightloop m3): success = rc 0 and not is_error, optional fields, prompt-before-variadic-flags, no `--bare` with hooks
