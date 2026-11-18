@@ -58,6 +58,8 @@ elif key == "pr view":
     elif field == "mergeable":
         seq = state["mergeable"]
         print(seq.pop(0) if len(seq) > 1 else seq[0])
+    elif field == "mergeCommit":
+        print(pr.get("merge_commit", ""))
     else:
         sys.exit("fake gh: unsupported field " + field)
 else:
@@ -82,7 +84,9 @@ def _executable(path: Path, source: str) -> Path:
 class FakeGh:
     """A scripted ``gh`` under ``root``; ``program`` is its path.
 
-    State keys: ``prs`` (what exists), ``next`` (the next PR number),
+    State keys: ``prs`` (what exists; a PR's ``merge_commit`` is what
+    ``pr view --json mergeCommit`` prints, empty when absent, the shape
+    ``-q .mergeCommit.oid`` gives in ``.pipeline/run.sh``), ``next`` (the next PR number),
     ``mergeable`` (values read in order; the last one repeats),
     ``create_stdout`` (replaces the URL ``pr create`` prints),
     ``body_override`` (replaces every body read back), ``fail`` (``"pr

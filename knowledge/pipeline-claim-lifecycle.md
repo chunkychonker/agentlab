@@ -183,6 +183,16 @@ here. (`run.sh`'s one remaining `|| true`, on the `git branch -D` at line 204,
 is a different thing entirely: it tolerates a failed cleanup of an empty
 recovery branch.)
 
+## Porting it (nightloop milestone 6, planned 2026-11-18)
+
+`projects/nightloop` ports this lifecycle to Python (`research/2026-11-18-nightloop-claim-tracking.md`).
+Three things carry over unchanged: match the item text as a whole-line string, never as a
+pattern; recover a shipped claim from the merge commit's first-parent diff, not the merge
+base; and dedupe a filed stranded item against every marker so `[done #N]` work is never
+resurrected. One thing changes: bash's "always return 0" posture becomes a typed per-item
+outcome, because a Python `except: pass` would be a swallowed error rather than a logged
+one. The port also stops at the file edit and leaves commit and push to the caller.
+
 ## Related
 
 - [[bash-3.2-testable-scripts]] — how to get this orchestration logic under test
