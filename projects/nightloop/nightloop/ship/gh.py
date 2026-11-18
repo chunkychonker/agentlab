@@ -79,6 +79,14 @@ class Gh:
         """PR ``pr``'s raw ``mergeable`` value. Raises ``GhError``/``OSError`` as ``create_pr``."""
         return self._run("pr", "view", str(pr), "--json", "mergeable", "-q", ".mergeable").strip()
 
+    def merge_commit_of(self, pr: int) -> str:
+        """PR ``pr``'s raw ``mergeCommit.oid``, stripped; for an unmerged PR this is not an oid.
+
+        The field shape is the one ``.pipeline/run.sh`` uses. Raises
+        ``GhError``/``OSError`` as ``create_pr``.
+        """
+        return self._run("pr", "view", str(pr), "--json", "mergeCommit", "-q", ".mergeCommit.oid").strip()
+
     def _run(self, *args: str, stdin_text: str | None = None) -> str:
         """stdout of one ``gh`` call; raises ``GhError`` on non-zero exit or timeout, ``OSError`` if it cannot start."""
         command = " ".join(args[:2])

@@ -53,7 +53,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    uncommitted changes, so the shipper can never push a failed cycle's
    commits. Tests use a local bare `origin` and a fake `gh`; no test talks
    to GitHub.
-6. [not-started] Claim tracking: the backlog claim lifecycle
+6. [in-progress] Claim tracking: the backlog claim lifecycle
    (`[ ]` → `[building]` → `[done #N]`), including stranded-claim recovery.
 7. [not-started] CLI: `nightloop run`, `nightloop run --dry-run` (prints the
    night's plan without calling a model), and `nightloop report` (metrics
@@ -223,8 +223,113 @@ contradict an entry here without adding one.
   phases is not added here: milestone 10's ephemeral runner gives it for
   the Actions path, and a local container would be a new milestone to
   propose before milestone 13.
+- 2026-11-18: Milestone 6's interfaces differ from the research note's layer 3
+  in these ways. Each change either makes a bad state unbuildable or keeps two
+  copies of a value from drifting.
+  (a) The branch a stranded marker names is a `StrandedBranch` value (non-empty,
+  no whitespace, so `"] "` cannot occur in it), not a `str`. The PR number is
+  `PrNumber` (int > 0; `PrNumber.parse` takes digits only with no leading zero).
+  (b) The port's lookups return `Claim | NoClaim | Unreadable(reason)` instead of
+  `Claim | None`, so "read it, nothing there" and "could not read it" stay
+  distinct. If the branches cannot be listed at all, that raises
+  `ClaimSourceError`, because without the list there is no item to report on.
+  (c) The two reconcilers have separate status enums (`StrandedStatus`,
+  `ShippedStatus`), so a stranded "item not found" or a shipped "filed" cannot
+  be built.
+  (d) `GitClaimSource(backlog: BacklogFile, *, main, remote, git, gh, timeout_s)`
+  takes program names and the `BacklogFile`, not `git: GitRunner, gh: Gh,
+  backlog_path`. This follows the 2026-11-15 `GhShipper` entry: the repo is
+  given once, and the file that is edited and the path that is diffed are one
+  value (`BacklogFile(repo, relative="BACKLOG.md")`). `Gh` gains one method,
+  `merge_commit_of`.
+  (e) Behaviour where bash differs. Rewrites keep every other byte, including
+  CRLF and a missing final newline (bash rewrites every line with `\n`).
+  `file_stranded` inserts after the last line of the stranded section, not at
+  the end of the file (bash's append would land under a later section if one
+  followed). A claim line whose text is blank is not a claim. When two lines
+  carry the same item text and the target marker, both are rewritten, as in
+  bash. `reconcile_stranded` reads the backlog once and writes it at most once
+  per run.
 
 ## Current state
+
+Milestone 6 (claim tracking) is built and awaiting review as of 2026-11-18.
+Research note: `research/2026-11-18-nightloop-claim-tracking.md`. Milestones 1-5
+are done and unchanged, except that `ship/gh.py` gains `Gh.merge_commit_of` and
+the test fake `gh` answers `pr view --json mergeCommit`. See the 2026-11-18
+decisions entry for where the build departs from the note.
+
+- `nightloop/claims/` (new). Its pure modules port `.pipeline/backlog.sh`'s claim
+  decisions; `tests/test_claims_purity.py` checks that they import no I/O module.
+  - `markers.py`: the marker strings, the stranded section, `split_item_line`.
+  - `values.py`: `Claim(key, item)`, `PrNumber`, `StrandedBranch`.
+  - `edit.py`: `Rewritten(text) | AlreadyHandled() | ItemNotFound()`.
+  - `backlog_text.py`: `count_unclaimed`, `apply_stranded`, `file_stranded`,
+    `mark_done`. Items are matched with `==` on the parsed line text, never by
+    a pattern or prefix.
+  - `claim_diff.py`: `claim_from_diff`. The first added `[researching]` or
+    `[building]` line is the claim, plus the indented added lines right after it.
+  - `ports.py`: `ClaimSource`, `BacklogStore`, `UnshippedBranch`, `NoClaim`,
+    `Unreadable`, `ClaimSourceError`.
+  - `outcome.py`: `StrandedOutcome`/`StrandedStatus` and
+    `ShippedOutcome`/`ShippedStatus`. Each outcome has a `changed` property.
+  - `reconcile.py`: `reconcile_stranded(source, backlog)` returns one outcome per
+    branch. If an item is not on main, it is filed instead.
+    `reconcile_shipped(source, backlog, pr)` returns one outcome. Neither one
+    commits, pushes, opens a PR or deletes a branch.
+
+  The two edges are:
+  - `backlog_file.py`: `BacklogFile(repo, relative)`. It reads and writes UTF-8
+    with no newline translation. A write goes to a temp file in the same
+    directory, keeps the file's mode, then `os.replace`. The temp file is
+    removed on every failure.
+  - `git_claim_source.py`: `GitClaimSource`. It runs `for-each-ref` over
+    `refs/heads/cycle/*-unshipped-*` and `refs/remotes/<remote>/cycle/*-unshipped-*`,
+    then for each ref `merge-base <main> <ref>` and a backlog diff. For a PR it
+    runs `gh pr view N --json mergeCommit -q .mergeCommit.oid`, then
+    `cat-file -e`, then `diff <mc>^1 <mc>`. A bad ref, a missing merge commit or
+    a gh failure is `Unreadable`. A failed listing raises `ClaimSourceError`, and
+    git or gh that cannot start raises `OSError`.
+- Tests: `cd projects/nightloop && python3 -I -m unittest discover -v` runs 366
+  tests: the 291 from before, all still passing, plus 75 new. Stdlib only. They
+  pass on 3.11, 3.12 and 3.13 in about 35s.
+  - The research note's C-count, C-literal, C-stranded, C-file, C-done and C-diff
+    checks are covered, using the bash fixtures' real item text (backticks,
+    brackets, `[building]` inside the text).
+  - Also covered: the missing final newline, CRLF, I1 idempotence over 36
+    backlogs × 3 edits, I3, and I4.
+  - Edge tests run on a temp repo with a bare `origin`. They cover: a pushed
+    branch (marked once; its `origin/` copy is already handled; a second run
+    leaves bytes and mtime unchanged); a local-only branch never on main
+    (filed with its continuation); no claim; an orphan branch (no merge base);
+    a ship branch (ignored); a `--no-ff` merge and a squash merge (marked done);
+    and an unmerged PR, an unknown oid and a gh error (all unreadable).
+  - Mutation checks: each of these breaks fails at least one test.
+    - `startswith` in place of equality
+    - a merge-base diff in place of the first-parent diff for merged PRs
+    - no dedupe in `file_stranded`
+    - continuation lines dropped, in the diff reader or in the filer
+    - the section heading added every time
+    - a write when nothing changed
+
+Known limits (m6):
+- Not wired into `run_night` and no CLI; that is milestone 7. The caller must be
+  on a clean main and must fetch before `reconcile_shipped`, because the source
+  never fetches. It must also commit when `changed` is true.
+- No test has run the live `gh pr view --json mergeCommit`. The fake encodes the
+  shape `run.sh` uses (`-q .mergeCommit.oid`). Both `""` and `null` for an
+  unmerged PR are treated as unreadable. This needs a human live check, together
+  with milestone 5's.
+- A remote's copy of a branch that is also local is reported as already handled,
+  not merged into one outcome. Lines that the filer adds always end in `\n`,
+  even in a CRLF file.
+- Not ported: the replenishment and health-finding half of `backlog.sh`, and a
+  periodic sweep of merged PRs for a mark-done that was missed.
+
+Next: review this milestone, then milestone 7 (CLI), which wires claims into the
+night.
+
+The milestone 5 summary below is kept for reference.
 
 Milestone 5 (real shipper) is done as of 2026-11-15 (PR #93, review PASS).
 The human live check below against real GitHub is still outstanding. Research note:
