@@ -53,7 +53,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    uncommitted changes, so the shipper can never push a failed cycle's
    commits. Tests use a local bare `origin` and a fake `gh`; no test talks
    to GitHub.
-6. [in-progress] Claim tracking: the backlog claim lifecycle
+6. [done 102] Claim tracking: the backlog claim lifecycle
    (`[ ]` → `[building]` → `[done #N]`), including stranded-claim recovery.
 7. [not-started] CLI: `nightloop run`, `nightloop run --dry-run` (prints the
    night's plan without calling a model), and `nightloop report` (metrics
@@ -253,7 +253,7 @@ contradict an entry here without adding one.
 
 ## Current state
 
-Milestone 6 (claim tracking) is built and awaiting review as of 2026-11-18.
+Milestone 6 (claim tracking) is built and reviewed (PASS), PR #102 open, as of 2026-11-18.
 Research note: `research/2026-11-18-nightloop-claim-tracking.md`. Milestones 1-5
 are done and unchanged, except that `ship/gh.py` gains `Gh.merge_commit_of` and
 the test fake `gh` answers `pr view --json mergeCommit`. See the 2026-11-18
@@ -326,7 +326,7 @@ Known limits (m6):
 - Not ported: the replenishment and health-finding half of `backlog.sh`, and a
   periodic sweep of merged PRs for a mark-done that was missed.
 
-Next: review this milestone, then milestone 7 (CLI), which wires claims into the
+Next: milestone 7 (CLI), which wires claims into the
 night.
 
 The milestone 5 summary below is kept for reference.
