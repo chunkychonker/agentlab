@@ -55,7 +55,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    to GitHub.
 6. [done 102] Claim tracking: the backlog claim lifecycle
    (`[ ]` → `[building]` → `[done #N]`), including stranded-claim recovery.
-7. [in-progress] CLI: `nightloop run`, `nightloop run --dry-run` (prints the
+7. [done 103] CLI: `nightloop run`, `nightloop run --dry-run` (prints the
    night's plan without calling a model), and `nightloop report` (metrics
    summary). The report also prints, for each gate, how many nights it ran
    and how many it blocked, so a gate that never fires can be retired.
@@ -297,7 +297,7 @@ contradict an entry here without adding one.
 
 ## Current state
 
-Milestone 7 (CLI) is built as of 2026-11-19 and awaits review (in-progress).
+Milestone 7 (CLI) is built as of 2026-11-19, reviewed (PASS), and open as PR 103 (done 103).
 Research note: `research/2026-11-19-nightloop-cli.md`. Claim wiring is split out
 to milestone 7b. See the 2026-11-19 decisions entry for where the build departs
 from the note. Milestones 1-6 are unchanged, except that `cycle/night.py`'s
