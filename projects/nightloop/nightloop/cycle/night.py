@@ -63,18 +63,7 @@ def run_night(
         raise TypeError(f"cfg must be a Config, got {type(cfg).__name__}")
     if not isinstance(run_id, RunId):
         raise TypeError(f"run_id must be a RunId, got {type(run_id).__name__}")
-    if not isinstance(verdict_path, Path):
-        raise TypeError(f"verdict_path must be a Path, got {type(verdict_path).__name__}")
-    requests = tuple(
-        PhaseRequest(
-            name=name,
-            phase=getattr(cfg, name),
-            prompt=phase_prompt(name, repo=repo, verdict_path=verdict_path),
-            cwd=repo,
-            timeout_s=timeout_s,
-        )
-        for name in PHASE_ORDER
-    )
+    requests = phase_requests(cfg, repo=repo, verdict_path=verdict_path, timeout_s=timeout_s)
     reports: list[CycleReport] = []
     for cycle in range(1, cfg.cycles + 1):
         report = run_cycle(
@@ -94,3 +83,31 @@ def run_night(
         if isinstance(report.result, UsageLimited):
             break
     return NightResult(tuple(reports))
+
+
+def phase_requests(
+    cfg: Config, *, repo: Path, verdict_path: Path, timeout_s: int
+) -> tuple[PhaseRequest, ...]:
+    """The ``PhaseRequest`` for each phase in ``PHASE_ORDER``: what every cycle of a night runs.
+
+    ``run_night`` and the CLI's dry-run plan both build their requests here,
+    so the plan cannot drift from what a night executes.
+
+    Raises ``TypeError`` if ``cfg`` is not a ``Config`` or ``verdict_path``
+    is not a ``Path``; ``TypeError``/``ValueError`` from ``PhaseRequest`` if
+    ``repo`` is not an absolute ``Path`` or ``timeout_s`` is not a positive int.
+    """
+    if not isinstance(cfg, Config):
+        raise TypeError(f"cfg must be a Config, got {type(cfg).__name__}")
+    if not isinstance(verdict_path, Path):
+        raise TypeError(f"verdict_path must be a Path, got {type(verdict_path).__name__}")
+    return tuple(
+        PhaseRequest(
+            name=name,
+            phase=getattr(cfg, name),
+            prompt=phase_prompt(name, repo=repo, verdict_path=verdict_path),
+            cwd=repo,
+            timeout_s=timeout_s,
+        )
+        for name in PHASE_ORDER
+    )
