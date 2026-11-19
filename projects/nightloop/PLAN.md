@@ -55,10 +55,15 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    to GitHub.
 6. [done 102] Claim tracking: the backlog claim lifecycle
    (`[ ]` → `[building]` → `[done #N]`), including stranded-claim recovery.
-7. [not-started] CLI: `nightloop run`, `nightloop run --dry-run` (prints the
+7. [in-progress] CLI: `nightloop run`, `nightloop run --dry-run` (prints the
    night's plan without calling a model), and `nightloop report` (metrics
    summary). The report also prints, for each gate, how many nights it ran
    and how many it blocked, so a gate that never fires can be retired.
+7b. [not-started] Claim wiring: the CLI's night runs `reconcile_stranded`
+   before the cycles and `reconcile_shipped` for each shipped PR, and owns
+   the step milestone 6 leaves to the caller (start on a clean main, fetch
+   first, commit and push the backlog when `changed`). Split from 7 on
+   2026-11-19; see the decisions log.
 8. [not-started] Plugin: phase agent templates plus the publish-guard
    PreToolUse hook, packaged as a Claude Code plugin. Includes a
    `run_silent` wrapper for the agents' test commands: one line on success,
@@ -250,8 +255,119 @@ contradict an entry here without adding one.
   carry the same item text and the target marker, both are rewritten, as in
   bash. `reconcile_stranded` reads the backlog once and writes it at most once
   per run.
+- 2026-11-19: Milestone 7 ships `run`, `run --dry-run` and `report` but no claim
+  wiring. That wiring is now milestone 7b. It needs a commit and push of the
+  backlog on a clean, fetched main, with its own failure modes (network,
+  rejected push). Building it in the same increment as the CLI would be two
+  intents. Departures from the research note's layer 2-3, and choices where it
+  was silent:
+  (a) `run_night`'s request building moved, unchanged, into a new pure
+  `phase_requests(cfg, *, repo, verdict_path, timeout_s)` in `cycle/night.py`.
+  `run_night` and the dry-run's `plan_night` both call it, so D2 (plan argv ==
+  run argv) holds by construction, and a test checks it as well. `run_night`'s
+  behaviour and its tests are unchanged.
+  (b) `Run` carries a `reason` like `Refuse`, so the dry-run can say why it
+  would run.
+  (c) Override: a `--ignore-window` flag only, no env var. A clock that cannot
+  be read (a NaN or out-of-range time, an hour outside 0-23) refuses even with
+  the flag, as the note's W1 says.
+  (d) Exit codes are an `IntEnum`: 0 ok, 2 usage/config, 3 refused, 4
+  usage-limited, 5 no metrics, plus 1 (new): `OSError` from the night
+  (`claude`/`git`/`gh` cannot start) prints the error and exits 1 after that
+  cycle's recovery. Any other exception (e.g. `RecoveryError`) propagates with
+  its traceback. A `--repo` that `GitWorkspace`/`GhShipper` reject is exit 2,
+  before any runner is built.
+  (e) `--timeout-s` defaults to 3600, the note's figure. The owner should
+  confirm it. `--config` defaults to `<repo>/nightloop.toml` and `--metrics`
+  to `<repo>/logs/metrics.jsonl`. The verdict path is the named constant
+  `logs/last-review.md` (GhShipper's documented wiring), with no flag.
+  (f) Report: a line with no `outcome` field (bash's `metrics.sh` writes none)
+  counts as blocked when its `postcondition_state` refuses to advance (`STALE`,
+  `MISSING`, `FAIL`, `MALFORMED`; a test derives the set from
+  `GateResult.advance`). With the note's rule alone, bash data could never
+  show a block and every gate in it would read "never blocked". nightloop's
+  own lines follow the note's `outcome == "GATE_FAILED"` rule exactly.
+  A line is also skipped (and counted) when it is an object without a
+  non-empty string `run_ts` or `phase`, or with a `postcondition_state` that is
+  neither a string nor null. Whitespace-only lines are ignored, not counted. A
+  file with no usable record exits 5, the same as an empty one. Rows come in
+  `PHASE_ORDER`, then other phases sorted (bash sorts all of them).
+  (g) Not in the note: `cli/night_text.py` prints one line per cycle after
+  `run` (how it ended, what recovery did). The metrics file stays the record.
 
 ## Current state
+
+Milestone 7 (CLI) is built as of 2026-11-19 and awaits review (in-progress).
+Research note: `research/2026-11-19-nightloop-cli.md`. Claim wiring is split out
+to milestone 7b. See the 2026-11-19 decisions entry for where the build departs
+from the note. Milestones 1-6 are unchanged, except that `cycle/night.py`'s
+request building is now the pure `phase_requests`, which `run_night` calls.
+
+- Run it: `cd projects/nightloop && python3 -m nightloop run --dry-run --repo
+  <checkout> --config examples/agentlab.nightloop.toml`, or `nightloop ...`
+  after `pip install -e .` (`[project.scripts]`). `python3 -I` cannot import the
+  package from the source tree; the tests can, because `discover` adds it.
+- `nightloop/cli/` (new). Pure, and checked by `tests/test_cli_purity.py`:
+  - `window.py`: `window_disposition(hour, window, *, ignore_window) -> Run |
+    Refuse`, with `[start, end)` as in bash's `schedule_disposition`.
+  - `plan.py`: `plan_night` (every phase of every cycle, from `phase_requests`
+    and `build_argv`) and `render_plan` (argv `shlex.join`ed).
+  - `summary.py`: `summarise(lines, nights) -> Report` and `render_report`. It
+    ports `metrics_summary` (last N distinct `run_ts`; per phase `n`, `ok` and
+    medians that skip nulls), plus a gate table with `ran`, `blocked`,
+    `not_gated`, `ungated`, `nights_ran`, `nights_blocked` and a `never blocked
+    in N night(s)` note.
+  - `night_text.py`: one line per cycle for `run`'s output.
+
+  Edges: `metrics_file.py` (`append_sink`, which creates `logs/` on the first
+  line and appends one line per write; `read_lines`, where non-UTF-8 bytes
+  become skipped lines) and `main.py`. `main.py` is the only module that reads
+  argv and the clock and builds `SubprocessRunner`, `GitWorkspace` and
+  `GhShipper`; all of them are keyword-injectable. `nightloop/__main__.py`
+  calls `main`.
+- On agentlab's own `logs/metrics.jsonl` (bash format, 7 nights), `report`'s
+  phase table matches `metrics_summary`'s numbers exactly (row order differs).
+  Its gate table says research and build never blocked in 6 and 4 nights, and
+  review is `ungated`, because bash records review's verdict outside
+  `postcondition_state`.
+- Tests: `cd projects/nightloop && python3 -I -m unittest discover -v` runs 424
+  tests: the 366 from before, all still passing, plus 58 new. Stdlib only. They
+  pass on 3.11, 3.12 and 3.13 in about 35s.
+  - Covered: W1-W2, D1-D2, R1-R6, E1-E2 and the exit codes. `main` is driven
+    with a `FakeRunner`, a recording workspace, `FakeShipper` and the real gate
+    in a temp dir that is not a repo. A tree digest shows that `--dry-run`,
+    `report` and a refused `run` write nothing. Two tests run `python -m
+    nightloop` as a subprocess.
+  - Mutation checks: each of these breaks fails at least one test.
+    - `<=` on the window end
+    - `NONE` counted as ran
+    - a null state counted as blocked
+    - torn lines not skipped
+    - dry-run building the runner
+    - plan argv drifting from run argv
+    - a bool rc counted as ok
+    - the flag overriding a bad hour
+    - bash lines never blocking
+    - keeping the first N nights instead of the last
+
+Known limits (m7):
+- No claims (milestone 7b). There is no log file beyond metrics and stdout,
+  and no `--json` report.
+- No live run. The production factories are exercised only to the point of
+  `GitWorkspace` rejecting a non-repo. A real `nightloop run` against a
+  checkout with `claude` and `gh` is a human step, together with m5's and m6's
+  live checks.
+- `--timeout-s` 3600 is unconfirmed policy. A phase that exceeds it is
+  `TIMED_OUT`, so it is not a silent failure.
+- The run id and the window hour use the machine's local time, as bash does.
+  Across a DST change the hour is whatever `time.localtime` says.
+- `report` treats a line with no `outcome` as bash's format. A hand-written
+  nightloop-shaped line without `outcome` would be read the same way.
+
+Next: review this milestone, then milestone 7b (claim wiring).
+
+The m6 summary below is kept for reference. Its "no CLI" limit is closed by m7,
+and its claim wiring is now 7b.
 
 Milestone 6 (claim tracking) is built and reviewed (PASS), PR #102 open, as of 2026-11-18.
 Research note: `research/2026-11-18-nightloop-claim-tracking.md`. Milestones 1-5
