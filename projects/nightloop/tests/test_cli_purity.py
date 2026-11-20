@@ -13,7 +13,7 @@ from .test_cycle_purity import parent_imports
 from .test_gates_purity import imports_of
 
 CLI = Path(__file__).resolve().parent.parent / "nightloop" / "cli"
-PURE_MODULES = ("night_text.py", "plan.py", "summary.py", "window.py")
+PURE_MODULES = ("claim_text.py", "night_text.py", "plan.py", "summary.py", "window.py")
 IO_MODULES = ("main.py", "metrics_file.py")
 FORBIDDEN_STDLIB = {
     "os", "subprocess", "signal", "time", "shutil", "io", "socket", "urllib", "http",
@@ -27,6 +27,7 @@ FORBIDDEN_PARENT = {
     ("gates", None), ("gates", "fs"), ("gates", "dispatch"),
     ("git_runner", None), ("ship", None), ("ship", "gh"), ("ship", "gh_shipper"),
     ("claims", None), ("claims", "backlog_file"), ("claims", "git_claim_source"),
+    ("claims", "git_publisher"),
 }
 
 

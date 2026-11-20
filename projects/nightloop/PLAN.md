@@ -59,11 +59,16 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    night's plan without calling a model), and `nightloop report` (metrics
    summary). The report also prints, for each gate, how many nights it ran
    and how many it blocked, so a gate that never fires can be retired.
-7b. [not-started] Claim wiring: the CLI's night runs `reconcile_stranded`
+7b. [done 104] Claim wiring: the CLI's night runs `reconcile_stranded`
    before the cycles and `reconcile_shipped` for each shipped PR, and owns
    the step milestone 6 leaves to the caller (start on a clean main, fetch
    first, commit and push the backlog when `changed`). Split from 7 on
    2026-11-19; see the decisions log.
+7c. [not-started] Pending-PR ledger: remember shipped PR numbers across
+   nights and mark them done once merged. Proposed 2026-11-20 (see the
+   decisions log): nightloop never merges, so 7b's same-night
+   `reconcile_shipped` can only report "pending". Whether to build it is the
+   owner's call.
 8. [not-started] Plugin: phase agent templates plus the publish-guard
    PreToolUse hook, packaged as a Claude Code plugin. Includes a
    `run_silent` wrapper for the agents' test commands: one line on success,
@@ -294,8 +299,133 @@ contradict an entry here without adding one.
   `PHASE_ORDER`, then other phases sorted (bash sorts all of them).
   (g) Not in the note: `cli/night_text.py` prints one line per cycle after
   `run` (how it ended, what recovery did). The metrics file stays the record.
+- 2026-11-20: Milestone 7b wires claims into `nightloop run`, per
+  `research/2026-11-20-nightloop-claim-wiring.md`. Its four decisions, as built:
+  (D1) A main that is not ready (detached HEAD, another branch, fetch failed,
+  behind origin) makes the step `Skipped` and the night goes on, not an abort.
+  It is also `Skipped` when main is *ahead* of origin/main (publishing would
+  push unrelated local commits; recovery saves those to a branch instead) and
+  when the backlog file has uncommitted or untracked changes (the commit would
+  carry edits nightloop did not make). No git runs when the backlog file is
+  missing.
+  (D2) A `ClaimSourceError` before cycle 1 is `Skipped` (`pre_night_step`);
+  after a cycle it propagates, like any other error of the environment. An
+  `OSError` from any claim step is exit 1 (`ENVIRONMENT`), as in m7.
+  (D3) One `run_night(..., between_cycles: Callable[[int], None])` hook,
+  default a no-op (expand/contract: every existing caller is unchanged). It is
+  called with 0 after the inputs are validated and before cycle 1, then with
+  `n` after cycle `n`'s report, i.e. after its recovery, including a
+  `UsageLimited` cycle, before the night stops. Not after a cycle that raised.
+  (D4) nightloop never merges, so the post-night `shipped_step` on tonight's
+  PRs reads `UNREADABLE` and prints "PR #N: pending, not marked (...)". That is
+  reported, not an error and not a reason to commit. Milestone 7c (pending-PR
+  ledger) is added as `not-started`; whether to build it is the owner's call.
+  Departures from the note's layer 2-3, and choices where it was silent:
+  (a) `claim_step` returns `(result, outcomes)`, the same shape as
+  `shipped_step`, so the CLI can print per-branch lines.
+  (b) The `BacklogPublisher` port is `ready() -> Skipped | None` and
+  `publish(message) -> PublishFailed | None`, so the step's sum type
+  (`Published | Nothing | Skipped | PublishFailed`) is built only in the pure
+  `step.py`.
+  (c) The three ports travel as a frozen `ClaimPorts` and `main` takes a
+  `claims_factory(repo, backlog) -> ClaimPorts` keyword (default: the git
+  wiring), like the other factories.
+  (d) The backlog path is the existing `repo.backlog` config field, not a new
+  constant.
+  (e) Claim lines go to stderr as `nightloop: claims <label>: ...`, flushed as
+  each step finishes. Stdout, and the m7 tests that pin it exactly, are
+  unchanged. A skipped or failed claim step does not change the exit code: it
+  is bookkeeping, and the next night's step retries it.
+  (f) Every pathspec git call uses `--literal-pathspecs`, so a backlog path
+  with glob characters names only itself.
+  (g) Two existing tests change on purpose: the module lists in
+  `test_claims_purity.py` and `test_cli_purity.py` gain the new modules (their
+  completeness checks require it).
 
 ## Current state
+
+Milestone 7b (claim wiring) is built as of 2026-11-20, reviewed (PASS), and open as PR #104.
+Research note: `research/2026-11-20-nightloop-claim-wiring.md`. See the
+2026-11-20 decisions entry for D1-D4 as built and where the build departs from
+the note. Milestones 1-7 are unchanged, except that `run_night` gains the
+`between_cycles` keyword (default a no-op) and `main` gains `--no-claims` and
+`claims_factory`.
+
+- What a night does now (`nightloop run`, unless `--no-claims`): a claim step
+  before cycle 1, one after each cycle's recovery (also after a usage-limited
+  cycle), and a shipped step after the night for every `Shipped(pr)`. Each
+  prints `nightloop: claims <label>: published N backlog edit(s) to main |
+  nothing to change | skipped: <why> | publish FAILED: <why>` to stderr, with
+  one indented line per outcome worth reading. `run --dry-run` lists the same
+  labels under the cycle plan, or `claims: off (--no-claims)`, and builds no
+  claim port.
+- `nightloop/claims/` (additions):
+  - `publish.py` (pure): `Published(count) | Nothing | Skipped(reason) |
+    PublishFailed(reason)` and the `BacklogPublisher` port. Reasons are one
+    non-blank line; `count` is an int ≥ 1, never a bool.
+  - `step.py` (pure): `ClaimPorts`, `claim_step`, `pre_night_step` and
+    `shipped_step`. The order is fixed here: `ready()`, then reconcile, then
+    publish only if some outcome `changed` (shipped: only `MARKED_DONE`), all
+    edits of a step in one commit.
+  - `git_publisher.py` (edge): `GitBacklogPublisher`, which runs git only
+    through `GitRunner`. `ready()`: the backlog file exists, HEAD is `main`,
+    `fetch` works, main is neither ahead of nor behind `origin/main`, and the
+    backlog has no uncommitted or untracked changes. `publish()`: `add -- <rel>`,
+    `commit -m <msg> -- <rel>`, then push exactly
+    `refs/heads/main:refs/heads/main`, never forced, never reset. A failed add
+    or commit leaves the edit uncommitted; a failed push leaves the commit on
+    local main, where m5's recovery saves it to a branch.
+- `nightloop/cli/claim_text.py` (pure): step labels (`before cycle 1`,
+  `after cycle N`, `after the night`), the dry-run's claim plan and each step's
+  line. `main.py` wires `GitClaimSource`, `BacklogFile(repo, cfg.backlog)` and
+  `GitBacklogPublisher` in `_git_claims`.
+- Tests: `cd projects/nightloop && python3 -I -m unittest discover -v` runs 486
+  tests: the 424 from before, all still passing, plus 62 new. Stdlib only. They
+  pass on 3.11, 3.12 and 3.13 in about 43s.
+  - Covered: the note's W1-W12. The publisher runs on a temp repo with a local
+    bare `origin`, including an origin whose `pre-receive` hook rejects pushes,
+    and a git wrapper that records argv. One end-to-end test drives `main` with
+    the production claim wiring and checks that a stranded claim reaches
+    `origin/main` before cycle 1 starts. The hook order is checked against a
+    shared event log.
+  - Mutation checks: each of these breaks fails at least one test.
+    - `add -A` instead of the backlog pathspec
+    - `commit -a` with no pathspec
+    - skipping the fetch
+    - a `reset --hard` after a failed push
+    - a force push
+    - ignoring main being ahead
+    - ignoring a dirty backlog
+    - a step only before cycle 1
+    - no step after a usage-limited cycle
+    - publishing a shipped step on any outcome, `UNREADABLE` included
+    - reconciling before `ready()`
+    - a pre-night source error propagating
+    - the dry-run building the claim ports
+    - `--no-claims` ignored
+    - no post-night shipped step
+
+Known limits (7b):
+- No live run. Nothing has pushed to a real GitHub remote, and the live
+  `gh pr view --json mergeCommit` (m6) is still unverified. Both are human
+  steps, together with m5's and m6's live checks.
+- Same-night PRs are never marked done (D4); the ledger is milestone 7c and
+  does not exist yet. Until then a merged PR's claim stays `[building]` unless
+  marked by hand or by bash.
+- A failed pre-night push leaves the backlog commit on local main. If cycle 1
+  ships, its ship branch is cut from that HEAD and carries the commit into the
+  PR; if not, recovery saves it to an unshipped branch. Later claim steps are
+  `Skipped` ("ahead") until main matches origin again.
+- A failed add or commit leaves the backlog edit uncommitted; the next
+  recovery snapshots it, and the next claim step is `Skipped` ("uncommitted
+  changes") until then.
+- Commits use the repo's git identity and run its hooks. Only `main` is ever
+  published; the branch name and remote are constructor arguments with no flag.
+
+Next: review this milestone, then the owner decides on 7c.
+
+The m7 summary below is kept for reference. Its "no claims" limit is closed by
+7b.
 
 Milestone 7 (CLI) is built as of 2026-11-19, reviewed (PASS), and open as PR 103 (done 103).
 Research note: `research/2026-11-19-nightloop-cli.md`. Claim wiring is split out
