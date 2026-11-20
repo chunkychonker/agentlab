@@ -59,7 +59,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    night's plan without calling a model), and `nightloop report` (metrics
    summary). The report also prints, for each gate, how many nights it ran
    and how many it blocked, so a gate that never fires can be retired.
-7b. [in-progress] Claim wiring: the CLI's night runs `reconcile_stranded`
+7b. [done 104] Claim wiring: the CLI's night runs `reconcile_stranded`
    before the cycles and `reconcile_shipped` for each shipped PR, and owns
    the step milestone 6 leaves to the caller (start on a clean main, fetch
    first, commit and push the backlog when `changed`). Split from 7 on
@@ -794,7 +794,7 @@ scheduler).
 
 The m7b summary below is kept for reference.
 
-Milestone 7b (claim wiring) is built as of 2026-11-20 and not yet reviewed.
+Milestone 7b (claim wiring) is built as of 2026-11-20, reviewed (PASS), and open as PR #104.
 Research note: `research/2026-11-20-nightloop-claim-wiring.md`. See the
 2026-11-20 decisions entry for D1-D4 as built and where the build departs from
 the note. Milestones 1-7 are unchanged, except that `run_night` gains the
