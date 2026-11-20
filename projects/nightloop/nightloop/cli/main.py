@@ -2,8 +2,9 @@
 
 The imperative shell. This is the only nightloop module that reads argv,
 the clock or the working directory, and the only one that builds the
-production runner, workspace and shipper. Everything it decides with is
-pure (``window``, ``plan``, ``summary``, ``night_text``). Every effect it
+production runner, workspace, shipper and claim ports. Everything it decides
+with is pure (``window``, ``plan``, ``summary``, ``night_text``,
+``claim_text``, and ``nightloop.claims.step``). Every effect it
 uses arrives as a keyword argument with a production default, so tests drive
 ``main`` with fakes and no model, git remote or ``gh`` is ever called.
 """
@@ -17,8 +18,15 @@ import time
 from pathlib import Path
 from typing import Callable, Sequence
 
+from ..claims.backlog_file import BacklogFile
+from ..claims.git_claim_source import GitClaimSource
+from ..claims.git_publisher import GitBacklogPublisher
+from ..claims.step import ClaimPorts, claim_step, pre_night_step, shipped_step
+from ..claims.values import PrNumber
 from ..config import ConfigError, load_config
 from ..cycle.night import run_night
+from ..cycle.report import NightResult
+from ..cycle.result import Shipped
 from ..cycle.ports import Shipper, Workspace
 from ..cycle.git_workspace import GitWorkspace
 from ..cycle.run_id import RunId
@@ -27,6 +35,7 @@ from ..phase.execute import Gate
 from ..phase.runner import Runner
 from ..phase.subprocess_runner import SubprocessRunner
 from ..ship.gh_shipper import GhShipper
+from .claim_text import NIGHT_END_LABEL, render_claim_plan, render_step, step_label
 from .metrics_file import MetricsFileError, append_sink, read_lines
 from .night_text import render_night
 from .plan import plan_night, render_plan
@@ -61,6 +70,8 @@ class ExitCode(enum.IntEnum):
 RunnerFactory = Callable[[], Runner]
 WorkspaceFactory = Callable[[Path], Workspace]
 ShipperFactory = Callable[[Path, Path], Shipper]
+# (repo, the config's repo-relative backlog path) -> the claim steps' ports.
+ClaimsFactory = Callable[[Path, str], ClaimPorts]
 
 
 def _git_workspace(repo: Path) -> Workspace:
@@ -71,6 +82,11 @@ def _gh_shipper(repo: Path, verdict_path: Path) -> Shipper:
     return GhShipper(repo, verdict_path, sleep=time.sleep)
 
 
+def _git_claims(repo: Path, backlog: str) -> ClaimPorts:
+    backlog_file = BacklogFile(repo, backlog)
+    return ClaimPorts(GitClaimSource(backlog_file), backlog_file, GitBacklogPublisher(backlog_file))
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
@@ -78,6 +94,7 @@ def main(
     runner_factory: RunnerFactory = SubprocessRunner,
     workspace_factory: WorkspaceFactory = _git_workspace,
     shipper_factory: ShipperFactory = _gh_shipper,
+    claims_factory: ClaimsFactory = _git_claims,
     gate: Gate = evaluate,
 ) -> int:
     """Run the ``nightloop`` command line ``argv`` (default ``sys.argv[1:]``) and return an ``ExitCode``.
@@ -90,12 +107,21 @@ def main(
     ``report`` reads the metrics file and prints the summary; it writes
     nothing.
 
-    Failure modes: bad arguments or config, or a ``--repo`` the workspace or
-    shipper rejects, print one line and return ``USAGE``. ``OSError`` from
-    the night (``claude``/``git``/``gh`` not on PATH) prints the error and
-    returns ``ENVIRONMENT``; recovery has already run for the cycle it hit.
-    Any other exception from the night (for example ``RecoveryError``)
-    propagates with its traceback.
+    Claims (milestone 7b), unless ``--no-claims``: the night runs a claim
+    step before cycle 1 and after each cycle (``claim_step``; the first one
+    is ``pre_night_step``), and after the night a ``shipped_step`` for the
+    PRs it shipped. Each step prints one progress line (plus a line per
+    outcome worth reading) to stderr as it finishes; stdout keeps the
+    end-of-night summary. A step that is skipped or fails to publish does
+    not change the exit code. The dry-run lists the steps and runs none.
+
+    Failure modes: bad arguments or config, or a ``--repo`` the workspace,
+    shipper or claims factory rejects, print one line and return ``USAGE``.
+    ``OSError`` from the night or its claim steps (``claude``/``git``/``gh``
+    not on PATH) prints the error and returns ``ENVIRONMENT``; recovery has
+    already run for the cycle it hit. Any other exception from the night
+    (for example ``RecoveryError``, or ``ClaimSourceError`` from a claim
+    step after a cycle) propagates with its traceback.
     """
     parser = _parser()
     try:
@@ -114,10 +140,12 @@ def main(
         timeout_s=args.timeout_s,
         dry_run=args.dry_run,
         ignore_window=args.ignore_window,
+        claims=not args.no_claims,
         clock=clock,
         runner_factory=runner_factory,
         workspace_factory=workspace_factory,
         shipper_factory=shipper_factory,
+        claims_factory=claims_factory,
         gate=gate,
     )
 
@@ -130,10 +158,12 @@ def _run(
     timeout_s: int,
     dry_run: bool,
     ignore_window: bool,
+    claims: bool,
     clock: Callable[[], float],
     runner_factory: RunnerFactory,
     workspace_factory: WorkspaceFactory,
     shipper_factory: ShipperFactory,
+    claims_factory: ClaimsFactory,
     gate: Gate,
 ) -> int:
     try:
@@ -147,6 +177,8 @@ def _run(
     if dry_run:
         plan = plan_night(cfg, repo=repo, verdict_path=VERDICT_PATH, timeout_s=timeout_s)
         print(render_plan(plan, disposition))
+        print()
+        print(render_claim_plan(cfg.cycles, cfg.backlog, enabled=claims))
         return ExitCode.OK
     if isinstance(disposition, Refuse) or started is None:
         _error(f"refusing to start: {disposition.reason}")
@@ -154,9 +186,11 @@ def _run(
     try:
         workspace = workspace_factory(repo)
         shipper = shipper_factory(repo, VERDICT_PATH)
+        ports = claims_factory(repo, cfg.backlog) if claims else None
     except ValueError as exc:
         _error(f"--repo {repo}: {exc}")
         return ExitCode.USAGE
+    hook = {} if ports is None else {"between_cycles": _between_cycles(ports)}
     try:
         night = run_night(
             cfg,
@@ -170,12 +204,33 @@ def _run(
             shipper=shipper,
             now=clock,
             metrics_sink=append_sink(metrics),
+            **hook,
         )
     except OSError as exc:
         _error(f"environment error, night stopped: {exc}")
         return ExitCode.ENVIRONMENT
     print(render_night(night))
+    if ports is not None:
+        try:
+            result, outcomes = shipped_step(ports, _shipped_prs(night))
+        except OSError as exc:
+            _error(f"environment error in the claim step after the night: {exc}")
+            return ExitCode.ENVIRONMENT
+        _progress(render_step(NIGHT_END_LABEL, result, outcomes))
     return ExitCode.USAGE_LIMITED if night.usage_limited else ExitCode.OK
+
+
+def _between_cycles(ports: ClaimPorts) -> Callable[[int], None]:
+    """``run_night``'s hook: the pre-night claim step for 0, the between-cycles one after cycle N."""
+    def step(after_cycle: int) -> None:
+        run = pre_night_step if after_cycle == 0 else claim_step
+        result, outcomes = run(ports)
+        _progress(render_step(step_label(after_cycle), result, outcomes))
+    return step
+
+
+def _shipped_prs(night: NightResult) -> tuple[PrNumber, ...]:
+    return tuple(PrNumber(r.result.pr) for r in night.reports if isinstance(r.result, Shipped))
 
 
 def _report(metrics: Path, nights: int) -> int:
@@ -207,6 +262,11 @@ def _error(message: str) -> None:
     print(f"{PROG}: {message}", file=sys.stderr)
 
 
+def _progress(text: str) -> None:
+    """A progress line on stderr, flushed now, so a later crash cannot lose it."""
+    print(f"{PROG}: {text}", file=sys.stderr, flush=True)
+
+
 def _positive_int(text: str) -> int:
     try:
         value = int(text, 10)
@@ -236,6 +296,8 @@ def _parser() -> argparse.ArgumentParser:
                      help="print the night's plan; call no model and touch no git")
     run.add_argument("--ignore-window", action="store_true",
                      help="run even outside the configured window")
+    run.add_argument("--no-claims", action="store_true",
+                     help="run no backlog claim step (for repos without a backlog)")
 
     report = commands.add_parser("report", parents=[common], help="summarise the metrics file")
     report.add_argument("--nights", type=_positive_int, default=DEFAULT_NIGHTS,
