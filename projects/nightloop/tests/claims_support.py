@@ -38,3 +38,28 @@ class MemoryBacklog:
     def write(self, text: str) -> None:
         self.writes += 1
         self.text = text
+
+
+class RecordingPublisher:
+    """A ``BacklogPublisher`` whose answers a test scripts, logging each call to ``events``.
+
+    ``not_ready`` is what every ``ready()`` returns (``None`` means ready);
+    ``failure`` is what every ``publish`` returns (``None`` means pushed).
+    It decides nothing: the tests assert on what the real steps chose to
+    call, in what order, and with which message.
+    """
+
+    def __init__(self, events: list[str] | None = None, *, not_ready=None, failure=None) -> None:
+        self.events = [] if events is None else events
+        self.messages: list[str] = []
+        self._not_ready = not_ready
+        self._failure = failure
+
+    def ready(self):
+        self.events.append("ready")
+        return self._not_ready
+
+    def publish(self, message: str):
+        self.events.append("publish")
+        self.messages.append(message)
+        return self._failure

@@ -1,4 +1,7 @@
-"""Milestone 6: the claims core imports no I/O; only ``backlog_file.py`` and ``git_claim_source.py`` may.
+"""Milestones 6 and 7b: the claims core imports no I/O; only the three edge modules may.
+
+The edges are ``backlog_file.py``, ``git_claim_source.py`` and (7b)
+``git_publisher.py``; ``step.py`` and ``publish.py`` (7b) are pure.
 
 Same ``ast`` checker as the gates, cycle and ship purity tests, so imports
 inside functions count too.
@@ -15,14 +18,14 @@ from .test_gates_purity import imports_of
 CLAIMS = Path(__file__).resolve().parent.parent / "nightloop" / "claims"
 PURE_MODULES = (
     "backlog_text.py", "claim_diff.py", "edit.py", "markers.py", "outcome.py", "ports.py",
-    "reconcile.py", "values.py",
+    "publish.py", "reconcile.py", "step.py", "values.py",
 )
-IO_MODULES = ("backlog_file.py", "git_claim_source.py")
+IO_MODULES = ("backlog_file.py", "git_claim_source.py", "git_publisher.py")
 FORBIDDEN_STDLIB = {
     "os", "pathlib", "subprocess", "signal", "time", "shutil", "io", "socket", "urllib", "http",
     "datetime", "tempfile", "stat",
 }
-FORBIDDEN_SIBLINGS = {"backlog_file", "git_claim_source"}
+FORBIDDEN_SIBLINGS = {"backlog_file", "git_claim_source", "git_publisher"}
 FORBIDDEN_PARENT = {
     ("cycle", None), ("cycle", "git_workspace"),
     ("phase", None), ("phase", "subprocess_runner"),
@@ -53,6 +56,12 @@ class ClaimsPurityTest(unittest.TestCase):
                          "git and gh run only through GitRunner and Gh")
         absolute, _ = imports_of((CLAIMS / "backlog_file.py").read_text(encoding="utf-8"))
         self.assertNotIn("subprocess", absolute)
+
+    def test_the_publisher_runs_git_only_through_git_runner(self) -> None:
+        source = (CLAIMS / "git_publisher.py").read_text(encoding="utf-8")
+        self.assertNotIn("subprocess.run", source)
+        self.assertNotIn("subprocess.Popen", source)
+        self.assertNotIn("import os", source)
 
 
 if __name__ == "__main__":

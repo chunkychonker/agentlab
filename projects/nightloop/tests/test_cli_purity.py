@@ -14,7 +14,8 @@ from .test_gates_purity import imports_of
 
 CLI = Path(__file__).resolve().parent.parent / "nightloop" / "cli"
 PURE_MODULES = (
-    "exit_codes.py", "gha_text.py", "night_text.py", "plan.py", "schedule_text.py", "summary.py", "window.py",
+    "claim_text.py", "exit_codes.py", "gha_text.py", "night_text.py", "plan.py", "schedule_text.py", "summary.py",
+    "window.py",
 )
 # schedule_args.py and gha_args.py do no I/O but are argparse, which the pure modules may not import.
 IO_MODULES = ("gha_args.py", "gha_cmd.py", "main.py", "metrics_file.py", "schedule_args.py", "schedule_cmd.py")
@@ -30,6 +31,7 @@ FORBIDDEN_PARENT = {
     ("gates", None), ("gates", "fs"), ("gates", "dispatch"),
     ("git_runner", None), ("ship", None), ("ship", "gh"), ("ship", "gh_shipper"),
     ("claims", None), ("claims", "backlog_file"), ("claims", "git_claim_source"),
+    ("claims", "git_publisher"),
     ("schedule", None), ("schedule", "apply"), ("schedule", "launchctl"),
     ("schedule_gha", None), ("schedule_gha", "write"),
 }
