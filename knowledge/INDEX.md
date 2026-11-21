@@ -218,6 +218,7 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
 - [[claude-code-hooks]] — PreToolUse contract: payload fields, exit 2 vs JSON deny, exit 1 fails open, silence is not approval
 - [[claude-code-allowed-tools-rules]] — `--allowedTools` rule syntax gotchas: silently skipped unanchored globs, `:*` only at end, bare `Bash` = everything, tomllib 3.14-only error attrs
 - [[claude-code-plugins]] — plugin manifest contract, path rules, validate command, cache-copy caveat
+- [[claude-code-plugin-agents-hooks]] — what plugin agents cannot set (`permissionMode`/`hooks`/`mcpServers` ignored), `bin/` on PATH, hooks.json wrapper, `agent_type` in payload, unverified `-p` behaviour (nightloop m8)
 - [[mcp-streamable-http]] — serving MCP over HTTP in SDK 2.x: `streamable_http_app()`, the localhost-only Host allowlist that 421s a first deploy, mounted-lifespan trap, sessionless vs legacy eras, `httpx2` client
 - [[gates-port-python]] - verdict and freshness gate edge cases for the Python port (nightloop m2): line-split trap, no mtime truncation, STALE vs MISSING
 - [[cycle-orchestration-gates]] - what a night loop must guarantee (nightloop m4): clear handoff files first, recover after every cycle to a unique branch, stop on usage limit by text on `CLI_ERROR` only

@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+"""run_silent: run a command; print one line if it passes, everything if it fails.
+
+Usage:  run_silent <label> -- <cmd> [args...]
+
+A passing test run then costs an agent one line of context instead of the
+whole log. The plugin puts this file on the Bash tool's PATH (`bin/`), so
+the phase agents call it as a bare command.
+
+Contract:
+  success (child exit 0)  prints exactly `ok: <label>` and exits 0
+  failure (child exit N)  prints `FAIL: <label> (exit N)`, then the child's
+                          full combined stdout+stderr, and exits N
+  killed by signal S      prints `FAIL: <label> (signal S)` and the output,
+                          and exits 128+S, as a shell would
+  cannot start the child  prints `FAIL: <label> (cannot run <cmd>: ...)` to
+                          stderr and exits 127, for "not found" and "not
+                          executable" alike
+  bad usage               prints the usage to stderr and exits 2: no label,
+                          an empty label or one with a line break, no `--`
+                          right after the label, or nothing after `--`
+
+stdout and stderr share one pipe, so their relative order is kept. The output
+is never truncated: on failure the whole log is the point. The child's stdin
+is /dev/null, so a command that waits for input fails instead of hanging an
+unattended phase. There is no timeout; the Bash tool's own timeout applies.
+Python 3.9 stdlib only, like the publish guard.
+"""
+
+import subprocess
+import sys
+from typing import List
+
+USAGE = "usage: run_silent <label> -- <cmd> [args...]"
+EXIT_USAGE = 2
+EXIT_CANNOT_RUN = 127
+SIGNAL_EXIT_BASE = 128
+
+
+def main(argv: List[str]) -> int:
+    """Runs the command in argv (without the program name); returns the exit code above."""
+    if len(argv) < 3 or argv[1] != "--" or not argv[0] or any(c in argv[0] for c in "\r\n"):
+        print(USAGE, file=sys.stderr)
+        return EXIT_USAGE
+    label, cmd = argv[0], argv[2:]
+    try:
+        done = subprocess.run(
+            cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+        )
+    except OSError as e:
+        print("FAIL: %s (cannot run %s: %s)" % (label, cmd[0], e.strerror or e), file=sys.stderr)
+        return EXIT_CANNOT_RUN
+    if done.returncode == 0:
+        print("ok: %s" % label)
+        return 0
+    if done.returncode < 0:
+        print("FAIL: %s (signal %d)" % (label, -done.returncode))
+        code = SIGNAL_EXIT_BASE - done.returncode
+    else:
+        print("FAIL: %s (exit %d)" % (label, done.returncode))
+        code = done.returncode
+    sys.stdout.flush()
+    sys.stdout.buffer.write(done.stdout)
+    sys.stdout.flush()
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

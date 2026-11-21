@@ -1,0 +1,8 @@
+{
+  "name": "nightloop",
+  "version": "0.1.0",
+  "description": "nightloop's phase agents (researcher, builder, reviewer), a PreToolUse guard that blocks git push and GitHub writes, and the run_silent test wrapper.",
+  "author": {
+    "name": "agentlab"
+  }
+}
