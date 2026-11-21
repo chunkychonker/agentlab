@@ -1,0 +1,47 @@
+# A nightloop config whose phases run the agents of nightloop's own Claude Code
+# plugin (projects/nightloop/plugin/). Load the plugin for the phases first, e.g.
+# by installing it; see plugin/README.md.
+#
+# Agent names are the plugin's bare agent names. Claude Code resolves a bare
+# `--agent builder` when no other agent has that name; the scoped form
+# `nightloop:builder` is the unambiguous one, but the config's agent-name rule
+# (milestone 1: lowercase letters, digits, hyphens) does not accept a colon yet.
+#
+# Each phase's model and allowed_tools must equal the matching agent template's
+# `model:` and `tools:` frontmatter; tests/test_plugin_agents.py checks that, so
+# the two cannot drift. The tools are agentlab's (examples/agentlab.nightloop.toml)
+# without its hn-search MCP tools, which a generic plugin cannot assume exist.
+# Every phase uses bare `Bash`, opted in below; the plugin's publish guard blocks
+# `git push` and GitHub writes inside it. Narrowing these to `Bash(<command> *)`
+# rules is the safer configuration.
+
+schema_version = 1
+
+[repo]
+backlog = "BACKLOG.md"
+
+[run]
+cycles = 1
+window_start_hour = 1
+window_end_hour = 6
+
+[phase.research]
+agent = "researcher"
+model = "sonnet"
+postcondition = "research_note_fresh"
+allowed_tools = ["WebSearch", "WebFetch", "Read", "Write", "Edit", "Glob", "Grep", "Bash"]
+allow_unrestricted_bash = true
+
+[phase.build]
+agent = "builder"
+model = "opus"
+postcondition = "increment_built"
+allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
+allow_unrestricted_bash = true
+
+[phase.review]
+agent = "reviewer"
+model = "opus"
+postcondition = "review_verdict"
+allowed_tools = ["Bash", "Read", "Grep", "Glob", "Write"]
+allow_unrestricted_bash = true

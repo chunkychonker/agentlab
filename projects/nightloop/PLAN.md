@@ -64,7 +64,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    the step milestone 6 leaves to the caller (start on a clean main, fetch
    first, commit and push the backlog when `changed`). Split from 7 on
    2026-11-19; see the decisions log.
-8. [not-started] Plugin: phase agent templates plus the publish-guard
+8. [in-progress] Plugin: phase agent templates plus the publish-guard
    PreToolUse hook, packaged as a Claude Code plugin. Includes a
    `run_silent` wrapper for the agents' test commands: one line on success,
    the full output on failure.
@@ -295,7 +295,137 @@ contradict an entry here without adding one.
   (g) Not in the note: `cli/night_text.py` prints one line per cycle after
   `run` (how it ended, what recovery did). The metrics file stays the record.
 
+- 2026-11-21: The researcher takes milestone 8 while 7b is still
+  `not-started` here, because 7b is already built and open as PR #104 (branch
+  `cycle/2026-11-20-nightloop-claim-wiring`), awaiting merge. Researching it
+  again would duplicate that PR. Milestone 8 does not depend on 7b's code. 7b
+  is marked done only when #104 merges. The plugin's publish guard takes no
+  phase (it blocks `git push` and non-read-only `gh` for every model phase),
+  because nightloop's `Shipper` publishes outside any model phase and the
+  runner passes no env; see `research/2026-11-21-nightloop-plugin.md`.
+- 2026-11-21: Milestone 8 departs from the research note's layer 2-3 in these
+  ways, and makes these choices where it was silent.
+  (a) The templates' `model` and `tools` are checked for equality against a
+  new `examples/plugin.nightloop.toml`, not against
+  `examples/agentlab.nightloop.toml` as criterion 5 says. The agentlab config
+  names agentlab's own agents (`agentlab-builder`, ...) and gives research two
+  `mcp__hn-search__*` tools, which a generic plugin cannot assume exist. The
+  new config is agentlab's values without those two tools. The drift guard
+  still holds, now between the plugin and the config that uses it.
+  (b) That config names the agents by their bare names (`builder`), not
+  `nightloop:builder`. Research finding 4 said a config could name the scoped
+  form with no code change, but m1's agent-name rule (`[a-z0-9][a-z0-9-]*`)
+  rejects the colon. Widening that rule is a config change for its own
+  milestone or an owner decision, not part of this one. A bare name resolves
+  only when no other agent shares it.
+  (c) The checker is a package, `nightloop/plugin_check/`, not one
+  `plugin_check.py`. It splits into `tree.py` (the only reader),
+  `snapshot.py`, `layout.py`, `frontmatter.py`, `problem.py`, `rules.py` (the
+  pure decisions) and `check.py`. `from nightloop.plugin_check import
+  check_plugin` works as the note wrote it. `Problem` is
+  `(kind: ProblemKind, where, detail)`. Beyond the note's list it also
+  reports a manifest path value of the wrong type, a hooks event that is not
+  a list of groups, an agent without `name` or `description`, and an agent
+  field that is neither supported nor ignored (e.g. a skill's
+  `allowed-tools`). The manifest is required, which is stricter than Claude
+  Code.
+  (d) `run_silent`: death by signal S exits 128+S, as a shell would. The
+  child's stdin is `/dev/null`, so it cannot hang waiting for input. An empty
+  label or one with a line break is a usage error. Both edge scripts stay
+  Python 3.9 compatible, because the hook runs under whatever `python3` is
+  on PATH.
+  (e) The sample verdict line is the reviewer's only. The researcher and
+  builder write no verdict, so their test asserts they contain no column-0
+  `VERDICT:` line.
+  (f) Found while building: on CLI 2.1.329, `claude plugin validate --strict`
+  passes a plugin with an ignored agent field, a missing hook script, or a
+  non-executable `bin/` entry. `check_plugin` covers all three.
+
 ## Current state
+
+Milestone 8 (plugin) is built as of 2026-11-21, awaiting review. Research
+note: `research/2026-11-21-nightloop-plugin.md`. Milestone 7b is built and
+open as PR #104, not yet merged; nothing here touches claim code. See the
+second 2026-11-21 decisions entry for where the build departs from the note.
+
+- `plugin/` (new): a Claude Code plugin named `nightloop`, v0.1.0.
+  - `.claude-plugin/plugin.json`: name, version, description, author. It
+    sets no component paths, so the default `agents/`, `hooks/hooks.json`
+    and `bin/` scans apply.
+  - `agents/researcher.md`, `builder.md`, `reviewer.md`: frontmatter
+    `name, description, model, tools` only. Each body states its gate's
+    artifact. The builder and reviewer bodies wrap test runs in `run_silent`.
+    The reviewer's fenced ```` ```verdict ```` sample is a valid verdict file.
+  - `hooks/hooks.json`: `PreToolUse`, matcher `Bash`, exec form `python3`
+    with args `${CLAUDE_PLUGIN_ROOT}/hooks/publish_guard.py`.
+  - `hooks/publish_guard.py`: agentlab's guard ported without the phase.
+    `decide(payload)` is pure; `main()` turns every exception into exit 2.
+  - `bin/run_silent` (mode 755).
+  - `README.md`: what loads, how to load it, the guard's limits and cost.
+- `examples/plugin.nightloop.toml` (new): a config whose phases name the
+  plugin's agents. It loads with `load_config`.
+- `nightloop/plugin_check/` (new): `check_plugin(root) -> list[Problem]`.
+  `tests/test_plugin_purity.py` checks that every module except `tree.py`
+  imports only `json`, `re`, `pathlib` (`PurePosixPath`), `dataclasses`,
+  `enum`, `typing` and `types`. Added to `pyproject.toml`'s packages.
+- Tests: `cd projects/nightloop && python3 -I -m unittest discover -v` runs
+  491 tests: the 424 from before, all still passing, plus 67 new, with 1
+  skipped (the live validate test). Stdlib only, no network, no model. They
+  pass on 3.11, 3.12 and 3.13 in about 40s.
+  - Criterion 1: the real plugin gives `[]`, and each injected defect in a
+    temp copy gives exactly its own `ProblemKind`.
+  - Criterion 2: 40 recorded payloads (33 Bash commands, 7 malformed or
+    non-Bash), each run through the script as a subprocess. The table is
+    also run under `/usr/bin/python3` (3.9.6 here) when that is present.
+  - Criterion 3: empty stdin, invalid JSON, non-UTF-8 stdin, and a `decide`
+    that raises each give exit 2.
+  - Criterion 4: `run_silent` run as a bare executable: one `ok:` line;
+    `FAIL:` plus interleaved stdout and stderr in order; 5,000 lines kept;
+    the child's exit code; 127 for a missing or non-executable command; 2 for
+    each usage error; 137 for SIGKILL; no stdin passed on.
+  - Criterion 5: each template's name, model and tools equal the plugin
+    config's. The reviewer's sample parses as PASS with `parse_verdict` and
+    gives a review record with `review_section`, and its inline FAIL form
+    parses as FAIL. The guard allows each template's `run_silent` example
+    command.
+  - Criterion 6 (opt-in, `NIGHTLOOP_LIVE=1`): `claude plugin validate
+    plugin/ --strict` exited 0 on Claude Code 2.1.329, listing the three
+    agents, the hook and `bin: run_silent`.
+  - Criterion 7: the purity test above.
+  - Mutation checks: each of these 19 breaks fails at least one test.
+    - guard: `rtk` dropped; `pr create` read-only; exit on an exception;
+      nesting off by one; the quoted-heredoc exemption disabled
+      (`_drop_data_heredocs` returns its input)
+  - Fix round (review): the "quoted heredoc to a file" ALLOW row's body was
+    `then run git push`, which the guard allows anyway because the first word
+    is `then`, so the row passed even with the heredoc exemption disabled.
+    The body is now exactly `git push`: the real guard allows it (exit 0), the
+    mutant above blocks it (exit 2).
+    - `run_silent`: output truncated; a fixed exit code; stdin passed on;
+      127 changed
+    - checker: ignored fields, bin mode, hook script, hooks wrapper or
+      reserved prefix each unchecked; always `[]`
+    - templates: a tool removed, the model changed, `PASSED`, no
+      `Findings:`
+
+Known limits (m8):
+- The phase runner does not pass `--plugin-dir`, so `nightloop run` uses the
+  plugin's agents only if the plugin is enabled for its `claude` process
+  some other way (installed). There is no marketplace entry (m12's docs).
+- Not verified live, a human step: that `-p --plugin-dir … --agent
+  nightloop:builder --permission-mode dontAsk` resolves the agent and fires
+  the plugin's hook. Check it with one billed run that tries `git push`.
+- The guard matches text: a script file, `python3 -c` or an alias gets past
+  it. While the plugin is enabled it also blocks pushes in interactive
+  sessions.
+- The config cannot name `nightloop:builder` (m1's agent-name rule). A bare
+  name is ambiguous if another agent shares it.
+- `frontmatter.py` reads top-level keys only; it is not a YAML parser.
+
+Next: review this milestone. Then 7b merges (#104) and milestone 9 (launchd
+scheduler).
+
+The m7 summary below is kept for reference.
 
 Milestone 7 (CLI) is built as of 2026-11-19, reviewed (PASS), and open as PR 103 (done 103).
 Research note: `research/2026-11-19-nightloop-cli.md`. Claim wiring is split out
