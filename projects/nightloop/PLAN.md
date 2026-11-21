@@ -64,7 +64,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    the step milestone 6 leaves to the caller (start on a clean main, fetch
    first, commit and push the backlog when `changed`). Split from 7 on
    2026-11-19; see the decisions log.
-8. [in-progress] Plugin: phase agent templates plus the publish-guard
+8. [done 105] Plugin: phase agent templates plus the publish-guard
    PreToolUse hook, packaged as a Claude Code plugin. Includes a
    `run_silent` wrapper for the agents' test commands: one line on success,
    the full output on failure.
@@ -343,7 +343,7 @@ contradict an entry here without adding one.
 
 ## Current state
 
-Milestone 8 (plugin) is built as of 2026-11-21, awaiting review. Research
+Milestone 8 (plugin) is built as of 2026-11-21 and open as PR #105. Research
 note: `research/2026-11-21-nightloop-plugin.md`. Milestone 7b is built and
 open as PR #104, not yet merged; nothing here touches claim code. See the
 second 2026-11-21 decisions entry for where the build departs from the note.
