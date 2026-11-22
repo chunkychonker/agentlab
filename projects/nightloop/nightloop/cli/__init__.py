@@ -1,4 +1,4 @@
-"""The ``nightloop`` command line: ``run``, ``run --dry-run`` and ``report``.
+"""The ``nightloop`` command line: ``run``, ``run --dry-run``, ``report`` and ``schedule``.
 
 Public API::
 

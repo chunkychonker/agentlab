@@ -1,4 +1,4 @@
-"""Milestone 7: the CLI's deciding modules import no I/O; only ``main.py`` and ``metrics_file.py`` may.
+"""Milestones 7 and 9: the CLI's deciding modules import no I/O; only ``main.py``, ``metrics_file.py`` and ``schedule_cmd.py`` may.
 
 Same ``ast`` checker as the other purity tests, so imports inside functions
 count too.
@@ -13,13 +13,14 @@ from .test_cycle_purity import parent_imports
 from .test_gates_purity import imports_of
 
 CLI = Path(__file__).resolve().parent.parent / "nightloop" / "cli"
-PURE_MODULES = ("night_text.py", "plan.py", "summary.py", "window.py")
-IO_MODULES = ("main.py", "metrics_file.py")
+PURE_MODULES = ("exit_codes.py", "night_text.py", "plan.py", "schedule_text.py", "summary.py", "window.py")
+# schedule_args.py does no I/O but is argparse, which the pure modules may not import.
+IO_MODULES = ("main.py", "metrics_file.py", "schedule_args.py", "schedule_cmd.py")
 FORBIDDEN_STDLIB = {
     "os", "subprocess", "signal", "time", "shutil", "io", "socket", "urllib", "http",
     "datetime", "tempfile", "stat", "sys", "argparse",
 }
-FORBIDDEN_SIBLINGS = {"main", "metrics_file"}
+FORBIDDEN_SIBLINGS = {"main", "metrics_file", "schedule_args", "schedule_cmd"}
 FORBIDDEN_PARENT = {
     ("config", None),
     ("cycle", None), ("cycle", "git_workspace"),
@@ -27,6 +28,7 @@ FORBIDDEN_PARENT = {
     ("gates", None), ("gates", "fs"), ("gates", "dispatch"),
     ("git_runner", None), ("ship", None), ("ship", "gh"), ("ship", "gh_shipper"),
     ("claims", None), ("claims", "backlog_file"), ("claims", "git_claim_source"),
+    ("schedule", None), ("schedule", "apply"), ("schedule", "launchctl"),
 }
 
 

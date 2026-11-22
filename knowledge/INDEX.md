@@ -224,4 +224,5 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
 - [[cycle-orchestration-gates]] - what a night loop must guarantee (nightloop m4): clear handoff files first, recover after every cycle to a unique branch, stop on usage limit by text on `CLI_ERROR` only
 - [[shipping-a-cycle]] - push only your own branch, `branch -f main` after a pushed snapshot, ahead-of-origin leak, `gh pr create` flags, mergeable values unverified (nightloop m5)
 - [[claude-p-phase-contract]] - what a runner may rely on from `claude -p --output-format json` (nightloop m3): success = rc 0 and not is_error, optional fields, prompt-before-variadic-flags, no `--bare` with hooks
+- [[launchd-scheduling]] - StartCalendarInterval wildcards, missed-job coalescing, no power-state guarantee (Dark Wake), bootstrap/bootout status-5 idempotence, plistlib rendering (nightloop m9)
 - [[nightloop-gate-stats]] - deriving per-gate "ran / blocked" counts from metrics lines (nightloop m7): null state is not a block, NONE is ungated, print the window size, dry run = same argv, no runner
