@@ -1,4 +1,4 @@
-"""The ``nightloop`` command: ``run``, ``run --dry-run`` and ``report``.
+"""The ``nightloop`` command: ``run``, ``run --dry-run``, ``report`` and ``schedule``.
 
 The imperative shell. This is the only nightloop module that reads argv,
 the clock or the working directory, and the only one that builds the
@@ -6,16 +6,17 @@ production runner, workspace and shipper. Everything it decides with is
 pure (``window``, ``plan``, ``summary``, ``night_text``). Every effect it
 uses arrives as a keyword argument with a production default, so tests drive
 ``main`` with fakes and no model, git remote or ``gh`` is ever called.
+``schedule`` is delegated to ``schedule_cmd``, with the host facts and the
+``launchctl`` factory passed in the same way.
 """
 
 from __future__ import annotations
 
 import argparse
-import enum
 import sys
 import time
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import TYPE_CHECKING, Callable, Sequence
 
 from ..config import ConfigError, load_config
 from ..cycle.night import run_night
@@ -27,11 +28,16 @@ from ..phase.execute import Gate
 from ..phase.runner import Runner
 from ..phase.subprocess_runner import SubprocessRunner
 from ..ship.gh_shipper import GhShipper
+from .exit_codes import ExitCode
 from .metrics_file import MetricsFileError, append_sink, read_lines
 from .night_text import render_night
 from .plan import plan_night, render_plan
+from .schedule_args import add_subparser
 from .summary import render_report, summarise
 from .window import Refuse, window_disposition
+
+if TYPE_CHECKING:
+    from .schedule_cmd import Host, LaunchctlFactory
 
 PROG = "nightloop"
 CONFIG_NAME = "nightloop.toml"
@@ -45,17 +51,6 @@ DEFAULT_TIMEOUT_S = 3600
 # Nights the report covers by default, as in agentlab's metrics_report.sh.
 DEFAULT_NIGHTS = 7
 _RUN_ID_FORMAT = "%Y-%m-%d_%H%M%S"
-
-
-class ExitCode(enum.IntEnum):
-    """What ``main`` returns. argparse's own usage errors also exit 2."""
-
-    OK = 0  # the night ran (shipped or not; the metrics say how), or the plan/report printed
-    ENVIRONMENT = 1  # a program the night needs (claude, git, gh) could not be started
-    USAGE = 2  # bad arguments, bad config, or --repo is not a checkout's top level
-    REFUSED = 3  # outside the run window, or the clock could not be read
-    USAGE_LIMITED = 4  # the night stopped early on a Claude usage limit
-    NO_METRICS = 5  # report: the metrics file is missing or holds no usable record
 
 
 RunnerFactory = Callable[[], Runner]
@@ -79,6 +74,8 @@ def main(
     workspace_factory: WorkspaceFactory = _git_workspace,
     shipper_factory: ShipperFactory = _gh_shipper,
     gate: Gate = evaluate,
+    host_factory: Callable[[], Host] | None = None,
+    launchctl_factory: LaunchctlFactory | None = None,
 ) -> int:
     """Run the ``nightloop`` command line ``argv`` (default ``sys.argv[1:]``) and return an ``ExitCode``.
 
@@ -88,7 +85,11 @@ def main(
     ``run --dry-run`` prints the plan and returns ``OK`` whatever the hour.
     It builds no runner, workspace or shipper and writes nothing.
     ``report`` reads the metrics file and prints the summary; it writes
-    nothing.
+    nothing. ``schedule install|uninstall|status`` calls ``host_factory``
+    (default ``schedule_cmd.read_host``) once and returns what
+    ``run_schedule`` returns (see there); ``launchctl_factory`` defaults to
+    ``SubprocessLaunchctl``. The scheduler is imported only then, so ``run``
+    and ``report`` never load it or ``plistlib``.
 
     Failure modes: bad arguments or config, or a ``--repo`` the workspace or
     shipper rejects, print one line and return ``USAGE``. ``OSError`` from
@@ -102,6 +103,8 @@ def main(
         args = parser.parse_args(sys.argv[1:] if argv is None else list(argv))
     except SystemExit as stop:  # argparse exits on --help and on usage errors
         return stop.code if isinstance(stop.code, int) else ExitCode.USAGE
+    if args.command == "schedule":
+        return _schedule(args, host_factory, launchctl_factory)
     repo = args.repo.resolve()
     metrics = args.metrics if args.metrics is not None else repo / METRICS_RELATIVE
     if args.command == "report":
@@ -178,6 +181,20 @@ def _run(
     return ExitCode.USAGE_LIMITED if night.usage_limited else ExitCode.OK
 
 
+def _schedule(
+    args: argparse.Namespace,
+    host_factory: Callable[[], Host] | None,
+    launchctl_factory: LaunchctlFactory | None,
+) -> int:
+    # Imported here, not at the top: a Python whose plistlib cannot load
+    # (a broken pyexpat) must still be able to run a night.
+    from ..schedule.launchctl import SubprocessLaunchctl
+    from .schedule_cmd import read_host, run_schedule
+
+    host = (host_factory or read_host)()
+    return run_schedule(args, host=host, launchctl_factory=launchctl_factory or SubprocessLaunchctl)
+
+
 def _report(metrics: Path, nights: int) -> int:
     try:
         lines = read_lines(metrics)
@@ -225,7 +242,7 @@ def _parser() -> argparse.ArgumentParser:
                         help=f"metrics file (default: <repo>/{METRICS_RELATIVE})")
 
     parser = argparse.ArgumentParser(prog=PROG, description="A gated overnight loop for a git repo.")
-    commands = parser.add_subparsers(dest="command", required=True, metavar="{run,report}")
+    commands = parser.add_subparsers(dest="command", required=True, metavar="{run,report,schedule}")
 
     run = commands.add_parser("run", parents=[common], help="run one night, if the clock is in the window")
     run.add_argument("--config", type=Path, default=None,
@@ -240,4 +257,5 @@ def _parser() -> argparse.ArgumentParser:
     report = commands.add_parser("report", parents=[common], help="summarise the metrics file")
     report.add_argument("--nights", type=_positive_int, default=DEFAULT_NIGHTS,
                         help=f"how many of the latest nights to cover (default: {DEFAULT_NIGHTS})")
+    add_subparser(commands, config_name=CONFIG_NAME)
     return parser

@@ -68,7 +68,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    PreToolUse hook, packaged as a Claude Code plugin. Includes a
    `run_silent` wrapper for the agents' test commands: one line on success,
    the full output on failure.
-9. [not-started] Scheduler, macOS: generate and install a launchd job
+9. [in-progress] Scheduler, macOS: generate and install a launchd job
    idempotently, honouring the run window.
 10. [not-started] Scheduler, GitHub Actions: a workflow template that runs
     one night on a cron.
@@ -340,13 +340,162 @@ contradict an entry here without adding one.
   (f) Found while building: on CLI 2.1.329, `claude plugin validate --strict`
   passes a plugin with an ignored agent field, a missing hook script, or a
   non-executable `bin/` entry. `check_plugin` covers all three.
+- 2026-11-22: Milestone 9 departs from the research note's layer 2-3 in these
+  ways, and makes these choices where it was silent.
+  (a) `Step` is a plain `Enum` with no data: the plist bytes and paths are
+  given to `apply` once, so no step can carry a different copy. The uninstall
+  table gains the two rows the note left out: plist present but not loaded
+  gives `(REMOVE_PLIST,)`, and loaded with no plist gives `(BOOTOUT,)`.
+  (b) The note's single edge module is split in two. `launchctl.py` is the
+  only module that starts a process, and `apply.py` is the only one that
+  writes files. The port gains `enable`, which runs before `bootstrap` as in
+  `setup_runner.sh`, because `bootstrap` fails on a disabled job. `apply`
+  takes `log_dirs` and creates them before `bootstrap`. Uninstall makes no
+  backup, and it leaves any existing `.bak` file in place.
+  (c) `LaunchdJob` also refuses an `argv[0]` that is not absolute, any
+  control character (`plistlib` refuses them too), and `--ignore-window`
+  anywhere in argv. The last makes I6 true by construction. Paths are
+  `PurePosixPath`. `nightly_job` is the only builder. Logs go to
+  `<repo>/logs/nightloop.launchd.{out,err}.log`. The default label is
+  `dev.nightloop.<repo name>.<8 hex of sha256(repo path)>`, and `--label`
+  overrides it. `--command PATH` overrides the default `sys.executable -m
+  nightloop`. PATH is the installing shell's `PATH`, baked in at install.
+  (d) `launchctl print`: exit 113 ("Could not find service") is
+  `NOT_LOADED`. Any other non-zero exit raises; bash treats every non-zero
+  exit as not loaded. Only the one-tab `state = ` line counts, because nested
+  blocks carry their own `state = active`. `running` is `RUNNING`; `not
+  running`, `waiting` and `spawn scheduled` are idle. Any other state raises
+  rather than being guessed idle. The fixtures are real output from Darwin
+  25.2.
+  (e) `ExitCode` moved, unchanged, to `cli/exit_codes.py`, and `cli.main`
+  re-exports it. New code: `JOB_RUNNING = 6`. A `ScheduleError` from launchd
+  or a write exits 1 (`ENVIRONMENT`), as does a `status` that finds a broken
+  job (slot outside the current window, a missing `argv[0]`, or a plist
+  nightloop did not write). `--dry-run` reads the job's state with `launchctl
+  print` and exits 0 even when the job is running.
+  (f) Not in the note: `main` imports the scheduler only for `schedule`, and
+  the argparse part lives in `cli/schedule_args.py`. The Homebrew Python
+  3.12.14 on the build machine cannot `import plistlib` (its pyexpat needs a
+  newer system libexpat). A module-level import would therefore have broken
+  `nightloop run` on that interpreter too. A test checks that `run` loads
+  neither `plistlib` nor `nightloop.schedule`.
+  (g) `status` does not compare the installed plist with a freshly rendered
+  one, because that would need the `--hour` used at install. "Already
+  installed" compares the file only, not what launchd has loaded, as bash
+  does.
 
 ## Current state
 
-Milestone 8 (plugin) is built as of 2026-11-21 and open as PR #105. Research
-note: `research/2026-11-21-nightloop-plugin.md`. Milestone 7b is built and
-open as PR #104, not yet merged; nothing here touches claim code. See the
-second 2026-11-21 decisions entry for where the build departs from the note.
+Milestone 9 (launchd scheduler) is built as of 2026-11-22 and awaiting review.
+Research note: `research/2026-11-22-nightloop-launchd-scheduler.md`. See the
+2026-11-22 decisions entry for where the build departs from the note.
+Milestone 7b is still not-started here, because it is built and open as PR
+#104; the researcher skipped it so as not to duplicate that PR. Nothing in m9
+touches claim code or the night path of `run`.
+
+- Run it (macOS): `nightloop schedule install [--dry-run] [--hour H]
+  [--minute M] [--label L] [--command /abs/nightloop] --repo <checkout>
+  [--config <toml>]`, plus `schedule uninstall [--dry-run]` and `schedule
+  status`. `install` writes
+  `~/Library/LaunchAgents/<label>.plist`, loads it, and prints a `sudo pmset
+  repeat wakeorpoweron` line as advice; it never runs that line. A second
+  `install` prints "nothing to do" and writes nothing.
+- `nightloop/schedule/` (new; stdlib only, added to `pyproject.toml`).
+  - Pure modules:
+    - `job.py`: `LaunchdJob`, `slot_for`, `nightly_job`, `default_label`,
+      `plist_path`, `domain_for`.
+    - `plist.py`: `render_plist`, which uses `plistlib` with sorted keys and
+      always writes both `Hour` and `Minute`, plus its inverse `parse_plist`.
+    - `plan.py`: `JobState`, `Step`, `plan_install`, `plan_uninstall`,
+      `mutates`.
+    - `launchd_print.py`: `parse_print`.
+    - `advice.py`: `wake_advice`, the slot minus 10 minutes, wrapping past
+      midnight.
+    - `ports.py`: the `Launchctl` protocol.
+    - `errors.py`: `ScheduleError`.
+  - Edges:
+    - `launchctl.py`: `SubprocessLaunchctl` runs `/bin/launchctl` and
+      `/usr/bin/plutil` by absolute path, with a 30s timeout per command.
+    - `apply.py`: backs up the old plist once to `<label>.plist.bak`, then
+      bootout, then writes a temp file, lints it and `os.replace`s it into
+      place, then creates the log dirs, then enable and bootstrap. A failure
+      after the bootout says UNLOADED and gives the restore command.
+- `nightloop/cli/`: `exit_codes.py` (moved `ExitCode`, plus `JOB_RUNNING =
+  6`), `schedule_args.py` (argparse), `schedule_cmd.py` (the edge; `Host`
+  carries platform, home, uid, PATH and interpreter), and `schedule_text.py`
+  (pure output text). `main` gains keyword arguments `host_factory=` and
+  `launchctl_factory=`.
+- Tests: `cd projects/nightloop && python3 -I -m unittest discover -v` runs
+  566 tests: the 491 from before, all still passing, plus 75 new, with 3
+  skipped (the opt-in live tests). They pass on 3.11 and 3.13 in about 40s.
+  On this machine's Homebrew 3.12.14 every test outside the scheduler passes,
+  but the 9 `test_schedule_*` modules fail to import, because that
+  interpreter cannot `import plistlib` at all (a pyexpat/libexpat mismatch;
+  `python3.12 -c "import plistlib"` fails on its own). That is an
+  environment fault: the feature cannot work on that interpreter.
+  - Criterion 1 (plan tables): `test_schedule_plan.py`. Criterion 2 (I1)
+    passes twice: on `apply` with `FakeLaunchctl`, and through `main` with a
+    temp home; the second install makes no mutating call and leaves the bytes,
+    the mtime and a digest of the home tree unchanged. Criterion 3 (I2): all
+    300 windows; an explicit hour outside the window raises, and the CLI
+    exits 2 without building a `Launchctl`. Criterion 4 (I3, I4): round trip
+    through `plistlib.loads` and `parse_plist`, with `& < > " '` and spaces
+    in every path. Criterion 5 (I5, I6): RUNNING makes no mutating call and
+    exits 6; `--ignore-window` is refused when the job is built. Criterion 6:
+    a bootstrap that fails after bootout reports UNLOADED with the restore
+    command and the backup path; a lint failure leaves the final path
+    untouched and leaves no temp file. Criterion 7 (dry run): tree digests of
+    the home and the repo are unchanged, and the only call is `state`.
+    Criterion 8: `test_schedule_purity.py` is an allowlist (`plistlib`,
+    `dataclasses`, `enum`, `hashlib`, `re`, `typing`, and `pathlib` for
+    `PurePosixPath` only); it also checks that only `launchctl.py` imports
+    `subprocess`. Criterion 9: on `linux`, all three actions exit 2 and build
+    no `Launchctl`.
+  - Criterion 10 (opt-in, `NIGHTLOOP_LIVE=1`): passed on Darwin 25.2. Real
+    `plutil -lint` accepted a rendered job with awkward paths, and real
+    `launchctl print` read a never-installed label as `NOT_LOADED` (exit
+    113). Nothing was bootstrapped.
+  - `SubprocessLaunchctl` is tested with stand-in executables: exact argv; a
+    failure quotes the command and the last line; a timeout gives
+    `ScheduleError`; a missing program gives `OSError`.
+  - Criterion 11, mutation checks: each of these 12 breaks fails at least one
+    test.
+    - The note's five: `Minute` omitted; `Hour` taken from the window end;
+      RUNNING ignored, both in the planner and in `apply`; the "differs"
+      check skipped; `--ignore-window` added.
+    - Seven more: nested `state` lines parsed; an unknown state guessed idle;
+      lint after replace; a backup made every time; a dry run that applies;
+      the platform check made after the factory is built.
+  - A manual dry run against real launchd on this Mac printed the expected
+    plan and plist and wrote nothing.
+
+Known limits (m9):
+- No real `install` has been run: the agentlab job was running during the
+  build, and loading a second nightly job on the owner's Mac is the owner's
+  call. To check it by hand: `install --hour <h>`, `launchctl print
+  gui/$(id -u)/<label>`, `install` again (it should say "nothing to do"),
+  then `uninstall`.
+- The default command `sys.executable -m nightloop` works under launchd
+  only when nightloop is installed for that interpreter (`pip install -e
+  .`). The job runs in the target repo, not in nightloop's source tree.
+  `install` does not check this. `status` flags an `argv[0]` that is
+  missing, but not a module that cannot be imported. Moving or deleting the
+  venv breaks the job; `status` reports that.
+- PATH, the interpreter and the config path are baked in at install. Editing
+  the config's window needs a re-install, and `status` warns when the slot
+  falls outside the window.
+- "Already installed" compares the file, not what launchd has loaded. An
+  edit to the plist made by hand while the job is loaded is treated as
+  current.
+- launchd cannot wake the Mac, and with the lid closed a slot can be missed
+  entirely (research finding 4). `nightloop run`'s own window check refuses
+  a run that is late.
+- The `launchctl print` format and exit code 113 are only known to hold on
+  Darwin 25.2. Any other state or exit code raises; it is never guessed.
+
+Below, the m8 summary is kept for reference. Milestone 8 (plugin) was built
+2026-11-21 and merged as #105. See the second 2026-11-21 decisions entry for
+where that build departs from its note.
 
 - `plugin/` (new): a Claude Code plugin named `nightloop`, v0.1.0.
   - `.claude-plugin/plugin.json`: name, version, description, author. It
