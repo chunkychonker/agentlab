@@ -68,7 +68,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    PreToolUse hook, packaged as a Claude Code plugin. Includes a
    `run_silent` wrapper for the agents' test commands: one line on success,
    the full output on failure.
-9. [in-progress] Scheduler, macOS: generate and install a launchd job
+9. [done #106] Scheduler, macOS: generate and install a launchd job
    idempotently, honouring the run window.
 10. [not-started] Scheduler, GitHub Actions: a workflow template that runs
     one night on a cron.
@@ -386,7 +386,7 @@ contradict an entry here without adding one.
 
 ## Current state
 
-Milestone 9 (launchd scheduler) is built as of 2026-11-22 and awaiting review.
+Milestone 9 (launchd scheduler) is built as of 2026-11-22, reviewed (PASS), and open as PR #106.
 Research note: `research/2026-11-22-nightloop-launchd-scheduler.md`. See the
 2026-11-22 decisions entry for where the build departs from the note.
 Milestone 7b is still not-started here, because it is built and open as PR
