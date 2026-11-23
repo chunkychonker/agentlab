@@ -44,6 +44,9 @@ class PublisherCase(GitRepoCase):
         git(self.repo, "add", "BACKLOG.md")
         git(self.repo, "commit", "-q", "-m", "backlog")
         git(self.repo, "push", "-q", "origin", "main")
+        # GitRepoCase clones an empty origin, which leaves no origin/HEAD; a clone
+        # of any real repo has one. Set it so a fetch has nothing of its own to add.
+        git(self.repo, "remote", "set-head", "origin", "main")
         self.backlog = BacklogFile(self.repo)
 
     def ports(self, *, git_program: str = "git") -> ClaimPorts:
@@ -87,6 +90,13 @@ class PublisherCase(GitRepoCase):
         (other / "README.md").write_text("# moved on elsewhere\n", encoding="utf-8")
         git(other, "commit", "-q", "-am", "elsewhere")
         git(other, "push", "-q", "origin", "main")
+
+
+class FixtureTest(PublisherCase):
+    def test_the_checkout_has_origin_head_like_a_real_clone(self) -> None:
+        # Without it, git >= 2.48's fetch creates origin/HEAD on the first step
+        # (remote.<name>.followRemoteHEAD), and W1 sees a ref nightloop never made.
+        self.assertEqual(git(self.repo, "symbolic-ref", "refs/remotes/origin/HEAD").strip(), "refs/remotes/origin/main")
 
 
 class NothingToDoTest(PublisherCase):
