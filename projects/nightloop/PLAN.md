@@ -482,11 +482,11 @@ contradict an entry here without adding one.
 
 ## Current state
 
-Milestone 10 (GitHub Actions scheduler) is done as PR #107 (open): built and reviewed 2026-11-23.
+Milestone 10 (GitHub Actions scheduler) is done as PR #107 (merged): built and reviewed 2026-11-23.
 Research note: `research/2026-11-23-nightloop-actions-scheduler.md`. See the
 2026-11-23 decisions entry for where the build departs from the note.
-Milestone 7b is still not-started here, because it is open as PR #104. m9 is
-merged (#106). Nothing in m10 touches claim code or the night path of `run`.
+Milestone 7b was open as PR #104 when m10 was built and merged after it (see
+the m7b summary below). m9 is merged (#106). Nothing in m10 touches claim code or the night path of `run`.
 
 - Run it: `nightloop schedule-gha --repo <checkout> --nightloop-repo
   OWNER/NAME --nightloop-sha <40 hex> --claude-version X.Y.Z --credential
@@ -607,8 +607,8 @@ The m9 summary below is kept for reference.
 Milestone 9 (launchd scheduler) was built 2026-11-22, reviewed (PASS), and merged as PR #106.
 Research note: `research/2026-11-22-nightloop-launchd-scheduler.md`. See the
 2026-11-22 decisions entry for where the build departs from the note.
-Milestone 7b is still not-started here, because it is built and open as PR
-#104; the researcher skipped it so as not to duplicate that PR. Nothing in m9
+Milestone 7b was built and open as PR #104 at the time (it merged after m10);
+the researcher skipped it so as not to duplicate that PR. Nothing in m9
 touches claim code or the night path of `run`.
 
 - Run it (macOS): `nightloop schedule install [--dry-run] [--hour H]
@@ -794,7 +794,7 @@ scheduler).
 
 The m7b summary below is kept for reference.
 
-Milestone 7b (claim wiring) is built as of 2026-11-20, reviewed (PASS), and open as PR #104.
+Milestone 7b (claim wiring) is built as of 2026-11-20, reviewed (PASS), and done as PR #104.
 Research note: `research/2026-11-20-nightloop-claim-wiring.md`. See the
 2026-11-20 decisions entry for D1-D4 as built and where the build departs from
 the note. Milestones 1-7 are unchanged, except that `run_night` gains the
