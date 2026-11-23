@@ -21,6 +21,13 @@ from .report import CycleReport, NightResult
 from .result import UsageLimited
 from .run_id import RunId
 
+# Called with 0 before cycle 1, and with n after cycle n's recovery.
+BetweenCycles = Callable[[int], None]
+
+
+def _no_step(after_cycle: int) -> None:
+    """The default ``between_cycles``: does nothing, so a night without one runs as before."""
+
 
 def run_night(
     cfg: Config,
@@ -35,6 +42,7 @@ def run_night(
     shipper: Shipper,
     now: Callable[[], float],
     metrics_sink: Callable[[str], None],
+    between_cycles: BetweenCycles = _no_step,
 ) -> NightResult:
     """Run cycles 1..``cfg.cycles`` and return one ``CycleReport`` per cycle that ran.
 
@@ -49,6 +57,13 @@ def run_night(
     stop the night; the next cycle starts on the clean main that recovery
     left. The night stops early after a cycle that is ``UsageLimited``.
 
+    ``between_cycles`` (milestone 7b; the CLI's claim steps) is called with
+    ``0`` once the inputs are checked and before cycle 1 starts, then with
+    ``n`` after cycle ``n``'s recovery, including after a ``UsageLimited``
+    cycle and before the night stops. It is not called after a cycle that
+    raised. One hook for both moments, so wiring one without the other is
+    not possible. The default does nothing.
+
     Failure modes, all checked before any cycle starts unless noted:
 
     - ``TypeError`` if ``cfg``, ``run_id`` or ``verdict_path`` has the wrong
@@ -58,6 +73,8 @@ def run_night(
       later cycles do not start. Every other exception from a cycle
       propagates after that cycle's recovery (see ``run_cycle``). The
       metrics lines already emitted are the record of the earlier cycles.
+    - Whatever ``between_cycles`` raises propagates at once; later cycles
+      do not start.
     """
     if not isinstance(cfg, Config):
         raise TypeError(f"cfg must be a Config, got {type(cfg).__name__}")
@@ -65,6 +82,7 @@ def run_night(
         raise TypeError(f"run_id must be a RunId, got {type(run_id).__name__}")
     requests = phase_requests(cfg, repo=repo, verdict_path=verdict_path, timeout_s=timeout_s)
     reports: list[CycleReport] = []
+    between_cycles(0)
     for cycle in range(1, cfg.cycles + 1):
         report = run_cycle(
             cycle,
@@ -80,6 +98,7 @@ def run_night(
             metrics_sink=metrics_sink,
         )
         reports.append(report)
+        between_cycles(cycle)
         if isinstance(report.result, UsageLimited):
             break
     return NightResult(tuple(reports))
