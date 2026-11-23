@@ -70,7 +70,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    the full output on failure.
 9. [done #106] Scheduler, macOS: generate and install a launchd job
    idempotently, honouring the run window.
-10. [not-started] Scheduler, GitHub Actions: a workflow template that runs
+10. [in-progress] Scheduler, GitHub Actions: a workflow template that runs
     one night on a cron.
 11. [not-started] Reviewer benchmark: seeded-bug fixtures and clean-diff
     fixtures, a runner, and a report that states the false-positive rate
@@ -383,10 +383,181 @@ contradict an entry here without adding one.
   one, because that would need the `--hour` used at install. "Already
   installed" compares the file only, not what launchd has loaded, as bash
   does.
+- 2026-11-23: Milestone 10 departs from the research note's layer 2-3 in these
+  ways, and makes these choices where it was silent.
+  (a) `slot_for` and `FORBIDDEN_ARG` move to a new pure top-level module,
+  `nightloop/schedule_slot.py`. The reason: importing
+  `nightloop.schedule.job` runs that package's `__init__`, which loads
+  `plistlib`, and the Homebrew 3.12 on the build machine cannot import it
+  (2026-11-22 (f)). The shared `slot_for` raises a new
+  `SlotError(ValueError)` with m9's exact messages. `schedule/job.py` keeps a
+  `slot_for` that wraps it and re-raises `ScheduleError`, and re-exports
+  `FORBIDDEN_ARG`, so m9's callers and tests are unchanged (expand only,
+  nothing removed). `test_schedule_purity.py`'s parent-import allowlist
+  gains `schedule_slot`.
+  (b) `SpecError(field, reason)` lives in `schedule_gha/errors.py` (the note
+  put it in `spec.py`), because `budget.py` raises it too and must not import
+  `spec`. `check_budget` sits beside `worst_case_minutes` in `budget.py`.
+  Each phase counts `timeout_s + PHASE_KILL_GRACE_S` (10, the runner's
+  SIGTERM grace; a test keeps the two equal), not bare `timeout_s`.
+  `JOB_SLACK_MINUTES = 30`. `MAX_JOB_MINUTES = 360`, confirmed on
+  docs.github.com/en/actions/reference/limits on 2026-11-23 ("6 hours" for
+  all GitHub-hosted runners).
+  (c) `ValidSpec` is sealed: building it without `validate_spec` raises
+  `TypeError`. `WorkflowSpec` also carries `config_path` (repo-relative,
+  plain segments) and `workflow_stem` (`[a-z0-9][a-z0-9-]*`, used both as
+  the file name and as the concurrency group suffix). A config outside
+  `--repo` is exit 2, because the runner only sees the repo.
+  (d) Not in the note: the target repo is checked out to `target/` and
+  nightloop to the sibling `nightloop-src/`. Metrics go to the sibling
+  `nightloop-metrics/` via `--metrics`. A nightloop checkout or metrics file
+  inside the target would be untracked files in the repo, making every
+  cycle's tree dirty for recovery. The credential and `GH_TOKEN` are set on
+  the run step only, not the job, so the npm/pip install steps never see
+  them.
+  (e) The edge (`cli/gha_cmd.py`) also refuses a zone that `zoneinfo` does
+  not know (exit 2). On the runner an unknown `TZ` reads as UTC with no
+  error, so the window check would read the wrong hour. This machine's tz
+  database could still differ from the runner's.
+  (f) Pins: actions are pinned to full commit SHAs, resolved with
+  `ls-remote` on 2026-11-23 (checkout v7.0.1, setup-python v7.1.0,
+  setup-node v7.1.0, upload-artifact v7.0.2). The job uses Python 3.13 and
+  Node 22 through the setup actions rather than relying on the image's
+  versions.
+  (g) A late scheduled run that `nightloop run` refuses exits 3, and the job
+  shows as failed. The workflow does not turn exit 3 into success: a refusal
+  stays visible, and the docs list it as expected.
+  (h) `--minute` and the pins are required flags with no default.
+  `--timeout-s` defaults to `main`'s `DEFAULT_TIMEOUT_S` and
+  `--job-timeout-minutes` to `MAX_JOB_MINUTES`. An `OSError` from the write
+  propagates, as the note says. (m9's `schedule` maps write failures to
+  exit 1 instead; this generator has no launchd step to report alongside.)
 
 ## Current state
 
-Milestone 9 (launchd scheduler) is built as of 2026-11-22, reviewed (PASS), and open as PR #106.
+Milestone 10 (GitHub Actions scheduler) is in-progress: built 2026-11-23, awaiting review.
+Research note: `research/2026-11-23-nightloop-actions-scheduler.md`. See the
+2026-11-23 decisions entry for where the build departs from the note.
+Milestone 7b is still not-started here, because it is open as PR #104. m9 is
+merged (#106). Nothing in m10 touches claim code or the night path of `run`.
+
+- Run it: `nightloop schedule-gha --repo <checkout> --nightloop-repo
+  OWNER/NAME --nightloop-sha <40 hex> --claude-version X.Y.Z --credential
+  {oauth-token,api-key} --timezone <IANA> --minute <1-59> [--hour H]
+  [--config <toml in repo>] [--timeout-s N] [--job-timeout-minutes N]
+  [--workflow-name STEM] [--dry-run]`. It writes
+  `<repo>/.github/workflows/<stem>.yml` atomically, or says "nothing to do"
+  if the file is already identical. `--dry-run` prints the YAML to stdout and
+  the manual steps to stderr. Any bad input exits 2 with nothing written.
+  Docs: `docs/github-actions.md` (the manual steps, the hazards, and a
+  three-step human check).
+- `nightloop/schedule_slot.py` (new, pure): `slot_for`, `SlotError` and
+  `FORBIDDEN_ARG`, shared with launchd. `schedule/job.py` wraps `slot_for`
+  and re-raises `ScheduleError`.
+- `nightloop/schedule_gha/` (new; stdlib only; added to `pyproject.toml`).
+  - Pure modules:
+    - `errors.py`: `SpecError`.
+    - `spec.py`: `Credential`, `WorkflowSpec` (every field checked against a
+      strict pattern), the sealed `ValidSpec`, and `validate_spec`.
+    - `budget.py`: `worst_case_minutes` and `check_budget`.
+    - `render.py`: `render_workflow`, built from lines, with the action pins
+      as constants.
+  - Edge: `write.py`, whose `install_workflow` returns `Written |
+    Unchanged`. It writes a temp file and then `os.replace`. It keeps the
+    mode and leaves no temp file behind on failure.
+- `nightloop/cli/` gains three modules: `gha_args.py` (argparse), `gha_cmd.py`
+  (the edge, which `main` imports only for `schedule-gha`) and `gha_text.py`
+  (the manual-steps text, pure). The generator imports neither `plistlib`
+  nor `nightloop.schedule`.
+- `examples/nightloop.workflow.yml` (new): the golden output for
+  `examples/plugin.nightloop.toml` (cron `17 1 * * *` America/Chicago, 211 of
+  360 minutes).
+- Tests: `cd projects/nightloop && python3 -I -m unittest discover -v` runs
+  636 tests: the 566 from before, all still passing, plus 70 new. 4 are
+  skipped (the opt-in live tests). All pass on python3.11 and python3.13.
+  On Homebrew 3.12.14, `python3.12 -I -m unittest discover -s tests -t . -p
+  'test_gha_*.py'` passes all 70 new tests, and the generator's output there
+  matches the golden file byte for byte, even though that interpreter cannot
+  import `plistlib`. Plain `discover` from the project root still trips over
+  m9's `nightloop.schedule` there, as before.
+  - Criterion 1: `test_gha_render` checks that rendering twice gives the
+    golden file both times. `test_gha_cli` checks that `main --dry-run`
+    stdout is the golden file.
+  - Criterion 2 (I1): every hour in the window is accepted and becomes the
+    cron hour, and every hour outside it is refused (the end is exclusive).
+    `TZ` equals `timezone:`. A subprocess test runs `cli.main._local_time`
+    under `TZ` = UTC, Pacific/Honolulu and Asia/Tokyo and gets 0, 14 and 9.
+  - Criterion 3 (I2, I3, I4, I6, I7), checked on indentation-aware blocks
+    and steps:
+    - exactly one credential, set on the run step only
+    - exactly two permissions
+    - `cancel-in-progress: false`
+    - `fetch-depth: 0`, and a single `ref:` equal to the SHA
+    - every `uses:` pinned to 40 hex
+    - an exact CLI version, plus `DISABLE_AUTOUPDATER`
+    - metrics outside `target/`
+    - the upload is the last step, with `if: always()`
+    - no `--ignore-window`
+  - Criterion 4 (I5): a boundary table (exactly enough vs. one minute short,
+    2 cycles at 3600 s, over 360), with messages naming both numbers.
+  - Criterion 5 (I8): 19 hostile fragments, each in 3 positions, in each of
+    the 6 string fields. Also a leading `-`, non-strings, and per-field shape
+    cases.
+  - Criterion 6 (I9, I10):
+    - a second write leaves the bytes and mtime unchanged
+    - a different file is replaced, keeping its mode
+    - a failed `os.replace` leaves the original intact and no temp file
+    - a dry run, and every refusal through `main`, leave the tree digest
+      unchanged
+  - Criterion 7, purity:
+    - `test_gha_purity.py` keeps an allowlist: `dataclasses`, `enum`, `re`,
+      `typing`, plus the parent modules `model` and `schedule_slot`. Only
+      `write.py` may import `os`/`tempfile`.
+    - `test_cli_purity.py` lists the three new CLI modules.
+    - Subprocess probes show that `run` does not load the generator.
+  - Criterion 8, mutation checks: each of these 18 breaks fails at least one
+    test other than the byte-for-byte golden tests. They were run with `-B`
+    and a cleared `__pycache__`.
+    - The note's 7: `if: always()` dropped; `cancel-in-progress: true`;
+      `--ignore-window` added; both credentials rendered; the cron hour taken
+      from the window end; the budget check skipped; a floating `ref: main`.
+    - 11 more: the secret moved to job level; a shallow checkout; nightloop
+      checked out inside `target/`; `TZ` dropped; the write always
+      rewriting; the temp file left behind; the zone check skipped; minute 0
+      allowed; the kill grace ignored; the timezone pattern loosened; the
+      hosted cap unchecked.
+  - Criterion 9 (opt-in: `NIGHTLOOP_LIVE=1` with `actionlint` on PATH):
+    passes with actionlint 1.7.12. actionlint 1.7.7 rejects the newer
+    `timezone:` key.
+  - Criterion 10: the 566 existing tests still pass.
+
+Known limits (m10):
+- The workflow has never run on GitHub. These are not verified:
+  - that the runner's glibc honours `TZ`
+  - that pushing a cycle branch works with the persisted checkout credential
+    and these permissions
+  - that `gh` picks up `GH_TOKEN` there
+  - that the pip install works on the runner
+
+  The three-step human check is in `docs/github-actions.md`.
+- The phases' agents must resolve on the runner, for example committed under
+  `.claude/agents/`. The workflow does not install the nightloop plugin, and
+  the phase runner passes no `--plugin-dir` (m8's limit, still open). With
+  the plugin example config as it is, the phases' agents would not resolve
+  on a fresh runner.
+- The 30-minute slack is a guess at setup plus shipping time. The shipper's
+  git/gh calls are not bounded by the phase timeout.
+- The zone check uses this machine's tz database, and the runner's could
+  differ.
+- The generated file bakes in the config's window and cycles, so editing
+  either means regenerating. The file's header says so, but nothing
+  enforces it.
+- A refused late run shows as a failed job.
+- A private nightloop source repo needs a token the workflow does not set up.
+
+The m9 summary below is kept for reference.
+
+Milestone 9 (launchd scheduler) was built 2026-11-22, reviewed (PASS), and merged as PR #106.
 Research note: `research/2026-11-22-nightloop-launchd-scheduler.md`. See the
 2026-11-22 decisions entry for where the build departs from the note.
 Milestone 7b is still not-started here, because it is built and open as PR

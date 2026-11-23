@@ -1,4 +1,4 @@
-"""The ``nightloop`` command: ``run``, ``run --dry-run``, ``report`` and ``schedule``.
+"""The ``nightloop`` command: ``run``, ``run --dry-run``, ``report``, ``schedule`` and ``schedule-gha``.
 
 The imperative shell. This is the only nightloop module that reads argv,
 the clock or the working directory, and the only one that builds the
@@ -7,7 +7,8 @@ pure (``window``, ``plan``, ``summary``, ``night_text``). Every effect it
 uses arrives as a keyword argument with a production default, so tests drive
 ``main`` with fakes and no model, git remote or ``gh`` is ever called.
 ``schedule`` is delegated to ``schedule_cmd``, with the host facts and the
-``launchctl`` factory passed in the same way.
+``launchctl`` factory passed in the same way. ``schedule-gha`` is delegated
+to ``gha_cmd``.
 """
 
 from __future__ import annotations
@@ -29,6 +30,8 @@ from ..phase.runner import Runner
 from ..phase.subprocess_runner import SubprocessRunner
 from ..ship.gh_shipper import GhShipper
 from .exit_codes import ExitCode
+from .gha_args import COMMAND as GHA_COMMAND
+from .gha_args import add_gha_subparser
 from .metrics_file import MetricsFileError, append_sink, read_lines
 from .night_text import render_night
 from .plan import plan_night, render_plan
@@ -89,7 +92,9 @@ def main(
     (default ``schedule_cmd.read_host``) once and returns what
     ``run_schedule`` returns (see there); ``launchctl_factory`` defaults to
     ``SubprocessLaunchctl``. The scheduler is imported only then, so ``run``
-    and ``report`` never load it or ``plistlib``.
+    and ``report`` never load it or ``plistlib``. ``schedule-gha`` returns
+    what ``gha_cmd.run_schedule_gha`` returns (see there); the generator is
+    imported only for it.
 
     Failure modes: bad arguments or config, or a ``--repo`` the workspace or
     shipper rejects, print one line and return ``USAGE``. ``OSError`` from
@@ -105,6 +110,10 @@ def main(
         return stop.code if isinstance(stop.code, int) else ExitCode.USAGE
     if args.command == "schedule":
         return _schedule(args, host_factory, launchctl_factory)
+    if args.command == GHA_COMMAND:
+        from .gha_cmd import run_schedule_gha
+
+        return run_schedule_gha(args)
     repo = args.repo.resolve()
     metrics = args.metrics if args.metrics is not None else repo / METRICS_RELATIVE
     if args.command == "report":
@@ -242,7 +251,7 @@ def _parser() -> argparse.ArgumentParser:
                         help=f"metrics file (default: <repo>/{METRICS_RELATIVE})")
 
     parser = argparse.ArgumentParser(prog=PROG, description="A gated overnight loop for a git repo.")
-    commands = parser.add_subparsers(dest="command", required=True, metavar="{run,report,schedule}")
+    commands = parser.add_subparsers(dest="command", required=True, metavar="{run,report,schedule,schedule-gha}")
 
     run = commands.add_parser("run", parents=[common], help="run one night, if the clock is in the window")
     run.add_argument("--config", type=Path, default=None,
@@ -258,4 +267,5 @@ def _parser() -> argparse.ArgumentParser:
     report.add_argument("--nights", type=_positive_int, default=DEFAULT_NIGHTS,
                         help=f"how many of the latest nights to cover (default: {DEFAULT_NIGHTS})")
     add_subparser(commands, config_name=CONFIG_NAME)
+    add_gha_subparser(commands, config_name=CONFIG_NAME, default_timeout_s=DEFAULT_TIMEOUT_S)
     return parser

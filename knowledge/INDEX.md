@@ -225,4 +225,5 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
 - [[shipping-a-cycle]] - push only your own branch, `branch -f main` after a pushed snapshot, ahead-of-origin leak, `gh pr create` flags, mergeable values unverified (nightloop m5)
 - [[claude-p-phase-contract]] - what a runner may rely on from `claude -p --output-format json` (nightloop m3): success = rc 0 and not is_error, optional fields, prompt-before-variadic-flags, no `--bare` with hooks
 - [[launchd-scheduling]] - StartCalendarInterval wildcards, missed-job coalescing, no power-state guarantee (Dark Wake), bootstrap/bootout status-5 idempotence, plistlib rendering (nightloop m9)
+- [[github-actions-scheduling]] - cron is UTC/default-branch/can be dropped, API key outranks OAuth token in `claude -p`, GITHUB_TOKEN PRs don't trigger CI, fetch-depth 0, pin CLI + source SHA, job-time budget (nightloop m10)
 - [[nightloop-gate-stats]] - deriving per-gate "ran / blocked" counts from metrics lines (nightloop m7): null state is not a block, NONE is ungated, print the window size, dry run = same argv, no runner
