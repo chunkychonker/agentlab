@@ -16,9 +16,11 @@
 USAGE_LIMIT_RC=75
 
 # Extended regex, matched case-insensitively against the phase's own output.
-# The first alternative is the exact CLI text seen on 2026-10-19; the second
-# covers the wording the CLI uses for plan usage limits.
-USAGE_LIMIT_RE="hit your (session|usage|weekly) limit|usage limit reached"
+# The first alternative covers the CLI's "hit your <kind> limit" texts: "session
+# limit" (seen 2026-10-19), "5-hour limit" (seen 2026-11-17), and a bare "hit
+# your limit". The qualifier is at most one word, so prose like "hit your head
+# on the rate limit" does not match. The second covers "usage limit reached".
+USAGE_LIMIT_RE="hit your ([[:alnum:]-]+ )?limit|usage limit reached"
 
 # usage_limit_reset <phase_output_file>
 # Returns 0 and prints the reset time (e.g. "4:10pm (America/Chicago)") if the
