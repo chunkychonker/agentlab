@@ -19,7 +19,9 @@ PURE_MODULES = ("advice.py", "errors.py", "job.py", "launchd_print.py", "plan.py
 IO_MODULES = ("apply.py", "launchctl.py")
 ALLOWED_STDLIB = {"__future__", "dataclasses", "enum", "hashlib", "pathlib", "plistlib", "re", "typing"}
 ALLOWED_PATHLIB_NAMES = {"PurePosixPath"}
-ALLOWED_PARENT = {"model"}  # ..model is the pure config value types
+# ..model is the pure config value types; ..schedule_slot is the pure slot rule
+# shared with the GitHub Actions generator (m10 moved slot_for there).
+ALLOWED_PARENT = {"model", "schedule_slot"}
 
 
 def pathlib_names(source: str) -> set[str]:

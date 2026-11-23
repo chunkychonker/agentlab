@@ -1,4 +1,4 @@
-"""Milestones 7 and 9: the CLI's deciding modules import no I/O; only ``main.py``, ``metrics_file.py`` and ``schedule_cmd.py`` may.
+"""Milestones 7, 9 and 10: the CLI's deciding modules import no I/O; only ``main.py``, ``metrics_file.py``, ``schedule_cmd.py`` and ``gha_cmd.py`` may.
 
 Same ``ast`` checker as the other purity tests, so imports inside functions
 count too.
@@ -13,14 +13,16 @@ from .test_cycle_purity import parent_imports
 from .test_gates_purity import imports_of
 
 CLI = Path(__file__).resolve().parent.parent / "nightloop" / "cli"
-PURE_MODULES = ("exit_codes.py", "night_text.py", "plan.py", "schedule_text.py", "summary.py", "window.py")
-# schedule_args.py does no I/O but is argparse, which the pure modules may not import.
-IO_MODULES = ("main.py", "metrics_file.py", "schedule_args.py", "schedule_cmd.py")
+PURE_MODULES = (
+    "exit_codes.py", "gha_text.py", "night_text.py", "plan.py", "schedule_text.py", "summary.py", "window.py",
+)
+# schedule_args.py and gha_args.py do no I/O but are argparse, which the pure modules may not import.
+IO_MODULES = ("gha_args.py", "gha_cmd.py", "main.py", "metrics_file.py", "schedule_args.py", "schedule_cmd.py")
 FORBIDDEN_STDLIB = {
     "os", "subprocess", "signal", "time", "shutil", "io", "socket", "urllib", "http",
     "datetime", "tempfile", "stat", "sys", "argparse",
 }
-FORBIDDEN_SIBLINGS = {"main", "metrics_file", "schedule_args", "schedule_cmd"}
+FORBIDDEN_SIBLINGS = {"gha_args", "gha_cmd", "main", "metrics_file", "schedule_args", "schedule_cmd"}
 FORBIDDEN_PARENT = {
     ("config", None),
     ("cycle", None), ("cycle", "git_workspace"),
@@ -29,6 +31,7 @@ FORBIDDEN_PARENT = {
     ("git_runner", None), ("ship", None), ("ship", "gh"), ("ship", "gh_shipper"),
     ("claims", None), ("claims", "backlog_file"), ("claims", "git_claim_source"),
     ("schedule", None), ("schedule", "apply"), ("schedule", "launchctl"),
+    ("schedule_gha", None), ("schedule_gha", "write"),
 }
 
 

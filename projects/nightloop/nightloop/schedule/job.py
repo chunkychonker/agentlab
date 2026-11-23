@@ -16,12 +16,12 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 from ..model import Window
+from ..schedule_slot import FORBIDDEN_ARG, SlotError
+from ..schedule_slot import slot_for as _shared_slot_for
 from .errors import ScheduleError
 
 LABEL_PATTERN = re.compile(r"[A-Za-z0-9._-]+")
 LABEL_PREFIX = "dev.nightloop"
-# The flag that would let a scheduled run start outside the window.
-FORBIDDEN_ARG = "--ignore-window"
 LAUNCH_AGENTS = PurePosixPath("Library") / "LaunchAgents"
 LOG_DIR = PurePosixPath("logs")
 OUT_LOG_NAME = "nightloop.launchd.out.log"
@@ -117,15 +117,14 @@ def slot_for(window: Window, hour: int | None = None, minute: int = 0) -> tuple[
     ``[window.start_hour, window.end_hour)`` or ``minute`` is not an int
     0-59. Every slot it returns is inside the window, so a job that fires on
     time is never refused by ``nightloop run``.
+
+    The rule itself lives in ``nightloop.schedule_slot`` (shared with the
+    GitHub Actions generator); this keeps launchd's ``ScheduleError``.
     """
-    chosen = window.start_hour if hour is None else hour
-    _check_clock(chosen, minute)
-    if not window.start_hour <= chosen < window.end_hour:
-        raise ScheduleError(
-            f"hour: {chosen} is outside the run window "
-            f"[{window.start_hour:02d}:00, {window.end_hour:02d}:00) (end exclusive)"
-        )
-    return chosen, minute
+    try:
+        return _shared_slot_for(window, hour, minute)
+    except SlotError as exc:
+        raise ScheduleError(str(exc)) from None
 
 
 def default_label(repo: PurePosixPath) -> str:

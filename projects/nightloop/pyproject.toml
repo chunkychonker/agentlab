@@ -14,4 +14,4 @@ requires = ["setuptools>=68,<81"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["nightloop", "nightloop.gates", "nightloop.phase", "nightloop.cycle", "nightloop.ship", "nightloop.claims", "nightloop.cli", "nightloop.plugin_check", "nightloop.schedule"]
+packages = ["nightloop", "nightloop.gates", "nightloop.phase", "nightloop.cycle", "nightloop.ship", "nightloop.claims", "nightloop.cli", "nightloop.plugin_check", "nightloop.schedule", "nightloop.schedule_gha"]
