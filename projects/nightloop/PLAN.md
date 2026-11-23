@@ -70,7 +70,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    the full output on failure.
 9. [done #106] Scheduler, macOS: generate and install a launchd job
    idempotently, honouring the run window.
-10. [in-progress] Scheduler, GitHub Actions: a workflow template that runs
+10. [done 107] Scheduler, GitHub Actions: a workflow template that runs
     one night on a cron.
 11. [not-started] Reviewer benchmark: seeded-bug fixtures and clean-diff
     fixtures, a runner, and a report that states the false-positive rate
@@ -435,7 +435,7 @@ contradict an entry here without adding one.
 
 ## Current state
 
-Milestone 10 (GitHub Actions scheduler) is in-progress: built 2026-11-23, awaiting review.
+Milestone 10 (GitHub Actions scheduler) is done as PR #107 (open): built and reviewed 2026-11-23.
 Research note: `research/2026-11-23-nightloop-actions-scheduler.md`. See the
 2026-11-23 decisions entry for where the build departs from the note.
 Milestone 7b is still not-started here, because it is open as PR #104. m9 is
