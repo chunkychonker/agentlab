@@ -437,6 +437,10 @@ Full detail is in the dated `logs/lab-health-*.log` for that date.
 - [ ] fix (health 2026-11-16): run-2026-11-15_020003 — shipped 0/1, review was VERDICT: PASS and spec check OK, but auto-merge stopped: "review record: the review text matches a credential pattern — NOT posted, PR #93 left open." PR #93 still OPEN
 - [ ] fix (health 2026-11-16): review verdict MISSING after permission refusals on the review phase — 2× on 2026-11-12, 2026-11-13 (cycle did not ship; "VERDICT: PASS" listed among denied calls)
 - [ ] fix (health 2026-11-16): 0/1 shipped on 4 consecutive nights 2026-11-12 through 2026-11-15 — 4 different stated causes (2× verdict missing, 1× network, 1× credential-pattern block); window too small to say if they are linked
+- [ ] fix (health 2026-11-23): run-2026-11-16_020005 — shipped 0/1, cycle 1 clean review VERDICT: FAIL (gate working correctly; reviewer found a PLAN.md conflict with #93)
+- [ ] fix (health 2026-11-23): run-2026-11-17_020001 — shipped 0/1, cycle 1 research phase hit "You've hit your 5-hour limit · resets 3:20am (America/Chicago)" and exited non-zero
+- [ ] fix (health 2026-11-23): run-2026-11-20_020005 — shipped 0/1, review PASS and PR #104 opened, but auto-merge left it open: "CI is RED, and only GREEN auto-merges"
+- [ ] fix (health 2026-11-23): run-2026-11-17_020001 phase 'cycle 1/1: research' exited non-zero — usage limit message (single occurrence in window)
 
 ## Stranded work (unshipped branches)
 Appended by `.pipeline/run.sh` when a failed cycle's claim names an item
