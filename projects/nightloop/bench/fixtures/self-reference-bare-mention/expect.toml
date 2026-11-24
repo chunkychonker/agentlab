@@ -1,0 +1,5 @@
+# Ported by copy from agentlab's eval/fixtures/self-reference-bare-mention/expect.txt.
+# The bug: SKILL.md's prose mentions its own file name, the checker treats that
+# as a reference to itself, and reports one-level-deep violations on a correct skill.
+kind = "seeded"
+patterns = ['(itself references|self-reference|references itself)']

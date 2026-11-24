@@ -1,0 +1,4 @@
+# New in milestone 11. The correct twin of path-containment-prefix: the same
+# research note, with the containment check done by path components
+# (Path.is_relative_to) and a test for the sibling-prefix case.
+kind = "clean"

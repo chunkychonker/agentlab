@@ -1,0 +1,9 @@
+# New in milestone 11. The bug: one `except (OSError, ValueError)` around the
+# read and the parse turns a malformed settings file (json.JSONDecodeError is a
+# ValueError) and an unreadable one into silent defaults, where the proposal
+# says both raise SettingsError. The tests cover only the missing-file default.
+kind = "seeded"
+patterns = [
+  '(malformed|invalid json|not valid json|JSONDecodeError|decode|parse|syntax)',
+  '(swallow|silent|default|mask|hide|hidden|ignor)',
+]

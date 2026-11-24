@@ -1,0 +1,6 @@
+# Ported by copy from agentlab's eval/fixtures/subdirectory-bare-mention-overmatch/expect.txt.
+# The bug: a link to reference/finance.md is reduced to its file name and also
+# matched as a bare mention, resolved against the skill root, and reported as a
+# missing file on a correct skill.
+kind = "seeded"
+patterns = ['finance\.md', '(does not exist|not found|missing)']
