@@ -7,5 +7,6 @@ Public cycle API: ``from nightloop.cycle import run_night, GitWorkspace, ...``.
 Public ship API: ``from nightloop.ship import GhShipper``.
 Public claims API: ``from nightloop.claims import reconcile_stranded, mark_done, ...``.
 Public schedule API: ``from nightloop.schedule import nightly_job, plan_install, ...``.
-Public CLI: ``python -m nightloop run|report|schedule`` or ``from nightloop.cli import main``.
+Public bench API: ``from nightloop.bench import load_fixtures, run_bench, summarise, ...``.
+Public CLI: ``python -m nightloop run|report|schedule|schedule-gha|bench`` or ``from nightloop.cli import main``.
 """

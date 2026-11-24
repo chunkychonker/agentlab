@@ -77,7 +77,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    idempotently, honouring the run window.
 10. [done 107] Scheduler, GitHub Actions: a workflow template that runs
     one night on a cron.
-11. [not-started] Reviewer benchmark: seeded-bug fixtures and clean-diff
+11. [done 108] Reviewer benchmark: seeded-bug fixtures and clean-diff
     fixtures, a runner, and a report that states the false-positive rate
     next to the catch rate. The runner is run whenever the reviewer
     template changes.
@@ -480,7 +480,233 @@ contradict an entry here without adding one.
   propagates, as the note says. (m9's `schedule` maps write failures to
   exit 1 instead; this generator has no launchd step to report alongside.)
 
+- 2026-11-24: The researcher takes milestone 11 and skips 7c (pending-PR
+  ledger), which is `not-started` above it. 7c's own entry says whether to
+  build it is the owner's call, and no owner decision is recorded, so
+  picking it would be a guess about scope; 11 depends on nothing in 7c. If
+  the owner wants 7c, say so here and the next cycle takes it first. Plan
+  for 11 (see `research/2026-11-24-nightloop-reviewer-benchmark.md`): a new
+  `nightloop/bench/` package, reusing m3's `run_phase`/`Runner` and m2's
+  `parse_verdict`; the live run is billed and is a human step, like every
+  other live check in this plan.
+
+- 2026-11-24 (build of m11): where the build departs from
+  `research/2026-11-24-nightloop-reviewer-benchmark.md`, and choices it left
+  open.
+  (a) The verdict path in the prompt is production's relative
+  `logs/last-review.md` (`cli.main.VERDICT_PATH`), not the
+  `<repo>/logs/last-review.md` that criterion 6 writes. A night's review
+  phase is sent the relative path, and I2 says the benchmark sends the
+  production prompt. The test asserts `prompt == phase_prompt("review",
+  repo=<temp repo>, verdict_path=VERDICT_PATH)` and that the request equals
+  `phase_requests(...)`'s review request. The gate reads
+  `<repo>/logs/last-review.md` either way.
+  (b) The trial repo does not name the fixture. Its dir prefix is
+  `nightloop-bench-`, the note sits at `research/proposal.md`, and the
+  commit message is `base`. A slug like `path-containment-prefix` in a path
+  the prompt quotes would tell the reviewer what to look for.
+  (c) Names and types: the note's `Freshness` is `TemplateFreshness`
+  (`gates.Freshness` already exists), and `check_fresh` takes the template
+  as bytes, since the hash is of the file's bytes. `BenchReport` holds a
+  sorted tuple of `FixtureTally` instead of `per_fixture: Mapping[str,
+  Counter]`, and it validates that every tally sums to `trials` and counts
+  only outcomes its kind can have. The note's `workspace.py` is split: the
+  `TrialWorkspace` protocol lives in `bench/ports.py` (pure), and
+  `TempGitWorkspace` in `bench/workspace.py` (the edge).
+  (d) The results file is written only after a fully graded run. Any
+  UNGRADED trial exits 7 (`ExitCode.UNGRADED`, new) and leaves an older
+  results file untouched, so `--check-fresh` FRESH always means a complete
+  run of this template. `--check-fresh` exits 0 / 8 (`BENCH_STALE`) / 9
+  (`BENCH_NEVER_RUN`), and a malformed results file exits 2. Existing exit
+  codes are unchanged.
+  (e) Fixture format details the note left open. A clean fixture must have
+  no `patterns` key. A blank pattern is rejected, since it would match
+  every FAIL. Increment files go at the trial repo's root, and paths into
+  `.git`, `.claude`, `.gitignore`, `logs` or `research` are not
+  representable. The loader skips `__pycache__` and `.DS_Store` and rejects
+  everything else that is unexpected.
+  (f) The bench keeps no metrics file (each trial's `run_phase` line goes to
+  a list and is dropped). Verdict texts are not kept either: the repo is
+  deleted after each trial.
+  (g) `bench_cmd` puts `plugin/bin` first on this process's `PATH` before
+  the first trial, so the reviewer finds `run_silent` (the runner's children
+  inherit the env). This is the only place nightloop mutates `os.environ`. A
+  missing or non-executable `run_silent` exits 2 before anything runs.
+  (h) The defaults point into nightloop's source tree (`bench/fixtures`,
+  `plugin/agents/reviewer.md`, `examples/plugin.nightloop.toml`,
+  `bench/last-run.json`). The fixtures are not package data, so an
+  installed copy must pass the paths.
+
 ## Current state
+
+Milestone 11 (reviewer benchmark) is built and reviewed (PASS) as of
+2026-11-24, and shipped in PR 108. Research note: `research/2026-11-24-nightloop-reviewer-benchmark.md`.
+See the second 2026-11-24 decisions entry for where the build departs from
+the note. Milestone 7c was skipped on purpose (first 2026-11-24 entry).
+Milestones 1-10 and 7b are done and unchanged. The only change outside the
+new code is in `cli/`: `exit_codes.py` gains 7/8/9, and `main.py` gains the
+`bench` subcommand and the `bench_workspace_factory=` keyword.
+
+- Run it, from `projects/nightloop/`: `python3 -m nightloop bench --dry-run`
+  prints the matrix (7 fixtures, 4 seeded and 3 clean, x 3 trials = 21
+  billed Opus review calls) and one trial's argv, and runs nothing. Then
+  `python3 -m nightloop bench [--trials N] [--timeout-s S] [--fixtures DIR]
+  [--template FILE] [--config TOML] [--results JSON]` runs it.
+  `python3 -m nightloop bench --check-fresh` exits 0 (FRESH), 8 (STALE) or 9
+  (NEVER_RUN). Docs: `docs/reviewer-benchmark.md` covers cost, the outcome
+  table, the interval caveat, why a seeded bug must not fail its own tests,
+  the fixture format, the anonymised trial repo, and the open questions.
+- `nightloop/bench/` (new; stdlib only; added to `pyproject.toml`).
+  - Pure modules:
+    - `fixture.py`: `Kind`, `Fixture` (validated on construction),
+      `parse_expect`, `require_both_kinds`, `FixtureError(slug, field,
+      reason)` and `MatrixError`.
+    - `classify.py`: `Outcome` and `classify`.
+    - `stats.py`: `wilson`.
+    - `fresh.py`: `TemplateFreshness`, `template_sha256`, `check_fresh` and
+      `recorded_sha256`.
+    - `report.py`: `TrialResult`, `BenchReport`, `summarise`,
+      `render_report`, `to_json` and `exit_code`.
+    - `ports.py`: the `TrialWorkspace` protocol.
+    - `run.py`: `run_bench` and `review_request`. Each trial goes through
+      m3's `run_phase` with the request `phase_requests` builds.
+  - Edges:
+    - `load.py`: `load_fixtures`. It only reads and never follows a
+      symlink.
+    - `workspace.py`: `TempGitWorkspace`. Its git calls ignore global and
+      system config, use a fixed identity, and set no hooks.
+- `nightloop/cli/`: `bench_args.py` (argparse), `bench_cmd.py` (the edge,
+  imported by `main` only for `bench`) and `bench_text.py` (pure output
+  text).
+- `bench/fixtures/` (new, 7 fixtures).
+  - Seeded, ported by copy from agentlab's `eval/fixtures/` (which is left
+    untouched): `self-reference-bare-mention` and
+    `subdirectory-bare-mention-overmatch`.
+  - Seeded, new: `settings-malformed-swallowed` (a broad `except` turns
+    malformed JSON into silent defaults) and `path-containment-prefix`
+    (`startswith` containment lets `../data-old/` escape).
+  - Clean: `path-containment-correct` (the prefix fixture's correct twin,
+    with the same note), `slugify-ascii` and `run-window-hours`.
+- Tests: `cd projects/nightloop && python3 -I -m unittest discover -v` runs
+  803 tests in about 51s: the 699 from before, all still passing, plus 104
+  new. 5 are skipped (the opt-in live tests, including the new
+  `test_bench_live`). The 104 new tests also pass on python3.11. No new
+  test needs a network or a model. (The "636" in criterion 11 is the m10
+  count; m10's fix round and later work brought it to 699.)
+  - Criterion 1: `test_bench_classify`, every table row. It includes a
+    pattern that matches only in the `Ran:` line, and `None`, MISSING and
+    MALFORMED, which are UNGRADED for both kinds.
+  - Criterion 2: `test_bench_stats`.
+    - the known values (0/0 raises, 0/10, 10/10, 5/10), plus the note's 5/6
+      → 44–97% and 0/6 → 0–39%
+    - bounds in [0,1] that contain k/n for every k and n ≤ 30
+    - strictly shrinking width for five fixed proportions
+    - bad arguments raise
+  - Criterion 3: `test_bench_report`.
+    - exact first two lines
+    - `n/a` for an empty axis
+    - the UNGRADED column, with a per-trial reason line
+    - the same bytes for reordered input, for both the text and the JSON
+    - `UNGRADED_EXIT == ExitCode.UNGRADED`
+  - Criterion 4: `test_bench_load`. Each failure mode gives `FixtureError`
+    with the slug and the field: bad TOML, an unknown key, a missing or bad
+    kind, a clean fixture with patterns, a seeded one without (also `[]`),
+    an invalid or blank regex, a missing or blank note, a missing or empty
+    increment, an unknown entry, non-UTF-8, a symlink in the increment, a
+    symlinked entry or fixture dir, a reserved path, and `..` or an absolute
+    path.
+  - Criterion 5: `test_bench_run.FullMatrixTest`. 3 seeded x 2 trials plus
+    2 clean x 2 trials run through `FakeRunner`, the real `run_phase`, the
+    `evaluate` gate and a real `TempGitWorkspace`. The outcomes are:
+    - CAUGHT x2, MISSED x1, MISDIAGNOSED x1
+    - UNGRADED x2: a malformed verdict, and an exit 1
+    - FALSE_POSITIVE x1, CLEAN_PASSED x3
+
+    Catch is 2/4, FP is 1/4, the exit code is 7, and every trial repo is
+    removed.
+  - Criterion 6: `test_bench_run.TrialRepoTest`, checked from inside the
+    fake reviewer call.
+    - The prompt equals `phase_prompt`, and the request and argv equal
+      production's.
+    - `cwd` is the trial repo, under the temp dir and outside the agentlab
+      checkout.
+    - A digest of `projects/nightloop` is unchanged.
+    - The template at `.claude/agents/reviewer.md` is byte-equal to the one
+      under test.
+    - Tracked files are exactly `.gitignore`, the template and the note, in
+      one commit.
+    - The increment is untracked, and there is no remote.
+    - The slug is not in the path, prompt, commit or tracked names.
+    - The repo is gone afterwards.
+  - Criterion 7: `test_bench_cli.CheckFreshTest`, through `main`.
+    - NEVER_RUN/9, FRESH/0 and STALE/8.
+    - A real fake-runner run followed by a template edit goes from FRESH to
+      STALE.
+    - A malformed results file exits 2.
+  - Criterion 8: `test_bench_fixtures`.
+    - It checks the counts (2 ported, ≥2 new seeded, ≥3 clean).
+    - It materializes every shipped fixture and runs `python -m unittest
+      discover -v` there. All 7 exit 0 and each runs more than 0 tests.
+    - A probe per seeded fixture shows the bug happens.
+    - The correct twin does not have the bug.
+    - No increment or note contains its slug.
+  - Criterion 9: `test_bench_cli.DryRunTest`. `--dry-run`, on temp fixtures
+    and on the shipped defaults, leaves tree digests unchanged and builds
+    no runner or workspace (both factories raise if called).
+  - Criterion 10: the 7 mutations listed below.
+  - Criterion 11: the 699 existing tests pass.
+  - Criterion 12: `tests/test_bench_live.py`, opt-in with
+    `NIGHTLOOP_LIVE=1` and `claude` on PATH. It makes 2 billed Opus calls
+    on `path-containment-prefix` and `slugify-ascii` and asserts that both
+    are graded. **Not run in the build.**
+  - Also covered:
+    - `bench` CLI: a full graded run writes the results file; an UNGRADED
+      run exits 7 and leaves the old file unchanged; `plugin/bin` is first
+      on PATH during each review call; git that cannot start exits 1; usage
+      errors exit 2 (template, config, fixture, one kind only, `--trials
+      0`, `--dry-run` with `--check-fresh`, no `run_silent`).
+    - A subprocess probe shows that parsing `run`, `report` and `bench`
+      loads no `nightloop.bench`.
+    - `test_bench_purity.py` holds the pure modules to an allowlist
+      (`__future__`, `dataclasses`, `enum`, `hashlib`, `json`, `math`,
+      `re`, `tomllib`, `types`, `typing`, `pathlib`, `contextlib`). It
+      checks that they make no filesystem-method calls and that the module
+      list is complete. `test_cli_purity.py` lists the three new CLI
+      modules.
+  - Mutation checks (criterion 10): each of the note's 7 breaks fails at
+    least one test. They were run with `-B`, and the code was restored
+    after each.
+    - UNGRADED counted as MISSED
+    - UNGRADED counted as CLEAN_PASSED
+    - UNGRADED in the FP denominator
+    - any seeded FAIL counted as CAUGHT
+    - only the catch rate printed
+    - the first verdict line compared with `==` instead of `parse_verdict`
+    - trial repos made in the cwd (the live tree)
+
+Known limits (m11):
+- No real number exists yet. The first catch rate and false-positive rate
+  need a human to run `nightloop bench` (21 Opus calls by default) and
+  read the output.
+- Unverified: whether `claude -p --agent reviewer`, run in the trial repo,
+  resolves `.claude/agents/reviewer.md` rather than an installed
+  `nightloop:reviewer` plugin agent, and whether it finds `run_silent` on
+  the inherited PATH. The live test checks only that trials are graded,
+  not which template answered. If the plugin is installed, the benchmark
+  may measure the installed copy.
+- `--trials 3` and the 3600 s timeout are guesses for the owner to set. No
+  minimum catch rate is enforced, and `--check-fresh` is not in CI; both
+  are owner decisions.
+- Verdict texts are deleted with each trial repo, so a MISDIAGNOSED trial's
+  reasoning cannot be read afterwards without re-running it.
+- Patterns are loose alternations searched over the whole verdict text. A
+  verdict that names the right words for the wrong reason counts as
+  CAUGHT.
+- Trials run one after another. An `OSError` mid-run (git or claude cannot
+  start) loses the trials already run, by design: a partial matrix is not
+  reported.
+
+The m10 summary below is kept for reference.
 
 Milestone 10 (GitHub Actions scheduler) is done as PR #107 (merged): built and reviewed 2026-11-23.
 Research note: `research/2026-11-23-nightloop-actions-scheduler.md`. See the

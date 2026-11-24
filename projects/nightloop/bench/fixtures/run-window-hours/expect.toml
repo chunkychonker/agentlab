@@ -1,0 +1,3 @@
+# New in milestone 11. A small, correct increment: every criterion in the note
+# is implemented and tested, including both window boundaries.
+kind = "clean"

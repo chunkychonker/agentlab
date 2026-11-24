@@ -1,4 +1,4 @@
-"""The ``nightloop`` command: ``run``, ``run --dry-run``, ``report``, ``schedule`` and ``schedule-gha``.
+"""The ``nightloop`` command: ``run``, ``run --dry-run``, ``report``, ``schedule``, ``schedule-gha`` and ``bench``.
 
 The imperative shell. This is the only nightloop module that reads argv,
 the clock or the working directory, and the only one that builds the
@@ -9,7 +9,8 @@ uses arrives as a keyword argument with a production default, so tests drive
 ``main`` with fakes and no model, git remote or ``gh`` is ever called.
 ``schedule`` is delegated to ``schedule_cmd``, with the host facts and the
 ``launchctl`` factory passed in the same way. ``schedule-gha`` is delegated
-to ``gha_cmd``.
+to ``gha_cmd``, and ``bench`` to ``bench_cmd`` (with this module's runner
+factory, clock and gate).
 """
 
 from __future__ import annotations
@@ -37,6 +38,8 @@ from ..phase.execute import Gate
 from ..phase.runner import Runner
 from ..phase.subprocess_runner import SubprocessRunner
 from ..ship.gh_shipper import GhShipper
+from .bench_args import COMMAND as BENCH_COMMAND
+from .bench_args import add_bench_subparser
 from .claim_text import NIGHT_END_LABEL, render_claim_plan, render_step, step_label
 from .exit_codes import ExitCode
 from .gha_args import COMMAND as GHA_COMMAND
@@ -49,6 +52,7 @@ from .summary import render_report, summarise
 from .window import Refuse, window_disposition
 
 if TYPE_CHECKING:
+    from .bench_cmd import WorkspaceFactory as BenchWorkspaceFactory
     from .schedule_cmd import Host, LaunchctlFactory
 
 PROG = "nightloop"
@@ -96,6 +100,7 @@ def main(
     gate: Gate = evaluate,
     host_factory: Callable[[], Host] | None = None,
     launchctl_factory: LaunchctlFactory | None = None,
+    bench_workspace_factory: BenchWorkspaceFactory | None = None,
 ) -> int:
     """Run the ``nightloop`` command line ``argv`` (default ``sys.argv[1:]``) and return an ``ExitCode``.
 
@@ -111,7 +116,10 @@ def main(
     ``SubprocessLaunchctl``. The scheduler is imported only then, so ``run``
     and ``report`` never load it or ``plistlib``. ``schedule-gha`` returns
     what ``gha_cmd.run_schedule_gha`` returns (see there); the generator is
-    imported only for it.
+    imported only for it. ``bench`` returns what ``bench_cmd.run_bench_cmd``
+    returns (see there), with ``runner_factory``, ``clock`` and ``gate``;
+    ``bench_workspace_factory`` defaults to ``TempGitWorkspace``. The
+    benchmark is imported only for ``bench``.
 
     Claims (milestone 7b), unless ``--no-claims``: the night runs a claim
     step before cycle 1 and after each cycle (``claim_step``; the first one
@@ -140,6 +148,8 @@ def main(
         from .gha_cmd import run_schedule_gha
 
         return run_schedule_gha(args)
+    if args.command == BENCH_COMMAND:
+        return _bench(args, clock, runner_factory, gate, bench_workspace_factory)
     repo = args.repo.resolve()
     metrics = args.metrics if args.metrics is not None else repo / METRICS_RELATIVE
     if args.command == "report":
@@ -246,6 +256,25 @@ def _schedule(
     return run_schedule(args, host=host, launchctl_factory=launchctl_factory or SubprocessLaunchctl)
 
 
+def _bench(
+    args: argparse.Namespace,
+    clock: Callable[[], float],
+    runner_factory: RunnerFactory,
+    gate: Gate,
+    workspace_factory: BenchWorkspaceFactory | None,
+) -> int:
+    from .bench_cmd import TempGitWorkspace, run_bench_cmd
+
+    return run_bench_cmd(
+        args,
+        clock=clock,
+        runner_factory=runner_factory,
+        workspace_factory=workspace_factory or TempGitWorkspace,
+        gate=gate,
+        verdict_path=VERDICT_PATH,
+    )
+
+
 def _between_cycles(ports: ClaimPorts) -> Callable[[int], None]:
     """``run_night``'s hook: the pre-night claim step for 0, the between-cycles one after cycle N."""
     def step(after_cycle: int) -> None:
@@ -311,7 +340,7 @@ def _parser() -> argparse.ArgumentParser:
                         help=f"metrics file (default: <repo>/{METRICS_RELATIVE})")
 
     parser = argparse.ArgumentParser(prog=PROG, description="A gated overnight loop for a git repo.")
-    commands = parser.add_subparsers(dest="command", required=True, metavar="{run,report,schedule,schedule-gha}")
+    commands = parser.add_subparsers(dest="command", required=True, metavar="{run,report,schedule,schedule-gha,bench}")
 
     run = commands.add_parser("run", parents=[common], help="run one night, if the clock is in the window")
     run.add_argument("--config", type=Path, default=None,
@@ -330,4 +359,5 @@ def _parser() -> argparse.ArgumentParser:
                         help=f"how many of the latest nights to cover (default: {DEFAULT_NIGHTS})")
     add_subparser(commands, config_name=CONFIG_NAME)
     add_gha_subparser(commands, config_name=CONFIG_NAME, default_timeout_s=DEFAULT_TIMEOUT_S)
+    add_bench_subparser(commands, default_timeout_s=DEFAULT_TIMEOUT_S)
     return parser

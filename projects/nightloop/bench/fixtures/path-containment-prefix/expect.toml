@@ -1,0 +1,9 @@
+# New in milestone 11. The bug: containment is checked with
+# str(candidate).startswith(str(root)), so a sibling directory whose name
+# starts with the root's name (../data-old/...) passes. The proposal names that
+# case; the tests cover only `..`, absolute paths and a normal file.
+kind = "seeded"
+patterns = [
+  '(prefix|startswith|sibling|data-old|commonpath|is_relative_to|string compar)',
+  '(escape|outside|travers|contain|leave)',
+]
