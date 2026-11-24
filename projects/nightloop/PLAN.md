@@ -77,7 +77,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
    idempotently, honouring the run window.
 10. [done 107] Scheduler, GitHub Actions: a workflow template that runs
     one night on a cron.
-11. [in-progress] Reviewer benchmark: seeded-bug fixtures and clean-diff
+11. [done 108] Reviewer benchmark: seeded-bug fixtures and clean-diff
     fixtures, a runner, and a report that states the false-positive rate
     next to the catch rate. The runner is run whenever the reviewer
     template changes.
@@ -539,8 +539,8 @@ contradict an entry here without adding one.
 
 ## Current state
 
-Milestone 11 (reviewer benchmark) is built as of 2026-11-24, not yet
-reviewed. Research note: `research/2026-11-24-nightloop-reviewer-benchmark.md`.
+Milestone 11 (reviewer benchmark) is built and reviewed (PASS) as of
+2026-11-24, and shipped in PR 108. Research note: `research/2026-11-24-nightloop-reviewer-benchmark.md`.
 See the second 2026-11-24 decisions entry for where the build departs from
 the note. Milestone 7c was skipped on purpose (first 2026-11-24 entry).
 Milestones 1-10 and 7b are done and unchanged. The only change outside the
