@@ -81,7 +81,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
     fixtures, a runner, and a report that states the false-positive rate
     next to the catch rate. The runner is run whenever the reviewer
     template changes.
-12. [not-started] Docs: README, quickstart, and an architecture page that
+12. [in-progress] Docs: README, quickstart, and an architecture page that
     explains each gate and the incident that motivated it.
 13. [blocked: needs a human to choose and authorise the repo] Adopt on a
     second repo and record the first week's metrics.
@@ -536,8 +536,115 @@ contradict an entry here without adding one.
   `plugin/agents/reviewer.md`, `examples/plugin.nightloop.toml`,
   `bench/last-run.json`). The fixtures are not package data, so an
   installed copy must pass the paths.
+- 2026-11-25 (build of m12): where the build departs from
+  `research/2026-11-25-nightloop-docs.md`. No nightloop code changes.
+  (a) The parsers live in `tests/docs_support.py`, not inside
+  `test_docs.py`. This matches the `tests/*_support.py` convention, and lets
+  `tests/test_docs_support.py` show on synthetic Markdown that each parser
+  catches what it claims to.
+  (b) `subcommands_in(md) -> set[str]` became `invocations(md) ->
+  list[Invocation]` (subcommand, optional action word, `--flags`). Only
+  commands inside code (fences and inline spans) count; prose does not. The
+  truth is `main([<words>, "--help"])` exiting 0 and every flag appearing in
+  that help. The private `_parser()` is not introspected, so D2 checks flags
+  and `schedule` actions as well as subcommands. A test also checks that the
+  README names every subcommand in `nightloop --help`.
+  (c) D1 checks anchors too. An anchor on a `.md` target must match one of
+  the target's GitHub heading slugs. External URLs are not checked (no
+  network).
+  (d) D5 is stricter than the note. A gate section has exactly one Incident
+  line. If that line is exactly "no recorded incident", the section has no
+  Source line. Otherwise it has exactly one Source line with at least one
+  repo link, and every one of its links resolves.
+  (e) D6 finds its blocks with `<!-- docs-check: dry-run-command -->` and
+  `<!-- docs-check: dry-run-output -->` markers. Each must appear exactly
+  once. The output is not byte-for-byte against the temp path: the test
+  puts the doc's stand-in `/path/to/your/checkout` back in for the
+  resolved temp path. The comparison runs in-process with the clock fixed
+  at 02:30 local (the doc says "At 02:30"), and every factory raises if it
+  is called. A subprocess run of the same argv from `projects/nightloop/`
+  must exit 0 and match on every line except the first, which is the
+  real clock's window line.
+  (f) The quickstart's "install the plugin" step became "make the agents
+  resolve" (copy `plugin/agents/*` into `.claude/agents/`). The phase runner
+  does not pass `--plugin-dir`, and the plugin has no marketplace entry.
+  The step says the publish guard does not come with that copy, and how to
+  register it. Both are human steps, labelled as such.
+  (g) Open question 1. `git log` has no dated incident for the verdict gate
+  or for clearing the handoff. Commits c791a2d and c5da92a added them as
+  anticipated risks. Both sections say "no recorded incident" and give the
+  reasoning, with sources.
 
 ## Current state
+
+Milestone 12 (docs) was built on 2026-11-25 and is not reviewed yet.
+Research note: `research/2026-11-25-nightloop-docs.md`. The 2026-11-25
+(build of m12) decisions entry lists where the build departs from the
+note. No file under `nightloop/` or `plugin/` changed. Milestone 7c was
+skipped again (no owner decision recorded). The m11 summary below is kept
+for reference.
+
+- New docs, all under `projects/nightloop/`:
+  - `README.md`: what nightloop is and who it is for, then Status ("has not
+    been run live", linking to each existing known-limits section rather
+    than copying it), Install (3.11 and 3.13 tested, the Homebrew 3.12
+    plistlib caveat), the first command, a command table, the exit-code
+    table, the docs list and how to run the tests.
+  - `docs/quickstart.md`: a tutorial in 8 steps. Steps 1-5 are free: install,
+    repo layout, config, the dry run with its real output, and reading the
+    plan. Steps 6 (agents and publish guard) and 7 (a billed night) are
+    marked human steps. Step 8 is `report`.
+  - `docs/architecture.md`: a night step by step, the package layout, and
+    11 `## Gate:` sections. Each section gives what the gate checks, what
+    happens on failure, Module, Tests, Incident and Source. Nine cite a
+    dated incident in `PIPELINE.md`, `CASE_STUDY.md`, `BACKLOG.md`,
+    `knowledge/` or this file. Two say "no recorded incident": the verdict
+    parse and clearing the handoff. A "Not in nightloop yet" list closes the
+    page: verify gate, fix round, spec gate, CI wait and auto-merge, the 7c
+    ledger, `--plugin-dir`, and no live run.
+  - `docs/github-actions.md` and `docs/reviewer-benchmark.md` are unchanged;
+    they now pass the drift guard too.
+- New tests:
+  - `tests/docs_support.py` holds the pure parsers. It does no I/O and
+    imports nothing from nightloop.
+  - `tests/test_docs.py` has 12 tests for D1-D8.
+  - `tests/test_docs_support.py` has 16 tests of the parsers on synthetic
+    Markdown.
+- Verified on 2026-11-25:
+  - `python3 -I -m unittest discover` runs 831 tests (803 before, plus 28
+    new) and they pass on 3.13.1 and 3.11, with 5 skipped (the opt-in live
+    tests).
+  - The quickstart's command as written,
+    `python3 -m nightloop run --dry-run --repo <tmp> --config
+    examples/plugin.nightloop.toml` from `projects/nightloop/`, exits 0.
+- Mutation checks (acceptance 2). Each was applied, the doc tests were run,
+  and the file was restored. Each failed at least one test, and the message
+  named the doc and the stale reference:
+  - renaming `plugin/hooks/publish_guard.py` fails D4;
+  - renaming `gates/verdict.py` to `verdicts.py` with the imports updated
+    and the doc left alone fails D4;
+  - `NO_METRICS = 15` fails D3;
+  - `nightloop frobnicate --fast` in the quickstart fails D2, and so does
+    `report --weeks 2`;
+  - `docs/github-action.md` in the README fails D1, and so does
+    `PLAN.md#current-status`, which also fails D7;
+  - moving `knowledge/pipeline-claim-lifecycle.md` away fails D5 (twice)
+    and D1;
+  - editing one line of the dry-run output block fails D6.
+- Known limits:
+  - The guard checks names, paths, anchors, flags, exit codes and the one
+    marked output block. It does not check whether the prose is true. For
+    example, "the shipper publishes after the review passes" is checked
+    only by the reviewer reading it.
+  - Prose mentions of a command are not checked; only commands in code are.
+  - `plugin/README.md` is linked from the guarded docs but is not itself
+    guarded (out of the note's scope).
+  - External URLs are not fetched.
+  - The heading-slug rule covers the ASCII headings these docs use. A
+    heading with emoji or non-ASCII punctuation may slug differently on
+    GitHub.
+  - Acceptance 4, the reader checklist in the PR body, is the
+    maintainer's step.
 
 Milestone 11 (reviewer benchmark) is built and reviewed (PASS) as of
 2026-11-24, and shipped in PR 108. Research note: `research/2026-11-24-nightloop-reviewer-benchmark.md`.
