@@ -81,7 +81,7 @@ log). Status values: `not-started` / `in-progress` / `blocked: <reason>` /
     fixtures, a runner, and a report that states the false-positive rate
     next to the catch rate. The runner is run whenever the reviewer
     template changes.
-12. [in-progress] Docs: README, quickstart, and an architecture page that
+12. [done #109] Docs: README, quickstart, and an architecture page that
     explains each gate and the incident that motivated it.
 13. [blocked: needs a human to choose and authorise the repo] Adopt on a
     second repo and record the first week's metrics.
@@ -577,7 +577,7 @@ contradict an entry here without adding one.
 
 ## Current state
 
-Milestone 12 (docs) was built on 2026-11-25 and is not reviewed yet.
+Milestone 12 (docs) was built on 2026-11-25, passed review, and is open as PR #109.
 Research note: `research/2026-11-25-nightloop-docs.md`. The 2026-11-25
 (build of m12) decisions entry lists where the build departs from the
 note. No file under `nightloop/` or `plugin/` changed. Milestone 7c was
