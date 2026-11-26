@@ -298,6 +298,41 @@ Both are small; a builder can reasonably take them in one cycle.
   hold and surfaces them before the loop claims anything, with an offline test
   in the style of `.pipeline/test_backlog.sh` (injected side effects, bash 3.2,
   no network, no key).
+- [ ] Cross-model review. Build and review both run opus, so the reviewer is an
+  isolated session but the same model as the author. The 2026-08-16 survey
+  (`research/2026-08-16-agent-architecture-discourse-vs-agentlab.md`, claim 4)
+  cites a 31.7% silent self-endorsement rate and names "a different model or an
+  isolated session" as the fix; only the second half is in place. Increment:
+  make the review phase's model a separate setting from the build phase's, and
+  measure the choice instead of assuming it. Run `nightloop bench` (#108) with
+  the reviewer on opus and on the alternative, and report catch rate and
+  false-positive rate for each, with their intervals, before changing the
+  default. The bench is billed (21 calls per arm), so the cycle ships the
+  setting and the comparison command; the live run is a human step. Fix the
+  bench's two loose-pattern fixtures first (#108's known limits), or the
+  comparison measures the fixtures.
+- [ ] Held-out acceptance tests. The builder writes the increment and its own
+  tests, and the reviewer re-runs that same suite (survey claim 6: agents
+  optimise for the tests they can see; SpecBench's visible/held-out gap grows
+  with code size). Increment: the researcher writes a small held-out test file
+  for each build proposal to a path the build phase's permission rules deny it
+  (see `.pipeline/phase_tools.sh`; anchor the rule to the repo root, as in
+  #94), and the verify gate runs it after the build and before review. A
+  failing held-out test is a verify FAIL, so the night's one fix round applies.
+  Offline tests: a builder that tries to read the held-out path is denied, and
+  a build that passes its own tests but fails the held-out one does not reach
+  review.
+- [ ] Trim `CLAUDE.md` to the conventions agents would not otherwise follow.
+  Every phase loads it, and most of it is general engineering doctrine that
+  `~/.claude/CLAUDE.md` already carries (survey claim 7: general context files
+  added >20% cost and did not raise task success; explicit non-standard
+  conventions were followed and did pay). Increment: keep the lab-specific
+  rules (the `MODEL` constant, no drive-by refactors, expand/contract, never
+  `""` in place of an error, the reporting format, and anything a past review
+  cited), cut or point to the rest, and record what was cut and why in the
+  research note. Check it with `nightloop report` per-phase tokens over the
+  week before and after. The global file is the owner's, not part of this item.
+
 ## Hooks & plugins
 - [done #63] A `PreToolUse` hook that guards Bash. Skills and MCP cover what the model
   *can* do; nothing in the lab shows Claude Code's deterministic veto over what
