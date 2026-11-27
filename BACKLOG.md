@@ -542,3 +542,4 @@ human's call.
   `examples/memory-tool-handler/` -- a pure command dispatcher over an injected
   store, with `/memories` path-traversal rejection, plus a thin tool loop. See
   `research/2026-10-27-memory-tool-handler.md`.
+- [stranded cycle/2026-11-27-unshipped-022347-1] Cross-model review (see `research/2026-11-27-cross-model-review.md`). Build and review both run opus, so the reviewer is an
