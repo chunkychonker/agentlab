@@ -298,7 +298,7 @@ Both are small; a builder can reasonably take them in one cycle.
   hold and surfaces them before the loop claims anything, with an offline test
   in the style of `.pipeline/test_backlog.sh` (injected side effects, bash 3.2,
   no network, no key).
-- [ ] Cross-model review. Build and review both run opus, so the reviewer is an
+- [building] Cross-model review (see `research/2026-11-27-cross-model-review.md`). Build and review both run opus, so the reviewer is an
   isolated session but the same model as the author. The 2026-08-16 survey
   (`research/2026-08-16-agent-architecture-discourse-vs-agentlab.md`, claim 4)
   cites a 31.7% silent self-endorsement rate and names "a different model or an

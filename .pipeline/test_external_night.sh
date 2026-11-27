@@ -51,6 +51,8 @@ night () {
     cd "$LAB" || exit 99
     export EXT_WORK_ROOT="$T/work"
     REPO="$LAB_REPO" LOG="$T/$id/log" TS="t$id"
+    # Set by run.sh from .pipeline/models.conf before external_night.sh runs.
+    BUILD_MODEL=opus REVIEW_MODEL=opus
     . "$LAB_REPO/.pipeline/usage_limit.sh"
     . "$LAB_REPO/.pipeline/verdict.sh"
     . "$LAB_REPO/.pipeline/postcondition.sh"

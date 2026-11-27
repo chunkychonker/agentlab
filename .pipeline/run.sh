@@ -84,7 +84,8 @@ echo "=== agentlab pipeline $TS ===" | tee -a "$LOG"
 # network_retry.sh (is another network probe owed, and after how long),
 # usage_limit.sh (did a phase die on a Claude usage limit),
 # auth.sh (which login to use, and did the probe fail on it),
-# alert.sh (does the finished night need a human's attention).
+# alert.sh (does the finished night need a human's attention),
+# models.sh (which model the build and review phases run on).
 # All of them live outside this script so they can be unit-tested offline
 # (`bash .pipeline/test_backlog.sh`, `bash .pipeline/test_gates.sh`) instead of
 # only being exercised on the rare night each gate fires. Sourcing defines
@@ -92,7 +93,7 @@ echo "=== agentlab pipeline $TS ===" | tee -a "$LOG"
 BACKLOG_FILE="BACKLOG.md"
 # issues.sh (spec #6) is commented out of this list, with its call sites below:
 # findings go to the private file instead (spec #7). Kept, not deleted.
-for lib in backlog verdict health pipeline_health preflight postcondition schedule network_retry usage_limit auth alert metrics phase_tools review_record findings verify ci; do
+for lib in backlog verdict health pipeline_health preflight postcondition schedule network_retry usage_limit auth alert metrics phase_tools review_record findings verify ci models; do
   if [ ! -r "$REPO/.pipeline/$lib.sh" ]; then
     echo "MISSING $REPO/.pipeline/$lib.sh — required. Aborting." | tee -a "$LOG"
     exit 1
@@ -443,10 +444,29 @@ if ! [[ "$CYCLES" =~ ^[1-9][0-9]*$ ]]; then
 fi
 echo "cycles tonight: $CYCLES" | tee -a "$LOG"
 
-# Every phase names its model. Two phases carry real judgment and stay on opus:
-# the builder (writes the increment) and the reviewer (the gate on code that
-# ships under Steve's name — downgrading the gate would be the one change that
-# costs correctness rather than tokens). The rest are mechanical or
+# The build and review phases' models (models.sh). Read once, here, before any
+# phase runs: .pipeline/models.conf, overridden for this run by
+# AGENTLAB_BUILD_MODEL / AGENTLAB_REVIEW_MODEL when set (an env var that is set
+# but empty is an error, not "unset"). A bad value aborts the night with the
+# file and line, never a silent fallback to opus. No file and no env vars gives
+# opus for both, exactly the models these phases ran on before the setting.
+MODELS_CONF=".pipeline/models.conf"
+if ! BUILD_MODEL="$(resolve_phase_model build "$MODELS_CONF" ${AGENTLAB_BUILD_MODEL+"$AGENTLAB_BUILD_MODEL"} 2>&1)"; then
+  echo "$BUILD_MODEL — fix $MODELS_CONF, or AGENTLAB_BUILD_MODEL / AGENTLAB_REVIEW_MODEL if set. Aborting." | tee -a "$LOG"
+  exit 1
+fi
+if ! REVIEW_MODEL="$(resolve_phase_model review "$MODELS_CONF" ${AGENTLAB_REVIEW_MODEL+"$AGENTLAB_REVIEW_MODEL"} 2>&1)"; then
+  echo "$REVIEW_MODEL — fix $MODELS_CONF, or AGENTLAB_BUILD_MODEL / AGENTLAB_REVIEW_MODEL if set. Aborting." | tee -a "$LOG"
+  exit 1
+fi
+echo "models: build=$BUILD_MODEL review=$REVIEW_MODEL (fix rounds use the build model)" | tee -a "$LOG"
+
+# Every phase names its model. Two phases carry real judgment and default to
+# opus: the builder (writes the increment) and the reviewer (the gate on code
+# that ships under Steve's name — downgrading the gate would be the one change
+# that costs correctness rather than tokens). Their models are $BUILD_MODEL and
+# $REVIEW_MODEL, set in .pipeline/models.conf (see models.sh) so the reviewer
+# can differ from the author without editing this file. The rest are mechanical or
 # search-shaped — the maintainer reads a verdict and runs git/gh, the researcher
 # does web search and writes a note, replenish appends checklist lines, health
 # runs test suites and reports — and run on sonnet.
@@ -486,11 +506,12 @@ echo "cycles tonight: $CYCLES" | tee -a "$LOG"
 # fallback. Every tool call the rules refused is listed in the log.
 run_phase () {
   local model="$1" key="$2" name="$3" postcondition="$4" prompt="$5"
-  case "$model" in
-    opus|sonnet) ;;
-    *) echo "run_phase: bad model '$model' for phase '$name' — aborting phase." | tee -a "$LOG"
-       return 1 ;;
-  esac
+  # Same rule as models.conf (is_valid_model): opus, sonnet, fable, or a full
+  # claude-* name. Anything else, the empty string included, is a typo.
+  if ! is_valid_model "$model"; then
+    echo "run_phase: bad model '$model' for phase '$name' — aborting phase." | tee -a "$LOG"
+    return 1
+  fi
   # The prompt goes first on the command line: --allowedTools and
   # --disallowedTools take every following word up to the next flag, and a
   # prompt after them is swallowed as one more rule.
@@ -828,7 +849,7 @@ run_cycle () {
   # Rewritten so the builder's last check for a name collision sees PRs opened
   # while research ran.
   write_research_context "$RESEARCH_CONTEXT_FILE" || return 1
-  run_phase opus build "cycle $k/$CYCLES: build" increment_built \
+  run_phase "$BUILD_MODEL" build "cycle $k/$CYCLES: build" increment_built \
     "Build this cycle's increment from the newest research note, following your instructions exactly. Verify it runs. The agentlab repo is $REPO; open PRs and branches are in $REPO/$RESEARCH_CONTEXT_FILE." || return $?
 
   # Verify, then review, and at most MAX_FIX_ROUNDS times: hand a red test
@@ -868,7 +889,7 @@ run_cycle () {
       # review phase that died wrote nothing, review_verdict returns MISSING, and the
       # cycle does not ship. Duplicating that as a freshness check would give the
       # same fact two enforcement points to drift apart at.
-      run_phase opus review "cycle $k/$CYCLES: review" phase_no_postcondition \
+      run_phase "$REVIEW_MODEL" review "cycle $k/$CYCLES: review" phase_no_postcondition \
         "Independently review this cycle's working-tree diff, run its tests/lint, and write a PASS/FAIL verdict to logs/last-review.md, following your instructions exactly. The agentlab repo is $REPO. The spec for this increment is $REPO/$spec: check the diff against its acceptance criteria as your instructions describe, and write the line 'Spec: $spec' in your verdict. Do not modify the increment." || return $?
 
       # The review gate, read mechanically — the same principle as the auto-merge
@@ -929,7 +950,7 @@ run_cycle () {
     # phase's own floor is the postcondition: a fix that changed no increment
     # file fixed nothing, and reviewing the same tree again would only buy the
     # same verdict.
-    run_phase opus build "cycle $k/$CYCLES: fix" increment_built \
+    run_phase "$BUILD_MODEL" build "cycle $k/$CYCLES: fix" increment_built \
       "This is a fix round, not a new build: follow the 'Fix round' section of your instructions exactly. The agentlab repo is $REPO. The increment you built this cycle did not pass its checks; what failed (the independent review, or the output of a failed test run) is in $REPO/$FIX_FEEDBACK_FILE. The spec is $REPO/$spec. Fix what the review names, verify it runs, and change nothing else." || return $?
   done
 

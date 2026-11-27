@@ -106,6 +106,8 @@ assert_eq "INV1" "0|" "$src_rc|$src_noise" \
 . "$REPO/.pipeline/metrics.sh"
 . "$REPO/.pipeline/phase_tools.sh"
 . "$REPO/.pipeline/verify.sh"
+# run_phase's model guard (R13 onward) calls is_valid_model.
+. "$REPO/.pipeline/models.sh"
 
 # --- verdict.sh ------------------------------------------------------------
 #
@@ -1339,6 +1341,8 @@ sw_run () {
     REPO="$box" LOG="$box/log" CYCLES=1 RESEARCH_CONTEXT_FILE="logs/research-context.md"
     SW_NOTES="$notes" SW_VERDICT="$verdict" SW_VERDICT2="$verdict2" SW_FIX_RC="$fix_rc" SW_REVIEWS=0
     SW_VERIFY="$verify_words"
+    # Resolved by run.sh from .pipeline/models.conf before any cycle runs.
+    BUILD_MODEL=opus REVIEW_MODEL=opus
     write_research_context () { :; }
     # Called in a command substitution, so the call count lives in a file.
     verify_increment () {
@@ -1631,7 +1635,8 @@ pc_n=0
 while IFS= read -r pc_line; do
   [ -n "$pc_line" ] || continue
   pc_n=$(( pc_n + 1 ))
-  pc_name="$(echo "$pc_line" | sed 's/.*run_phase [a-z][a-z]*  *[a-z][a-z]*  *"[^"]*"  *//' | awk '{print $1}')"
+  # The model is a literal (sonnet) or a quoted variable ("$REVIEW_MODEL").
+  pc_name="$(echo "$pc_line" | sed 's/.*run_phase [a-zA-Z_"$][a-zA-Z_"$]*  *[a-z][a-z]*  *"[^"]*"  *//' | awk '{print $1}')"
   declare -f "$pc_name" >/dev/null 2>&1 \
     || pc_bad="$pc_bad ${pc_line%%:*}:${pc_name:-<none>}"
 done <<EOF
@@ -1654,7 +1659,7 @@ key_n=0
 while IFS= read -r key_line; do
   [ -n "$key_line" ] || continue
   key_n=$(( key_n + 1 ))
-  key_name="$(echo "$key_line" | sed 's/.*run_phase [a-z][a-z]*  *//' | awk '{print $1}')"
+  key_name="$(echo "$key_line" | sed 's/.*run_phase [a-zA-Z_"$][a-zA-Z_"$]*  *//' | awk '{print $1}')"
   phase_tool_args "$key_name" "$REPO" >/dev/null 2>&1 || key_bad="$key_bad ${key_line%%:*}:${key_name:-<none>}"
 done <<EOF
 $(grep -n '^[[:space:]]*\(if \)\{0,1\}run_phase ' "$RUN_SH" "$REPO/.pipeline/external_night.sh" | grep -v 'run_phase ()')

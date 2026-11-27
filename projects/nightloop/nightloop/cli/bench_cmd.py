@@ -10,6 +10,7 @@ Everything it decides with is pure (``nightloop.bench`` and ``bench_text``).
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import os
 import sys
 import tempfile
@@ -24,6 +25,7 @@ from ..bench.report import exit_code, render_report, summarise, to_json
 from ..bench.run import review_request, run_bench
 from ..bench.workspace import TempGitWorkspace, agent_path
 from ..config import ConfigError, load_config
+from ..model import Config
 from ..phase.argv import build_argv
 from ..phase.execute import Gate
 from ..phase.runner import Runner
@@ -58,8 +60,11 @@ def run_bench_cmd(
     report, and returns ``UNGRADED`` if any trial was ungraded (the results
     file is then left as it was) or ``OK`` after writing the results file.
 
+    ``--model NAME`` replaces the config's review-phase model for this run
+    (every trial, the dry-run argv, and the results file's ``review_model``).
+
     ``USAGE`` (one line on stderr, nothing run): the config does not load,
-    a fixture is invalid, the fixtures lack a seeded or a clean one, the
+    ``--model`` is not a valid model name, a fixture is invalid, the fixtures lack a seeded or a clean one, the
     template or the results file cannot be read or is malformed, or
     ``plugin_bin`` has no executable ``run_silent`` (not checked for
     ``--dry-run``/``--check-fresh``). ``ENVIRONMENT``: ``git`` or ``claude``
@@ -80,13 +85,18 @@ def run_bench_cmd(
         return _usage(f"config {args.config}: {exc}")
     except (FixtureError, MatrixError) as exc:
         return _usage(f"--fixtures {args.fixtures}: {exc}")
+    if args.model is not None:
+        try:
+            cfg = _with_review_model(cfg, args.model)
+        except ConfigError as exc:
+            return _usage(f"--model {args.model!r}: {exc}")
     sha = template_sha256(template)
     agent = cfg.review.agent
     if args.dry_run:
         req = review_request(cfg, repo=PLACEHOLDER_REPO, verdict_path=verdict_path, timeout_s=args.timeout_s)
         print(render_matrix(
             fixtures, trials=args.trials, template=str(args.template), template_sha256=sha,
-            agent_file=str(agent_path(agent)), argv=build_argv(req),
+            review_model=cfg.review.model, agent_file=str(agent_path(agent)), argv=build_argv(req),
             placeholder_repo=str(PLACEHOLDER_REPO), path_prefix=str(plugin_bin),
         ))
         return ExitCode.OK
@@ -105,7 +115,7 @@ def run_bench_cmd(
     except OSError as exc:
         _error(f"environment error, benchmark stopped: {exc}")
         return ExitCode.ENVIRONMENT
-    report = summarise(results, template_sha256=sha, trials=args.trials)
+    report = summarise(results, template_sha256=sha, trials=args.trials, review_model=cfg.review.model)
     print(render_report(report))
     code = exit_code(report)
     if code != ExitCode.OK:
@@ -114,6 +124,16 @@ def run_bench_cmd(
     _write_atomic(args.results, to_json(report))
     print(f"recorded {args.results}")
     return ExitCode.OK
+
+
+def _with_review_model(cfg: Config, model: str) -> Config:
+    """``cfg`` with its review phase on ``model``; everything else unchanged.
+
+    ``Phase`` and ``Config`` are frozen and validate in ``__post_init__``, so
+    ``dataclasses.replace`` re-runs the config's own model rule. Raises
+    ``ConfigError`` (field ``model``) for an empty name or one with whitespace.
+    """
+    return dataclasses.replace(cfg, review=dataclasses.replace(cfg.review, model=model))
 
 
 def _check_fresh(template: bytes, results: Path, template_path: Path) -> int:

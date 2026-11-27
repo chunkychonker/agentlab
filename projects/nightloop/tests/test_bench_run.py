@@ -85,7 +85,7 @@ class FullMatrixTest(BenchCase):
             writes_verdict(WRONG), writes_verdict(PASS),        # clean-b: FALSE_POSITIVE, CLEAN_PASSED
         ]
         self.results = self.bench(fixtures, steps, trials=2)
-        self.report = summarise(self.results, template_sha256="b" * 64, trials=2)
+        self.report = summarise(self.results, template_sha256="b" * 64, trials=2, review_model="opus")
 
     def test_each_trial_gets_the_hand_computed_outcome(self) -> None:
         got = [(r.slug, r.trial, r.outcome) for r in self.results]

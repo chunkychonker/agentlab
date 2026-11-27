@@ -227,6 +227,7 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
 - [[launchd-scheduling]] - StartCalendarInterval wildcards, missed-job coalescing, no power-state guarantee (Dark Wake), bootstrap/bootout status-5 idempotence, plistlib rendering (nightloop m9)
 - [[github-actions-scheduling]] - cron is UTC/default-branch/can be dropped, API key outranks OAuth token in `claude -p`, GITHUB_TOKEN PRs don't trigger CI, fetch-depth 0, pin CLI + source SHA, job-time budget (nightloop m10)
 - [[nightloop-gate-stats]] - deriving per-gate "ran / blocked" counts from metrics lines (nightloop m7): null state is not a block, NONE is ungated, print the window size, dry run = same argv, no runner
+- [[cross-model-review]] - reviewer model as its own setting; same-family caveat, `--model` aliases move, fail-loud guard (researched 2026-11-27)
 - [[nightloop-reviewer-benchmark]] - catch rate AND false-positive rate with Wilson intervals, right-reason patterns, UNGRADED trials, temp-repo trials, template-hash freshness (nightloop m11, researched)
 - [[nightloop-docs-drift-guard]] - docs that can't drift (nightloop m12): derive tested facts from code, cite a source per incident or say "no recorded incident", state what isn't ported
 - [[nightloop-claim-wiring]] - wiring claim reconciliation into a night (nightloop m7b): the shipped half needs a merged PR, pathspec-only backlog commit, step after each recovery

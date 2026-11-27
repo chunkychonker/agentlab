@@ -56,6 +56,11 @@ def add_bench_subparser(commands: argparse._SubParsersAction, *, default_timeout
                        help=f"trials per fixture (default: {DEFAULT_TRIALS})")
     bench.add_argument("--timeout-s", type=_positive_int, default=default_timeout_s,
                        help=f"each review call's wall-clock limit in seconds (default: {default_timeout_s})")
+    # Validated by the same rule as the config's own model (nightloop.model.Phase),
+    # in bench_cmd, so a bad name is a USAGE error with nothing run.
+    bench.add_argument("--model", type=str, default=None,
+                       help="run the review phase on this model instead of the one --config names "
+                            "(e.g. sonnet, opus, claude-opus-5-5); recorded in the results file")
     mode = bench.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true",
                       help="print the matrix and one trial's argv; run nothing, write nothing")

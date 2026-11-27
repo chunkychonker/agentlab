@@ -44,6 +44,19 @@ By default it reads the fixtures in `bench/fixtures/`, the template in
 `--fixtures`, `--template`, `--config`, `--results`, `--trials` and
 `--timeout-s` override them.
 
+`--model NAME` runs the review phase on NAME instead of the model `--config`
+names, without a second config file (for example `--model sonnet`, or a full
+name such as `claude-opus-5-5`). The name follows the config's own rule:
+non-empty, no spaces. `--dry-run` prints the model as `review model NAME`, and
+the results file records it as `review_model`, so you can tell two runs apart.
+Each run writes `--results`, so give the second model its own file
+(`--results bench/sonnet-run.json`) if you want to keep both. The freshness
+check reads only the template hash, so it ignores the model. The reviewer
+template's own `model:` frontmatter is still passed through `--agent`.
+agentlab's `PIPELINE.md` says the CLI's `--model` beats an agent file's
+`model:` line, but nobody re-checked that for this flag. Before you trust a
+comparison, check the model the CLI reports for one trial.
+
 The report's first two lines are the two rates, each with a 95% interval
 (made-up counts, to show the format):
 
@@ -52,8 +65,8 @@ catch rate 7/12 = 58% (95% CI 32-81%)
 false-positive rate 1/9 = 11% (95% CI 2-44%)
 ```
 
-After those lines come the ungraded count, the template's SHA-256, and one
-table row per fixture with a count for every outcome.
+After those lines come the ungraded count, the template's SHA-256, the
+review model, and one table row per fixture with a count for every outcome.
 
 | exit | meaning |
 |------|---------|

@@ -20,6 +20,7 @@ def render_matrix(
     trials: int,
     template: str,
     template_sha256: str,
+    review_model: str,
     agent_file: str,
     argv: Sequence[str],
     placeholder_repo: str,
@@ -32,6 +33,7 @@ def render_matrix(
     lines = [
         "nightloop bench --dry-run: nothing is run and nothing is written",
         f"template {template} (sha256 {template_sha256})",
+        f"review model {review_model}",
         f"each trial: a fresh git repo with the template at {agent_file}, the fixture's note "
         "committed, the increment untracked, no remote",
         f"fixtures: {len(fixtures)} ({seeded} seeded, {clean} clean) x {trials} trial(s) = "

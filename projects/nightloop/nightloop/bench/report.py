@@ -8,6 +8,7 @@ always give the same bytes.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Mapping, Sequence
@@ -22,6 +23,9 @@ RESULTS_SCHEMA_VERSION = 1
 # has the same value; a test keeps the two equal (this core does not import the CLI).
 UNGRADED_EXIT = 7
 OK_EXIT = 0
+
+# A review model name as ``nightloop.model.Phase`` accepts it: non-empty, no whitespace.
+_REVIEW_MODEL = re.compile(r"\S+")
 
 INTERVAL_CAVEAT = (
     "95% CI: Wilson score interval over trials. Repeated trials of one fixture are "
@@ -81,21 +85,26 @@ class Rate:
 
 @dataclass(frozen=True)
 class BenchReport:
-    """A whole benchmark run: per-fixture tallies (sorted by slug), the template hash, and the ungraded trials.
+    """A whole benchmark run: per-fixture tallies (sorted by slug), the template hash, the ungraded trials, and the review model.
 
     Built by ``summarise``. Raises ``ValueError`` if a tally does not sum to
     ``trials`` or counts an outcome its kind cannot have, if the tallies
-    are not sorted by unique slug, or if ``template_sha256`` is blank.
+    are not sorted by unique slug, if ``template_sha256`` is blank, or if
+    ``review_model`` is not a non-empty name without whitespace.
     """
 
     template_sha256: str
     trials: int
     fixtures: tuple[FixtureTally, ...]
     ungraded: tuple[TrialResult, ...]
+    # The model every trial's review phase ran on, so two runs can be told apart.
+    review_model: str
 
     def __post_init__(self) -> None:
         if not isinstance(self.template_sha256, str) or self.template_sha256.strip() == "":
             raise ValueError("template_sha256 must be non-empty")
+        if not isinstance(self.review_model, str) or not _REVIEW_MODEL.fullmatch(self.review_model):
+            raise ValueError(f"review_model must be a non-empty name without whitespace, got {self.review_model!r}")
         slugs = [t.slug for t in self.fixtures]
         if slugs != sorted(set(slugs)):
             raise ValueError("fixtures must be sorted by unique slug")
@@ -126,12 +135,15 @@ class BenchReport:
         return self.total(Outcome.UNGRADED)
 
 
-def summarise(results: Sequence[TrialResult], *, template_sha256: str, trials: int) -> BenchReport:
-    """Tally ``results`` into a ``BenchReport``.
+def summarise(
+    results: Sequence[TrialResult], *, template_sha256: str, trials: int, review_model: str
+) -> BenchReport:
+    """Tally ``results`` into a ``BenchReport`` for a run whose reviews ran on ``review_model``.
 
     Raises ``ValueError`` if ``results`` is empty, a slug appears with two
-    kinds, or a fixture does not have exactly one result for each trial
-    ``1..trials`` (a partial run is not summarised as if it were whole).
+    kinds, a fixture does not have exactly one result for each trial
+    ``1..trials`` (a partial run is not summarised as if it were whole), or
+    ``review_model`` is blank or holds whitespace.
     """
     if isinstance(trials, bool) or not isinstance(trials, int) or trials < 1:
         raise ValueError(f"trials must be an int >= 1, got {trials!r}")
@@ -155,7 +167,7 @@ def summarise(results: Sequence[TrialResult], *, template_sha256: str, trials: i
     ungraded = tuple(
         sorted((r for r in results if r.outcome is Outcome.UNGRADED), key=lambda r: (r.slug, r.trial))
     )
-    return BenchReport(template_sha256, trials, tuple(tallies), ungraded)
+    return BenchReport(template_sha256, trials, tuple(tallies), ungraded, review_model)
 
 
 def exit_code(report: BenchReport) -> int:
@@ -170,6 +182,7 @@ def render_report(report: BenchReport) -> str:
         _rate_line("false-positive rate", report.false_positive, "clean"),
         f"ungraded {report.ungraded_count} trial(s), counted in neither rate",
         f"template sha256 {report.template_sha256}; {report.trials} trial(s) per fixture",
+        f"review model {report.review_model}",
         INTERVAL_CAVEAT,
         "",
     ]
@@ -191,6 +204,7 @@ def to_json(report: BenchReport) -> str:
         "schema_version": RESULTS_SCHEMA_VERSION,
         TEMPLATE_SHA256_KEY: report.template_sha256,
         "trials": report.trials,
+        "review_model": report.review_model,
         "catch": _rate_doc(report.catch),
         "false_positive": _rate_doc(report.false_positive),
         "ungraded": report.ungraded_count,

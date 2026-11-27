@@ -322,8 +322,8 @@ nightly job.
 | Phase | Model | Why |
 |---|---|---|
 | researcher | sonnet | web search and writing a note |
-| builder | **opus** | writes the increment |
-| reviewer | **opus** | the gate on code shipping under your name |
+| builder | **opus** (`build=` in `.pipeline/models.conf`) | writes the increment |
+| reviewer | **opus** (`review=` in `.pipeline/models.conf`) | the gate on code shipping under your name |
 | maintainer | sonnet | reads a verdict, runs `git` and `gh` |
 | replenish | sonnet | appends checklist lines |
 | health | sonnet | runs existing test suites and reports |
@@ -335,6 +335,17 @@ on it, so it is the last phase that should ever be downgraded to save tokens.
 An unrecognised model name aborts that phase rather than falling back to a
 default, since a silent fallback is exactly how the full-opus bill would
 return unnoticed.
+
+**Setting the build and review models.** Edit `.pipeline/models.conf`
+(`build=<model>`, `review=<model>`), or set `AGENTLAB_BUILD_MODEL` /
+`AGENTLAB_REVIEW_MODEL` for one run. A model is `opus`, `sonnet`, `fable` or a
+full `claude-*` name. The default is still **opus for both**. A bad value,
+an unknown key or a repeated key aborts the night before any phase runs, and
+the message names the file and line. The fix round uses the build model, and
+external mode reads the same two settings. The other phases stay as the table
+shows. Measure a reviewer change with `nightloop bench --model <name>`
+(`projects/nightloop/docs/reviewer-benchmark.md`) before you make it the
+default (`research/2026-11-27-cross-model-review.md`).
 
 ## Phase postconditions
 

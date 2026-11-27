@@ -18,6 +18,7 @@ from nightloop.cli.bench_args import DEFAULT_TRIALS, PLUGIN_BIN
 from nightloop.cli.bench_cmd import PLACEHOLDER_REPO, run_bench_cmd
 from nightloop.cli.exit_codes import ExitCode
 from nightloop.cli.main import VERDICT_PATH, main
+from nightloop.config import load_config
 from nightloop.cycle.prompts import phase_prompt
 from nightloop.gates.dispatch import evaluate
 from nightloop.phase.fake_runner import FakeRunner
@@ -100,6 +101,65 @@ class DryRunTest(BenchCliCase):
         self.assertEqual(tree_digest(PROJECT), before)
         self.assertEqual(DEFAULT_TRIALS, 3)
         self.assertIn("fixtures: 7 (4 seeded, 3 clean) x 3 trial(s) = 21 review call(s), each billed", out)
+
+
+class ModelFlagTest(BenchCliCase):
+    """research/2026-11-27-cross-model-review.md, criterion 7: ``--model`` picks the reviewer's model."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.config_model = load_config(PLUGIN_CONFIG).review.model
+
+    def dry_run(self, *extra: str) -> tuple[str, str]:
+        code, out, err = self.call(self.argv("--dry-run", *extra), workspace_factory=_no_workspace)
+        self.assertEqual(code, ExitCode.OK, err)
+        lines = out.splitlines()
+        header = next(i for i, line in enumerate(lines) if line.startswith("argv of one trial"))
+        argv = shlex.split(lines[header + 1])
+        model_lines = [line for line in lines if line.startswith("review model ")]
+        self.assertEqual(len(model_lines), 1, out)
+        return model_lines[0].removeprefix("review model "), argv[argv.index("--model") + 1]
+
+    def test_dry_run_with_model_prints_and_passes_that_model(self) -> None:
+        self.assertNotEqual(self.config_model, "sonnet")  # else this test could not tell the two apart
+        self.assertEqual(self.dry_run("--model", "sonnet"), ("sonnet", "sonnet"))
+
+    def test_dry_run_without_model_uses_the_configs(self) -> None:
+        self.assertEqual(self.dry_run(), (self.config_model, self.config_model))
+
+    def test_a_full_model_name_is_accepted(self) -> None:
+        self.assertEqual(self.dry_run("--model", "claude-opus-5-5"), ("claude-opus-5-5", "claude-opus-5-5"))
+
+    def test_a_model_with_a_space_or_empty_is_usage_and_runs_nothing(self) -> None:
+        for bad in ("claude opus", "", " "):
+            for mode in (("--dry-run",), ()):
+                with self.subTest(model=bad, mode=mode):
+                    code, out, err = self.call(self.argv(*mode, "--model", bad), workspace_factory=_no_workspace)
+                    self.assertEqual(code, ExitCode.USAGE, out + err)
+                    self.assertIn("--model", err)
+                    self.assertEqual(out, "")
+                    self.assertFalse(self.results.exists())
+
+    def test_every_trial_runs_on_the_flag_model_and_the_results_record_it(self) -> None:
+        runner = self.fake([writes_verdict(PASS), writes_verdict(FAIL.format("an off by one in the loop"))])
+        code, out, err = self.call(self.argv("--trials", "1", "--model", "sonnet"), runner_factory=lambda: runner)
+        self.assertEqual(code, ExitCode.OK, err)
+        self.assertEqual([(r.name, r.phase.model) for r in runner.requests], [("review", "sonnet")] * 2)
+        self.assertEqual(json.loads(self.results.read_text(encoding="utf-8"))["review_model"], "sonnet")
+        self.assertIn("review model sonnet", out.splitlines())
+
+    def test_without_the_flag_the_results_record_the_configs_model(self) -> None:
+        runner = self.fake([writes_verdict(PASS), writes_verdict(PASS)])
+        code, _, err = self.call(self.argv("--trials", "1"), runner_factory=lambda: runner)
+        self.assertEqual(code, ExitCode.OK, err)
+        self.assertEqual({r.phase.model for r in runner.requests}, {self.config_model})
+        self.assertEqual(json.loads(self.results.read_text(encoding="utf-8"))["review_model"], self.config_model)
+
+    def test_the_freshness_check_does_not_depend_on_the_model(self) -> None:
+        runner = self.fake([writes_verdict(PASS), writes_verdict(PASS)])
+        self.assertEqual(self.call(self.argv("--trials", "1", "--model", "sonnet"), runner_factory=lambda: runner)[0],
+                         ExitCode.OK)
+        self.assertEqual(self.call(self.argv("--check-fresh"))[0], ExitCode.OK)
 
 
 class FullRunTest(BenchCliCase):
@@ -234,7 +294,7 @@ class UsageTest(BenchCliCase):
         empty_bin.mkdir()
         args = argparse.Namespace(
             fixtures=self.fixtures, template=self.template, config=PLUGIN_CONFIG, results=self.results,
-            trials=1, timeout_s=60, dry_run=False, check_fresh=False,
+            trials=1, timeout_s=60, dry_run=False, check_fresh=False, model=None,
         )
         err = io.StringIO()
         with contextlib.redirect_stderr(err):

@@ -4,7 +4,8 @@
 # -> verify gate -> review -> verdict gate -> maintain (open PR) -> bookkeeping.
 #
 # Sourced by run.sh after its preflights, so LOG, TS, CYCLES, run_phase,
-# research_note_fresh, review_verdict and REVIEW_VERDICT_FILE already exist.
+# research_note_fresh, review_verdict and REVIEW_VERDICT_FILE already exist,
+# and so do BUILD_MODEL and REVIEW_MODEL (resolved from .pipeline/models.conf).
 #
 # Differences from a demo night, each deliberate:
 #   - The increment lands in a checkout of someone else's repo under
@@ -196,7 +197,7 @@ run_external_cycle () {
   fi
 
   local rc
-  run_phase opus build "cycle $k/$CYCLES: build" ext_increment_built \
+  run_phase "$BUILD_MODEL" build "cycle $k/$CYCLES: build" ext_increment_built \
     "Build this cycle's increment from the research note $note, following your instructions exactly. Verify it runs. The agentlab repo is $REPO."
   rc=$?
   [ "$rc" -eq 0 ] || { ext_after_phase_failure "$rc" "$marker" "$note" "$base_sha"; return $?; }
@@ -216,7 +217,7 @@ run_external_cycle () {
   fi
   echo "--- gate: VERIFY: PASS ---" | tee -a "$LOG"
 
-  run_phase opus review "cycle $k/$CYCLES: review" phase_no_postcondition \
+  run_phase "$REVIEW_MODEL" review "cycle $k/$CYCLES: review" phase_no_postcondition \
     "Independently review, following your instructions exactly, this cycle's diff in the external checkout named in $EXT_CONTEXT_FILE (and $EXT_VERIFY_FILE), and write a PASS/FAIL verdict to logs/last-review.md. Do not modify the increment."
   rc=$?
   [ "$rc" -eq 0 ] || { ext_after_phase_failure "$rc" "$marker" "$note" "$base_sha"; return $?; }
