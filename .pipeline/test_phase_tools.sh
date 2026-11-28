@@ -87,6 +87,20 @@ check "P9b replenish: edits only BACKLOG.md" \
   [ "$(args_of replenish | values_of --allowedTools | grep -E '^(Edit|Write)' | sort | tr '\n' ' ')" == "Edit(//srv/lab/BACKLOG.md) Write(//srv/lab/BACKLOG.md) " ]
 check "P10 review: may write its verdict" has review --allowedTools "Edit(//srv/lab/logs/last-review.md)"
 
+# Held-out acceptance tests (heldout.sh): the researcher writes them, the
+# build phase (and so the fix round, which runs under the same key) is denied
+# the file tools on them.
+check "P15 research: may write held-out tests" has research --allowedTools "Write(//srv/lab/heldout/**)"
+check "P15b research: may edit held-out tests" has research --allowedTools "Edit(//srv/lab/heldout/**)"
+check "P15c build: Read of held-out tests is denied" has build --disallowedTools "Read(//srv/lab/heldout/**)"
+check "P15d build: Edit of held-out tests is denied" has build --disallowedTools "Edit(//srv/lab/heldout/**)"
+check "P15e build: no allow rule names heldout/" \
+  [ -z "$(args_of build | values_of --allowedTools | grep -F heldout)" ]
+check "P15f research: no deny rule names heldout/" \
+  [ -z "$(args_of research | values_of --disallowedTools | grep -F heldout)" ]
+check "P15g review: may still read held-out tests (no deny)" \
+  [ -z "$(args_of review | values_of --disallowedTools | grep -F heldout)" ]
+
 # A file rule that is not anchored to the repo root is matched against the
 # session's current directory, so it stops matching once a phase runs `cd`.
 # That denied the reviewer's verdict on 2026-11-12 and 11-13.

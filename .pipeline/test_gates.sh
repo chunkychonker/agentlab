@@ -106,6 +106,7 @@ assert_eq "INV1" "0|" "$src_rc|$src_noise" \
 . "$REPO/.pipeline/metrics.sh"
 . "$REPO/.pipeline/phase_tools.sh"
 . "$REPO/.pipeline/verify.sh"
+. "$REPO/.pipeline/heldout.sh"
 
 # --- verdict.sh ------------------------------------------------------------
 #
@@ -1319,27 +1320,47 @@ fi
 # that reaches it returns 1 straight after — no gh is ever reached.
 SW_FN="$(awk '/^run_cycle \(\) \{/,/^\}/' "$RUN_SH")"
 
-# sw_run <box> <notes-to-write> <verdict-file-body> [<second-verdict-body>] [<fix-rc>] [<verify-words>]
+# sw_run <box> <notes-to-write> <verdict-file-body> [<second-verdict-body>] [<fix-rc>] [<verify-words>] [<heldout-words>] [<seed-heldout>]
 # Runs one cycle in $WORK/sw/<box>. <notes-to-write> is a space-separated list
 # of note names (empty for none). The review stub writes <verdict-file-body>
 # the first time it is called and <second-verdict-body> (default: the same)
 # every time after; the fix stub returns <fix-rc> (default 0). The
 # verify_increment stub prints the n-th word of <verify-words> on its n-th
-# call (default: NONE every time) and, for FAIL, writes a report. Leaves calls
-# (phase keys), names (phase names), review-prompt, fix-prompt, fix-post,
-# fix-feedback (the feedback file as the fix phase saw it), stale-verdict (one
-# line per review that started with a verdict file already present) and log
-# there; prints run_cycle's rc.
+# call (default: NONE every time) and, for FAIL, writes a report. With
+# <heldout-words> set, a heldout_run stub does the same for the held-out gate
+# (and logs `heldout` in names); unset, the real heldout_run runs. With
+# <seed-heldout> = 1 the research stub writes a held-out suite that always
+# fails, as the researcher would. Leaves calls (phase keys), names (phase
+# names), review-prompt, fix-prompt, fix-post, fix-feedback (the feedback file
+# as the fix phase saw it), stale-verdict (one line per review that started
+# with a verdict file already present), heldout-seen (`<phase>:visible|hidden`
+# per phase) and log there; prints run_cycle's rc.
 sw_run () {
   local box="$WORK/sw/$1" notes="$2" verdict="$3" verdict2="${4:-$3}" fix_rc="${5:-0}" verify_words="${6:-}"
+  local heldout_words="${7:-}" seed="${8:-0}"
   mkdir -p "$box/research" "$box/logs"
   : > "$box/research/2026-01-01-old.md"; touch -t "$PC_OLD" "$box/research/2026-01-01-old.md"
   (
     cd "$box" || exit 99
     REPO="$box" LOG="$box/log" CYCLES=1 RESEARCH_CONTEXT_FILE="logs/research-context.md"
     SW_NOTES="$notes" SW_VERDICT="$verdict" SW_VERDICT2="$verdict2" SW_FIX_RC="$fix_rc" SW_REVIEWS=0
-    SW_VERIFY="$verify_words"
+    SW_VERIFY="$verify_words" SW_HELDOUT="$heldout_words" SW_SEED="$seed"
     write_research_context () { :; }
+    if [ -n "$SW_HELDOUT" ]; then
+      heldout_run () {
+        echo heldout >> "$box/names"
+        local n word
+        n="$(grep -cx heldout "$box/names")"
+        word="$(printf '%s\n' $SW_HELDOUT | sed -n "${n}p")"
+        word="${word:-NONE}"
+        rm -f "$HELDOUT_REPORT_FILE"
+        [ "$word" = "FAIL" ] && echo "held-out report $n: FAIL: test_hidden" > "$HELDOUT_REPORT_FILE"
+        echo "$word"
+        [ "$word" = "FAIL" ] && return 1
+        [ "$word" = "ERROR" ] && return 2
+        return 0
+      }
+    fi
     # Called in a command substitution, so the call count lives in a file.
     verify_increment () {
       echo verify >> "$box/names"
@@ -1357,8 +1378,16 @@ sw_run () {
     run_phase () {
       echo "$2" >> "$box/calls"
       echo "${3#*: }" >> "$box/names"
+      if [ -e "$HELDOUT_DIR" ]; then echo "${3#*: }:visible" >> "$box/heldout-seen"
+      else echo "${3#*: }:hidden" >> "$box/heldout-seen"; fi
       case "${3#*: }" in
-        research) local n; for n in $SW_NOTES; do : > "research/$n"; done ;;
+        research) local n; for n in $SW_NOTES; do : > "research/$n"; done
+                  if [ "$SW_SEED" = 1 ]; then
+                    mkdir -p "$HELDOUT_DIR/s"
+                    # cat "$0" stands in for a traceback that quotes the source.
+                    printf '%s\n' '# SENTINEL_HELDOUT_SOURCE' 'cat "$0"' 'echo "FAIL: test_secret_case"' 'echo "AssertionError: 2 != 3"' 'exit 1' \
+                      > "$HELDOUT_DIR/s/run.sh"
+                  fi ;;
         review) printf '%s\n' "$5" > "$box/review-prompt"
                 [ -e "$REVIEW_VERDICT_FILE" ] && echo stale >> "$box/stale-verdict"
                 SW_REVIEWS=$(( SW_REVIEWS + 1 ))
@@ -1496,6 +1525,55 @@ if [ -n "$SW_FN" ]; then
 fi
 assert_eq "SWV6" "1" "$(grep -c '^for lib in .* verify' "$RUN_SH" || true)" \
   "run.sh sources verify.sh alongside the other libs"
+
+if [ -n "$SW_FN" ]; then
+  # The held-out gate (heldout.sh, research/2026-11-28-held-out-acceptance-tests.md
+  # criterion 6): a build that passes its own suite but fails the researcher's
+  # hidden one does not reach review.
+  sw_rc="$(sw_run hfail "$SW_NOTE" "$SW_OK" "$SW_OK" 0 "PASS PASS" "FAIL PASS")"
+  assert_eq "SWH1" "research build verify heldout fix verify heldout review maintain" "$(tr '\n' ' ' < "$WORK/sw/hfail/names" | sed 's/ $//')" \
+    "verify PASS + held-out FAIL skips the review and takes the fix round; PASS after it is reviewed"
+  assert_eq "SWH1b" "held-out report 1: FAIL: test_hidden" "$(cat "$WORK/sw/hfail/fix-feedback" 2>/dev/null)" \
+    "...and the fix phase is handed the held-out report"
+
+  sw_rc="$(sw_run hfail2 "$SW_NOTE" "$SW_OK" "$SW_OK" 0 "PASS PASS" "FAIL FAIL")"
+  assert_eq "SWH2" "1|0|1|no" "$sw_rc|$(sw_times hfail2 review)|$(sw_times hfail2 fix)|$(sw_called hfail2 maintain)" \
+    "held-out FAIL before and after the one fix round ends the cycle with no review at all"
+
+  sw_rc="$(sw_run hverify "$SW_NOTE" "$SW_OK" "$SW_OK" 0 "FAIL PASS" "PASS")"
+  assert_eq "SWH3" "research build verify fix verify heldout review maintain" "$(tr '\n' ' ' < "$WORK/sw/hverify/names" | sed 's/ $//')" \
+    "the held-out tests never run while the builder's own suite is red"
+
+  sw_rc="$(sw_run herr "$SW_NOTE" "$SW_OK" "$SW_OK" 0 "PASS" "ERROR")"
+  assert_eq "SWH4" "1|0|0|no" "$sw_rc|$(sw_times herr review)|$(sw_times herr fix)|$(sw_called herr maintain)" \
+    "held-out ERROR ends the cycle: no review, no fix round, no maintain"
+
+  sw_rc="$(sw_run hnone "$SW_NOTE" "$SW_OK" "$SW_OK" 0 "PASS" "NONE")"
+  assert_eq "SWH5" "1|yes|0" "$sw_rc|$(sw_called hnone maintain)|$(sw_times hnone fix)" \
+    "held-out NONE (no tests tonight) goes on to review"
+  assert_eq "SWH5b" "1" "$(grep -c 'held-out NONE' "$WORK/sw/hnone/log")" \
+    "...and the log says the held-out gate was NONE, not PASS"
+
+  # End to end with the real heldout_run: the research stub writes a suite
+  # that always fails and prints its own source.
+  sw_rc="$(sw_run hreal "$SW_NOTE" "$SW_OK" "$SW_OK" 0 "PASS PASS" "" 1)"
+  assert_eq "SWH6" "1|0|1|no" "$sw_rc|$(sw_times hreal review)|$(sw_times hreal fix)|$(sw_called hreal maintain)" \
+    "a real failing held-out suite keeps the increment from review, through the one fix round"
+  assert_eq "SWH6b" "research:hidden build:hidden fix:hidden" "$(tr '\n' ' ' < "$WORK/sw/hreal/heldout-seen" | sed 's/ $//')" \
+    "heldout/ is absent from the worktree while build and fix run"
+  assert_eq "SWH6c" "yes" "$( [ -f "$WORK/sw/hreal/heldout/s/run.sh" ] && echo yes || echo no )" \
+    "...and is back in the worktree after them"
+  h6="$(cat "$WORK/sw/hreal/fix-feedback" 2>/dev/null)"
+  assert_eq "SWH6d" "yes|yes|no" \
+    "$(printf '%s' "$h6" | grep -qF 'FAIL: test_secret_case' && echo yes || echo no)|$(printf '%s' "$h6" | grep -qF 'AssertionError: 2 != 3' && echo yes || echo no)|$(printf '%s' "$h6" | grep -qF SENTINEL_HELDOUT_SOURCE && echo yes || echo no)" \
+    "...and the fix phase sees the failing test name and assertion, never the source"
+  assert_eq "SWH6e" "0" "$(grep -c 'SENTINEL_HELDOUT_SOURCE' "$WORK/sw/hreal/log" || true)" \
+    "...nor does the run log the build phase can read"
+fi
+assert_eq "SWH7" "1" "$(grep -c '^for lib in .* verify heldout' "$RUN_SH" || true)" \
+  "run.sh sources heldout.sh after verify.sh (heldout_run needs verify_run)"
+assert_eq "SWH8" "2" "$(grep -c 'heldout_hidden "\$stash_root" "\$LOG" run_phase opus build' "$RUN_SH" || true)" \
+  "both build-key phases in run_cycle (build and fix) run with the held-out tests hidden"
 
 # review_fixable: which review outcomes earn a fix round (A2, A4).
 vf () { review_fixable "$1" "$2" && echo fix || echo stop; }
@@ -1845,6 +1923,7 @@ syntax_bad="$(for f in "$RUN_SH" "$REPO/.pipeline/verdict.sh" "$REPO/.pipeline/h
   "$REPO/.pipeline/schedule.sh" "$REPO/.pipeline/network_retry.sh" \
   "$REPO/.pipeline/usage_limit.sh" "$REPO/.pipeline/metrics.sh" \
   "$REPO/.pipeline/phase_tools.sh" "$REPO/.pipeline/review_record.sh" \
+  "$REPO/.pipeline/heldout.sh" \
   "$REPO/.pipeline/issues.sh" "$REPO/.pipeline/migrate_backlog_findings.sh" \
   "$REPO/.pipeline/test_gates.sh"; do
     bash -n "$f" 2>&1

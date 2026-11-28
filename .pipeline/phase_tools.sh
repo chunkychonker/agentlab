@@ -81,6 +81,21 @@ _phase_file_rules () {
   done
 }
 
+# _phase_hidden_rules <repo-root> <path>...
+#   Read and Edit deny rules for each path, anchored like _phase_file_rules.
+#   Read and Edit, not Write/Glob/Grep: per the permissions docs those three
+#   rule kinds do not match, and a Read deny applies to Grep and Glob only
+#   "best-effort". This hides a path from the file tools; it hides nothing
+#   from Bash (see the header), which is why heldout.sh also moves the
+#   directory out of the worktree while the build runs.
+_phase_hidden_rules () {
+  local root="$1" p
+  shift
+  for p in "$@"; do
+    printf 'Read(/%s/%s)\nEdit(/%s/%s)\n' "$root" "$p" "$root" "$p"
+  done
+}
+
 # phase_tool_args <phase-key> <repo-root>
 #   Prints the CLI arguments for one phase, one argument per line, for run.sh
 #   to read into an array. Every phase gets --permission-mode dontAsk.
@@ -103,7 +118,9 @@ phase_tool_args () {
         --tools "Read,Glob,Grep,Edit,Write,WebSearch,WebFetch,mcp__hn-search__search_stories,mcp__hn-search__get_story" \
         --allowedTools Read Glob Grep WebSearch WebFetch \
         mcp__hn-search__search_stories mcp__hn-search__get_story
-      _phase_file_rules "$root" "research/**" "knowledge/**" "BACKLOG.md" "projects/*/PLAN.md"
+      # heldout/** is where the researcher writes the held-out acceptance tests
+      # the build phase must not read (heldout.sh).
+      _phase_file_rules "$root" "research/**" "knowledge/**" "BACKLOG.md" "projects/*/PLAN.md" "heldout/**"
       printf '%s\n' --disallowedTools Bash
       ;;
     build)
@@ -111,6 +128,7 @@ phase_tool_args () {
         --allowedTools Read Glob Grep Edit Write Bash \
         --disallowedTools
       printf '%s\n' "$_PHASE_PUBLISH_CMDS" | _phase_deny_forms
+      _phase_hidden_rules "$root" "heldout/**"
       ;;
     review)
       printf '%s\n' --permission-mode dontAsk --agent agentlab-reviewer \

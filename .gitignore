@@ -32,3 +32,8 @@ graphify-out/
 # are whatever was left lying in the repo — never pipeline output, so never
 # committed. Safe to delete by hand once you have looked at what landed there.
 .pipeline/strays/
+
+# Held-out acceptance tests (.pipeline/heldout.sh): the researcher writes them
+# for one cycle and the build phase must not see them. Never committed, or the
+# maintainer's PR would publish them and every later builder could read them.
+/heldout/

@@ -84,7 +84,9 @@ echo "=== agentlab pipeline $TS ===" | tee -a "$LOG"
 # network_retry.sh (is another network probe owed, and after how long),
 # usage_limit.sh (did a phase die on a Claude usage limit),
 # auth.sh (which login to use, and did the probe fail on it),
-# alert.sh (does the finished night need a human's attention).
+# alert.sh (does the finished night need a human's attention),
+# heldout.sh (hide the researcher's held-out tests from the build, then gate
+# on them).
 # All of them live outside this script so they can be unit-tested offline
 # (`bash .pipeline/test_backlog.sh`, `bash .pipeline/test_gates.sh`) instead of
 # only being exercised on the rare night each gate fires. Sourcing defines
@@ -92,7 +94,7 @@ echo "=== agentlab pipeline $TS ===" | tee -a "$LOG"
 BACKLOG_FILE="BACKLOG.md"
 # issues.sh (spec #6) is commented out of this list, with its call sites below:
 # findings go to the private file instead (spec #7). Kept, not deleted.
-for lib in backlog verdict health pipeline_health preflight postcondition schedule network_retry usage_limit auth alert metrics phase_tools review_record findings verify ci; do
+for lib in backlog verdict health pipeline_health preflight postcondition schedule network_retry usage_limit auth alert metrics phase_tools review_record findings verify heldout ci; do
   if [ ! -r "$REPO/.pipeline/$lib.sh" ]; then
     echo "MISSING $REPO/.pipeline/$lib.sh — required. Aborting." | tee -a "$LOG"
     exit 1
@@ -811,6 +813,18 @@ run_cycle () {
   # this cycle's work unreviewed.
   rm -f logs/last-review.md logs/last-pr.txt logs/pr-body.md
 
+  # Held-out tests (heldout.sh) belong to one cycle: the researcher writes
+  # tonight's, and a previous cycle's must not gate this one's increment. The
+  # stash root is this cycle's alone, so heldout_run can tell a stash that was
+  # never put back (ERROR) from no held-out tests at all (NONE). Its path is
+  # never logged: the build phase can read the run log.
+  rm -rf "$HELDOUT_DIR"
+  local stash_root
+  if ! stash_root="$(mktemp -d)"; then
+    echo "--- gate: could not create a stash directory for the held-out tests — cycle $k does not build. ---" | tee -a "$LOG"
+    return 1
+  fi
+
   write_research_context "$RESEARCH_CONTEXT_FILE" || return 1
   local research_floor spec
   research_floor="$(date +%s)"
@@ -828,7 +842,10 @@ run_cycle () {
   # Rewritten so the builder's last check for a name collision sees PRs opened
   # while research ran.
   write_research_context "$RESEARCH_CONTEXT_FILE" || return 1
-  run_phase opus build "cycle $k/$CYCLES: build" increment_built \
+  # heldout_hidden moves heldout/ out of the worktree for the phase and puts it
+  # back afterwards, on failure too. It hides; it does not enforce (the build
+  # phase has Bash) — see heldout.sh.
+  heldout_hidden "$stash_root" "$LOG" run_phase opus build "cycle $k/$CYCLES: build" increment_built \
     "Build this cycle's increment from the newest research note, following your instructions exactly. Verify it runs. The agentlab repo is $REPO; open PRs and branches are in $REPO/$RESEARCH_CONTEXT_FILE." || return $?
 
   # Verify, then review, and at most MAX_FIX_ROUNDS times: hand a red test
@@ -836,7 +853,7 @@ run_cycle () {
   # 2026-11-15 a FAIL ended the cycle, so one fixable finding cost the whole
   # night. The loop leaves by `break` only on PASS + spec OK; every other exit
   # is a `return`.
-  local fix_round=0 verify_word feedback verdict spec_out spec_word spec_detail
+  local fix_round=0 gate_line gate verify_word heldout_word feedback verdict spec_out spec_word spec_detail
   while :; do
     # Verify first (verify.sh): the increment's own tests, run mechanically. A
     # red run goes straight to the fix round with the test output as feedback,
@@ -844,21 +861,30 @@ run_cycle () {
     # rule in $VERIFY_CONF covers what changed (every demo-mode night) and is
     # not a failure. Anything else, ERROR included, ends the cycle: an
     # unreadable conf is not evidence the tests are green.
-    verify_word="$(verify_increment "$LOG")"
+    #
+    # Then, only if verify did not fail, the held-out tests (heldout.sh) the
+    # researcher wrote and the build never saw. A FAIL there takes the same
+    # fix round, handed names and assertion lines only. NONE (no held-out
+    # tests tonight) is ungated, not a pass, and the log says which.
+    gate_line="$(heldout_gate "$LOG" "$stash_root" verify_increment heldout_run)"
+    read -r gate verify_word heldout_word <<< "$gate_line"
     echo "" | tee -a "$LOG"
-    case "$verify_word" in
-      PASS|NONE)
-        echo "--- gate: verify $verify_word — proceeding to review. ---" | tee -a "$LOG"
+    case "$gate" in
+      REVIEW)
+        echo "--- gate: verify $verify_word, held-out $heldout_word — proceeding to review. ---" | tee -a "$LOG"
         feedback="$REVIEW_VERDICT_FILE" ;;
-      FAIL)
+      FIX_VERIFY)
         echo "--- gate: verify FAIL — the increment's tests are red, so it is not reviewed as built. See $VERIFY_REPORT_FILE. ---" | tee -a "$LOG"
         feedback="$VERIFY_REPORT_FILE" ;;
+      FIX_HELDOUT)
+        echo "--- gate: verify $verify_word, held-out FAIL — the increment fails tests it was not shown, so it is not reviewed as built. See $HELDOUT_REPORT_FILE. ---" | tee -a "$LOG"
+        feedback="$HELDOUT_REPORT_FILE" ;;
       *)
-        echo "--- gate: verify ${verify_word:-printed nothing} — could not run the checks (see $LOG) — cycle $k does not ship. ---" | tee -a "$LOG"
+        echo "--- gate: verify ${verify_word:-printed nothing}, held-out ${heldout_word:-not run} — could not run the checks (see $LOG) — cycle $k does not ship. ---" | tee -a "$LOG"
         return 1 ;;
     esac
 
-    if [ "$verify_word" != "FAIL" ]; then
+    if [ "$gate" = "REVIEW" ]; then
       # The verdict file must not exist when a review starts. The first review is
       # covered by the `rm -f` at the top of the cycle; this covers the second.
       rm -f "$REVIEW_VERDICT_FILE"
@@ -929,9 +955,12 @@ run_cycle () {
     # phase's own floor is the postcondition: a fix that changed no increment
     # file fixed nothing, and reviewing the same tree again would only buy the
     # same verdict.
-    run_phase opus build "cycle $k/$CYCLES: fix" increment_built \
+    # Hidden again: the fix round is a build phase.
+    heldout_hidden "$stash_root" "$LOG" run_phase opus build "cycle $k/$CYCLES: fix" increment_built \
       "This is a fix round, not a new build: follow the 'Fix round' section of your instructions exactly. The agentlab repo is $REPO. The increment you built this cycle did not pass its checks; what failed (the independent review, or the output of a failed test run) is in $REPO/$FIX_FEEDBACK_FILE. The spec is $REPO/$spec. Fix what the review names, verify it runs, and change nothing else." || return $?
   done
+  # Empty here: heldout_gate's REVIEW means heldout_run found nothing stashed.
+  rmdir "$stash_root" 2>/dev/null
 
   # Last phase of the cycle; the auto-merge gate below re-reads git and the PR
   # rather than trusting this phase's word, so there is nothing here to gate.

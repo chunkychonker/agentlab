@@ -311,7 +311,7 @@ Both are small; a builder can reasonably take them in one cycle.
   setting and the comparison command; the live run is a human step. Fix the
   bench's two loose-pattern fixtures first (#108's known limits), or the
   comparison measures the fixtures.
-- [ ] Held-out acceptance tests. The builder writes the increment and its own
+- [building] Held-out acceptance tests (see `research/2026-11-28-held-out-acceptance-tests.md`). The builder writes the increment and its own
   tests, and the reviewer re-runs that same suite (survey claim 6: agents
   optimise for the tests they can see; SpecBench's visible/held-out gap grows
   with code size). Increment: the researcher writes a small held-out test file

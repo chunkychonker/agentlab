@@ -215,6 +215,7 @@ Map of the knowledge base. The researcher keeps this current as notes are added.
 - [[tardyai-external-project]] - TardyAI external target: router tests, directions, corridor graph, and (m5) Room Finder via NavRouter facts, (m6) doorway placement (injected `c3` global, coordinate spaces), (m7) re-probe stale premises, routeToRoom vs UI search path, resuming from unshipped cycle branches
 
 ## Hooks
+- [[permission-deny-is-not-hiding]] — Read/Edit deny rules vs a phase with Bash: why hiding a file means removing it from the worktree (held-out tests)
 - [[claude-code-hooks]] — PreToolUse contract: payload fields, exit 2 vs JSON deny, exit 1 fails open, silence is not approval
 - [[claude-code-allowed-tools-rules]] — `--allowedTools` rule syntax gotchas: silently skipped unanchored globs, `:*` only at end, bare `Bash` = everything, tomllib 3.14-only error attrs
 - [[claude-code-plugins]] — plugin manifest contract, path rules, validate command, cache-copy caveat

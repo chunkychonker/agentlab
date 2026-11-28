@@ -195,6 +195,35 @@ Failure domain: verify executes builder-written test code in the pipeline's
 own shell, as the reviewer's test run already does. Adding a rule for a new
 project is one line in the conf.
 
+## Held-out acceptance tests
+
+Right after verify, and only if it did not FAIL, `run.sh` runs tests the
+builder was not shown: `heldout_run` in `.pipeline/heldout.sh`, called through
+`heldout_gate`. The researcher may write `heldout/<suite>/run.sh` (and the
+test files it runs). Every rule still holds: the cases check the note's
+layer-2 criteria, and the note never quotes them. See
+`research/2026-11-28-held-out-acceptance-tests.md`.
+
+- **Hidden, not enforced.** While build and fix run, `heldout_hidden` moves
+  `heldout/` out of the worktree to a fresh temp directory, and the build key
+  in `phase_tools.sh` denies `Read` and `Edit` on it. The build phase has Bash,
+  so a builder that searches `$TMPDIR` can still find the tests. A real
+  boundary needs the sandbox or a separate OS user.
+- **Four outcomes.** PASS and NONE (no `heldout/` tonight, logged as "checked
+  nothing", not as a pass) go on to review. FAIL takes the same single fix
+  round. The fix phase gets `logs/last-heldout.md`, which shows only
+  `FAIL`/`ERROR` lines and bare exception lines such as
+  `AssertionError: 4 != 5`, never tracebacks or source. ERROR (a stash never
+  put back, an unreadable or malformed `heldout/`, a suite with no `run.sh`)
+  ends the cycle.
+- **One cycle's lifetime.** `/heldout/` is git-ignored, so it never ships.
+  `run_cycle` deletes it at the start of each cycle.
+- **Not yet wired to the researcher.** The researcher's instructions do not
+  yet ask it to write held-out tests, so until they do every night is NONE.
+  That change was out of scope for this increment.
+- Tests: `bash .pipeline/test_heldout.sh` (the library), P15* in
+  `test_phase_tools.sh` (the rules) and SWH1–SWH8 in `test_gates.sh` (the cycle).
+
 ## The fix round
 
 A review that does not pass no longer ends the cycle outright, and neither
